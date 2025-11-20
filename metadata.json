@@ -1,0 +1,5 @@
+{
+  "name": "Project G-VS Prototype",
+  "description": "A high-speed 2v2 mech battle simulator focusing on inertia-based movement and lock-on mechanics.",
+  "requestFramePermissions": []
+}
