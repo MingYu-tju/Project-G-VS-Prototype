@@ -11,9 +11,36 @@ export const HUD: React.FC = () => {
   if (isOverheated) barColor = 'bg-red-600 animate-pulse';
   else if (boost < 30) barColor = 'bg-yellow-500';
 
+  // Check if the current target is targeting the player
+  const isTargetingPlayer = target?.targetId === 'player';
+  const warningColor = lockState === LockState.RED ? 'text-red-500 fill-red-500' : 'text-green-500 fill-green-500';
+
   return (
     <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
       
+      {/* TARGET ALERT INDICATOR (Top Center) */}
+      {isTargetingPlayer && (
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-24 z-50">
+              <svg viewBox="0 0 400 80" className="w-full h-full drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]">
+                  {/* Background Shape */}
+                  <path d="M0,0 L400,0 L360,40 L200,60 L40,40 Z" className={`${warningColor} opacity-20`} />
+                  {/* Outline */}
+                  <path d="M0,0 L40,40 L200,60 L360,40 L400,0" fill="none" stroke="currentColor" strokeWidth="2" className={warningColor} />
+                  {/* Inner Detail Lines */}
+                  <line x1="180" y1="10" x2="195" y2="45" stroke="currentColor" strokeWidth="1" className={warningColor} />
+                  <line x1="220" y1="10" x2="205" y2="45" stroke="currentColor" strokeWidth="1" className={warningColor} />
+                  
+                  {/* Text */}
+                  <text x="200" y="30" textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="bold" letterSpacing="4" className={warningColor}>
+                      WARNING
+                  </text>
+                  <text x="200" y="50" textAnchor="middle" fill="currentColor" fontSize="10" fontWeight="bold" letterSpacing="2" className={`${warningColor} animate-pulse`}>
+                      LOCK DETECTED
+                  </text>
+              </svg>
+          </div>
+      )}
+
       {/* Target Info (Top Right) */}
       {target && (
         <div className="absolute top-8 right-8 flex flex-col items-end">
@@ -61,6 +88,7 @@ export const HUD: React.FC = () => {
       {/* Controls Helper (Bottom Left) */}
       <div className="absolute bottom-8 left-8 text-white/50 font-mono text-xs bg-black/40 p-4 rounded border-l-2 border-white/20">
          <p className="mb-1"><span className="text-white font-bold">WASD</span> : MOVE</p>
+         <p className="mb-1"><span className="text-white font-bold">DOUBLE TAP (WASD)</span> : EVADE</p>
          <p className="mb-1"><span className="text-white font-bold">SPACE (HOLD)</span> : ASCEND</p>
          <p className="mb-1"><span className="text-white font-bold">L</span> : BOOST DASH</p>
          <p className="mb-1"><span className="text-white font-bold">J</span> : SHOOT</p>

@@ -13,6 +13,7 @@ export interface GameEntity {
   name: string;
   lastHitTime: number; // Timestamp of the last hit received
   knockbackDir?: Vector3; // The direction of the knockback force
+  targetId?: string | null; // The ID of the entity this unit is currently targeting
 }
 
 export enum LockState {
@@ -50,6 +51,12 @@ export const GLOBAL_CONFIG = {
     DASH_GRACE_PERIOD: 80,
     DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
 
+    // Evade (Step)
+    EVADE_SPEED: 0.4,          // Faster than dash burst
+    EVADE_DURATION: 20,         // Frames (approx 0.3s)
+    EVADE_BOOST_COST: 12,       // Costly maneuver
+    DOUBLE_TAP_WINDOW: 250,     // ms
+
     // Physics
     GRAVITY: 0.018,
     FRICTION_GROUND: 0.99,
@@ -61,11 +68,16 @@ export const GLOBAL_CONFIG = {
     BOOST_CONSUMPTION_ASCENT: 0.62,
 
     // Combat / Weapons
-    BULLET_SPEED: 1.68, // Increased slightly from 0.5 for better feel
+    BULLET_SPEED: 1.28, // Increased slightly from 0.5 for better feel
     HOMING_TURN_RATE_HORIZONTAL: 0.02, // Stronger horizontal tracking
     HOMING_TURN_RATE_VERTICAL: 0.02,   // Weaker vertical tracking
     MAX_AMMO: 20,
-    AMMO_REGEN_TIME: 2.5, // Seconds per shot
+    AMMO_REGEN_TIME: 1.6, // Seconds per shot
+    
+    // Combat / Hitboxes (Collision Sizes)
+    UNIT_HITBOX_RADIUS: 1.6,       // The size of the mechs (Hurtbox)
+    PROJECTILE_HITBOX_RADIUS: 0.6, // The size of the bullet (Hitbox)
+                                   // Total hit distance = UNIT + PROJECTILE radii
     
     // Shooting Animation (Frames @ 60fps)
     // Total time = Startup + Recovery
@@ -83,11 +95,10 @@ export const GLOBAL_CONFIG = {
 
     
         // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.06, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.08, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 0.8, // Seconds
-    AI_SHOOT_COOLDOWN_MAX: 2.2, // Seconds
-    AI_TARGET_SWITCH_MIN: 3.0,  // Seconds
-    AI_TARGET_SWITCH_MAX: 6.0,  // Seconds
+    AI_SHOOT_COOLDOWN_MAX: 1.7, // Seconds
+    AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
+    AI_TARGET_SWITCH_MAX: 10.0,  // Seconds
 
 };
-

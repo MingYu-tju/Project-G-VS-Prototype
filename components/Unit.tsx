@@ -98,6 +98,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   // AI State
   const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING'>('IDLE');
   const aiTimer = useRef(0);
+  const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
   
   // Target & Shoot AI
   const targetSwitchTimer = useRef(0);
@@ -178,6 +179,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         
         if (potentialTargets.length > 0) {
             localTargetId.current = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
+            // Sync Target to Store for UI Alert
+            useGameStore.getState().updateUnitTarget(id, localTargetId.current);
         }
     }
 
@@ -193,6 +196,22 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
         // Use GLOBAL_CONFIG for probability
         if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
+             
+             // CHECK ANGLE FOR MOVE/STOP SHOT
+             const tPos = getTargetPos();
+             let isFrontal = true;
+             if (tPos && rotateGroupRef.current) {
+                  const fwd = new Vector3();
+                  rotateGroupRef.current.getWorldDirection(fwd);
+                  fwd.y = 0; fwd.normalize();
+                  
+                  const toTarget = tPos.clone().sub(position.current);
+                  toTarget.y = 0; toTarget.normalize();
+                  
+                  if (fwd.dot(toTarget) < 0) isFrontal = false;
+             }
+             shootMode.current = isFrontal ? 'MOVE' : 'STOP';
+
              aiState.current = 'SHOOTING';
              shootSequence.current = 0;
              const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -261,7 +280,16 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     } else {
         if (aiState.current === 'SHOOTING') {
             setIsThrusting(false);
-            velocity.current.set(0,0,0); 
+            
+            if (shootMode.current === 'STOP') {
+                 velocity.current.set(0,0,0);
+            } else {
+                 // Move Shot Drift
+                 const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
+                 velocity.current.x *= friction;
+                 velocity.current.z *= friction;
+                 velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
+            }
             
             const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
             const totalDurationMs = (totalFrames / 60) * 1000;

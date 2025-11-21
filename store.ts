@@ -29,6 +29,7 @@ interface GameState {
   // Actions
   setPlayerPos: (pos: Vector3) => void;
   updateTargetPosition: (id: string, pos: Vector3) => void;
+  updateUnitTarget: (id: string, targetId: string | null) => void; // New Action
   cycleTarget: () => void;
   consumeBoost: (amount: number) => boolean;
   refillBoost: () => void;
@@ -40,13 +41,16 @@ interface GameState {
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
   applyHit: (targetId: string, impactDirection: Vector3) => void;
+  
+  // New: Cut Tracking (Step)
+  cutTracking: (targetId: string) => void;
 }
 
 // Initial Targets
 const initialTargets: GameEntity[] = [
-  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0 },
-  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0 },
-  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0 },
+  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, targetId: null },
+  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, targetId: null },
+  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, targetId: null },
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -86,6 +90,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   updateTargetPosition: (id, pos) => {
     set((state) => ({
       targets: state.targets.map(t => t.id === id ? { ...t, position: pos } : t)
+    }));
+  },
+  
+  updateUnitTarget: (id, targetId) => {
+    set((state) => ({
+      targets: state.targets.map(t => t.id === id ? { ...t, targetId } : t)
     }));
   },
 
@@ -228,5 +238,13 @@ export const useGameStore = create<GameState>((set, get) => ({
               };
           }
       });
+  },
+
+  cutTracking: (targetId: string) => {
+      set((state) => ({
+          projectiles: state.projectiles.map(p => 
+              p.targetId === targetId ? { ...p, isHoming: false } : p
+          )
+      }));
   }
 }));

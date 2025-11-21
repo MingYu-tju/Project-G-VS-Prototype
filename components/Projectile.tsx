@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, DoubleSide } from 'three';
-import { Projectile as ProjectileType, Team } from '../types';
+import { Projectile as ProjectileType, Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
 
 interface Props {
@@ -36,12 +36,13 @@ export const Projectile: React.FC<Props> = ({ data }) => {
     meshRef.current.lookAt(lookAtPos);
 
     // --- COLLISION DETECTION ---
-    const HIT_RADIUS = 1.5;
+    // Collision happens if distance < (Unit Radius + Bullet Radius)
+    const HIT_THRESHOLD = GLOBAL_CONFIG.UNIT_HITBOX_RADIUS + GLOBAL_CONFIG.PROJECTILE_HITBOX_RADIUS;
 
     if (data.team === Team.BLUE) {
         // BLUE Projectiles hit RED Targets (Enemies)
         for (const target of targets) {
-            if (target.team === Team.RED && target.position.distanceTo(data.position) < HIT_RADIUS) {
+            if (target.team === Team.RED && target.position.distanceTo(data.position) < HIT_THRESHOLD) {
                 triggerHit(target.id);
                 break;
             }
@@ -50,13 +51,13 @@ export const Projectile: React.FC<Props> = ({ data }) => {
         // RED Projectiles hit BLUE Targets (Player or Allies)
         
         // 1. Check Player
-        if (playerPos.distanceTo(data.position) < HIT_RADIUS) {
+        if (playerPos.distanceTo(data.position) < HIT_THRESHOLD) {
              triggerHit('player');
         } 
         // 2. Check Allies
         else {
              for (const target of targets) {
-                if (target.team === Team.BLUE && target.position.distanceTo(data.position) < HIT_RADIUS) {
+                if (target.team === Team.BLUE && target.position.distanceTo(data.position) < HIT_THRESHOLD) {
                     triggerHit(target.id);
                     break;
                 }
