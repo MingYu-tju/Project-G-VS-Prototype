@@ -35,7 +35,6 @@ export interface Projectile {
 }
 
 
-
 // --- GLOBAL CONFIGURATION ---
 export const GLOBAL_CONFIG = {
     // Movement
@@ -47,7 +46,7 @@ export const GLOBAL_CONFIG = {
     DASH_BURST_SPEED: 0.7,
     DASH_SUSTAIN_SPEED: 0.4,
     DASH_DECAY_FACTOR: 0.05,
-    DASH_TURN_SPEED: 0.05,
+    DASH_TURN_SPEED: 0.08,
     DASH_GRACE_PERIOD: 80,
     DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
 
@@ -81,4 +80,14 @@ export const GLOBAL_CONFIG = {
     LANDING_LAG_MIN: 12,
     LANDING_LAG_MAX: 25,
     LANDING_LAG_OVERHEAT: 38,
+
+    
+        // --- AI CONFIGURATION (New) ---
+    AI_SHOOT_PROBABILITY: 0.06, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_COOLDOWN_MIN: 0.8, // Seconds
+    AI_SHOOT_COOLDOWN_MAX: 2.2, // Seconds
+    AI_TARGET_SWITCH_MIN: 3.0,  // Seconds
+    AI_TARGET_SWITCH_MAX: 6.0,  // Seconds
+
 };
+

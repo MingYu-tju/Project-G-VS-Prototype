@@ -7,7 +7,7 @@ import { Team, LockState, GLOBAL_CONFIG } from '../types';
 
 // Calculated Offset based on model hierarchy
 const MUZZLE_OFFSET = new Vector3(0.6, 1.6, 1.45);
-const FRAME_DURATION = 1 / 60; // Limit to 60 FPS
+const FRAME_DURATION = 1 / 60;
 
 // --- SOUND ---
 const playShootSound = () => {
@@ -139,7 +139,7 @@ export const Player: React.FC = () => {
   // Action State
   const isDashing = useRef(false);
   const dashStartTime = useRef(0);
-  const dashReleaseTime = useRef<number | null>(null); // Track key release
+  const dashReleaseTime = useRef<number | null>(null); 
   const currentDashSpeed = useRef(0);
   const dashDirection = useRef(new Vector3(0, 0, -1)); 
   
@@ -195,7 +195,7 @@ export const Player: React.FC = () => {
 
             isDashing.current = true;
             dashStartTime.current = now;
-            dashReleaseTime.current = null; // Reset coast timer
+            dashReleaseTime.current = null; 
             currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
             consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
             
@@ -273,11 +273,11 @@ export const Player: React.FC = () => {
   useFrame((state, delta) => {
     if (!meshRef.current) return;
 
-    // --- FPS LIMITER ---
-    clockRef.current += delta;
-    if (clockRef.current < FRAME_DURATION) return;
-    // Reset clock (Capping max speed)
-    clockRef.current = 0;
+    // --- DELTA TIME SCALING ---
+    // Standardize logic to 60 FPS reference
+    // If running at 144fps, delta ~ 0.007, timeScale ~ 0.42
+    // If running at 60fps, delta ~ 0.016, timeScale ~ 1.0
+    const timeScale = delta * 60;
 
     const now = Date.now();
     const currentTarget = targets[currentTargetIndex];
@@ -289,8 +289,8 @@ export const Player: React.FC = () => {
     const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
     setIsStunned(stunned);
 
-    // Ammo Regen (Uses delta approx since we are capped at 60fps, adding FRAME_DURATION is safer than real delta to avoid drift)
-    ammoRegenTimer.current += FRAME_DURATION;
+    // Ammo Regen
+    ammoRegenTimer.current += delta;
     if (ammoRegenTimer.current > GLOBAL_CONFIG.AMMO_REGEN_TIME) {
         recoverAmmo();
         ammoRegenTimer.current = 0;
@@ -310,38 +310,29 @@ export const Player: React.FC = () => {
         shootTimer.current = 0;
         landingFrames.current = 0; 
 
-        // Knockback Physics
-        velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY, 0);
-        position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED));
-        position.current.y += velocity.current.y;
+        // Knockback Physics (Scaled)
+        velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY * timeScale, 0);
+        position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
+        position.current.y += velocity.current.y * timeScale;
 
     } else {
         // --- NORMAL STATE ---
         
-        // 1.1 Update Dash Validity & Coasting
         if (isDashing.current) {
-            // Cancel conditions: Overheat, No Boost, Jump Cancel
             if (isOverheated || boost <= 0) {
                 isDashing.current = false;
                 dashJustEnded = true;
             }
             else if (spaceHeld && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
-                // Jump Cancel (Instant Stop)
                 isDashing.current = false;
-                // Don't set dashJustEnded = true here to avoid landing lag trigger
             }
             else {
-                // Input Check with Coasting
                 if (hasMoveInput) {
-                    // Holding keys: Sustain dash
                     dashReleaseTime.current = null;
                 } else {
-                    // Keys released: Start Coasting Timer
                     if (dashReleaseTime.current === null) {
                         dashReleaseTime.current = now;
                     }
-                    
-                    // Check if coast duration exceeded
                     if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
                         isDashing.current = false;
                         dashJustEnded = true;
@@ -353,28 +344,34 @@ export const Player: React.FC = () => {
         // 1.2 Calculate Velocity
         if (isShooting.current) {
             nextVisualState = 'SHOOT';
-            velocity.current.set(0, 0, 0); // Rigidity
+            velocity.current.set(0, 0, 0); 
         }
         else if (landingFrames.current > 0) {
             velocity.current.set(0, 0, 0);
-            landingFrames.current -= 1; 
+            landingFrames.current -= 1 * timeScale; // Decrease based on time
             nextVisualState = 'LANDING';
-            if (landingFrames.current === 0) {
+            if (landingFrames.current <= 0) { // Use <= due to float
+                 landingFrames.current = 0;
                  refillBoost();
             }
         } 
         else {
             if (isDashing.current) {
-                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD)) {
+                // Boost consumption is constant per second approx, so scale by timeScale
+                // Originally per frame value:
+                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale)) {
                     nextVisualState = 'DASH';
-                    currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR);
+                    
+                    // Decay Speed
+                    // Lerp alpha needs to be time adjusted: 1 - (1 - alpha)^timeScale
+                    // Simplified for small values: alpha * timeScale
+                    currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
 
-                    // Update dash direction ONLY if input is present
-                    // If coasting (no input), keep going in previous direction
                     if (moveDir) {
                         const angle = moveDir.angleTo(dashDirection.current);
                         const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
-                        const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED);
+                        // Rotate amount scaled
+                        const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
                         dashDirection.current.applyAxisAngle(axis, rotateAmount);
                         dashDirection.current.normalize();
                     }
@@ -390,28 +387,42 @@ export const Player: React.FC = () => {
                 }
             }
             else if (spaceHeld && !isOverheated) {
-                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT)) {
+                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
                     nextVisualState = 'ASCEND';
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                     const currentPlanarSpeed = Math.sqrt(velocity.current.x**2 + velocity.current.z**2);
                     if (currentPlanarSpeed > GLOBAL_CONFIG.WALK_SPEED * 1.1) {
+                        // --- INERTIA JUMP LOGIC ---
                         if (moveDir) {
-                             velocity.current.x += moveDir.x * 0.005;
-                             velocity.current.z += moveDir.z * 0.005;
+                             // FIX: ROTATE VELOCITY INSTEAD OF ADDING TINY FORCE
+                             // Current planar velocity vector
+                             const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                             const speed = currentVel.length();
+                             
+                             // Rotate towards input direction
+                             const angle = moveDir.angleTo(currentVel);
+                             const axis = new Vector3().crossVectors(currentVel, moveDir).normalize();
+                             // Steering capability during inertia jump (0.03 is typical for limited air control)
+                             const rotateAmount = Math.min(angle, 0.03 * timeScale); 
+                             currentVel.applyAxisAngle(axis, rotateAmount);
+                             
+                             // Apply back
+                             velocity.current.x = currentVel.x;
+                             velocity.current.z = currentVel.z;
                         }
                     } else {
                         if (moveDir) {
                             velocity.current.x = moveDir.x * GLOBAL_CONFIG.WALK_SPEED;
                             velocity.current.z = moveDir.z * GLOBAL_CONFIG.WALK_SPEED;
                         } else {
-                            velocity.current.x *= 0.9;
-                            velocity.current.z *= 0.9;
+                            // Damping
+                            velocity.current.x *= Math.pow(0.9, timeScale);
+                            velocity.current.z *= Math.pow(0.9, timeScale);
                         }
                     }
                 }
             }
             else {
-                // Fall / Walk / Land Init
                 if (dashJustEnded && (isGrounded.current || position.current.y < 2.0)) {
                     landingFrames.current = getLandingLag();
                     nextVisualState = 'LANDING';
@@ -427,30 +438,31 @@ export const Player: React.FC = () => {
                     }
                 } else {
                     if (moveDir) {
-                        velocity.current.addScaledVector(moveDir, 0.002);
+                        velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
                     }
                 }
             }
 
+            // Friction (Exponential Decay for frame independence)
             const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-            velocity.current.x *= friction;
-            velocity.current.z *= friction;
+            const frictionFactor = Math.pow(friction, timeScale);
+            velocity.current.x *= frictionFactor;
+            velocity.current.z *= frictionFactor;
 
             if (!isDashing.current) {
-                velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
+                velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
             }
         }
         
-        // Apply Physics
-        position.current.add(velocity.current);
+        // Apply Physics with Time Scaling
+        position.current.add(velocity.current.clone().multiplyScalar(timeScale));
     }
 
     // ==========================================
-    // 2. COLLISION & CONSTRAINTS (Common)
+    // 2. COLLISION & CONSTRAINTS
     // ==========================================
 
-    // --- CIRCULAR BOUNDARY CHECK ---
-    const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0; // Subtract 1.0 for safety margin
+    const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
     const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
     
     if (currentRadiusSq > maxRadius * maxRadius) {
@@ -463,7 +475,6 @@ export const Player: React.FC = () => {
         position.current.y = 0;
         if (!isGrounded.current) {
             isGrounded.current = true;
-            // Land logic
             if (!stunned && !isDashing.current && !dashJustEnded) {
                  landingFrames.current = getLandingLag(); 
             }
@@ -505,7 +516,7 @@ export const Player: React.FC = () => {
     // ==========================================
     
     if (!stunned && isShooting.current) {
-        shootTimer.current += 1; 
+        shootTimer.current += 1 * timeScale; // Scale timer
         
         if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
             hasFired.current = true;
@@ -521,12 +532,10 @@ export const Player: React.FC = () => {
             const targetEntity = targets[currentTargetIndex];
             let direction = new Vector3(0, 0, 1).applyQuaternion(playerRotation);
             
-            // Calculate direction to target
             if (targetEntity) {
                  direction = targetEntity.position.clone().sub(spawnPos).normalize();
             }
             
-            // FIX: Capture forward direction AFTER pointing to target
             const forwardDir = direction.clone();
             
             spawnProjectile({
@@ -578,7 +587,7 @@ export const Player: React.FC = () => {
         targetCamPos.z += (Math.random() - 0.5) * shakeAmount;
     }
 
-    camera.position.lerp(targetCamPos, 0.1);
+    camera.position.lerp(targetCamPos, 0.1 * timeScale); // Smooth cam slightly adjusted by time
     camera.lookAt(targetLookAt);
   });
 
@@ -590,7 +599,6 @@ export const Player: React.FC = () => {
 
   const engineColor = visualState === 'DASH' ? '#00ffff' : (visualState === 'ASCEND' ? '#ffaa00' : '#333');
   const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND';
-  // State check for ascending plume angle
   const isAscending = visualState === 'ASCEND';
 
   return (

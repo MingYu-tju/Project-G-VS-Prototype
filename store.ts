@@ -36,7 +36,7 @@ interface GameState {
   
   // Combat Actions
   spawnProjectile: (projectile: Projectile) => void;
-  updateProjectiles: () => void; // Called every frame to move bullets
+  updateProjectiles: (delta: number) => void; // Accepts delta now
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
   applyHit: (targetId: string, impactDirection: Vector3) => void;
@@ -144,12 +144,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => ({ projectiles: [...state.projectiles, projectile] }));
   },
 
-  updateProjectiles: () => {
+  updateProjectiles: (delta: number) => {
+    // Calculate Time Scale: 
+    // If delta is 1/60 (16ms), timeScale is 1.
+    // If delta is 1/144 (7ms), timeScale is ~0.42.
+    const timeScale = delta * 60;
+
     set((state) => {
       const nextProjectiles = state.projectiles
         .map(p => {
-          // 1. Move Projectile (Velocity is total movement vector)
-          const newPos = p.position.clone().add(p.velocity);
+          // 1. Move Projectile (Velocity is defined as "Units per 60hz Frame", so multiply by timeScale)
+          const movementStep = p.velocity.clone().multiplyScalar(timeScale);
+          const newPos = p.position.clone().add(movementStep);
           
           let newVel = p.velocity.clone();
           let isStillHoming = p.isHoming;
@@ -164,51 +170,40 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
 
             if (targetPos) {
-               // FIX: Aim at chest height (1.5) instead of feet (0)
-               const aimTargetPos = targetPos.clone().add(new Vector3(0, 0, 0));
+               // Aim at chest height
+               const aimTargetPos = targetPos.clone().add(new Vector3(0, 1.5, 0));
                 
                const dirToTarget = aimTargetPos.sub(newPos).normalize();
                const fwd = p.forwardDirection.clone().normalize();
                
-               // Stop homing if we passed the target (dot product check)
+               // Stop homing if we passed the target
                const currentDir = p.velocity.clone().normalize();
                const dot = currentDir.dot(dirToTarget);
 
                if (dot < 0) {
                    isStillHoming = false;
                } else {
-                   // --- DRIFT HOMING LOGIC ---
-                   // Instead of rotating, we add Lateral Velocity towards the target.
-                   // Multipliers adjusted to feel right as a "force" rather than "rotation speed"
-                   const hRate = GLOBAL_CONFIG.HOMING_TURN_RATE_HORIZONTAL * 5.0; 
-                   const vRate = GLOBAL_CONFIG.HOMING_TURN_RATE_VERTICAL * 5.0;
+                   // Drift Logic
+                   // Apply turn rate scaled by timeScale
+                   const hRate = GLOBAL_CONFIG.HOMING_TURN_RATE_HORIZONTAL * 5.0 * timeScale; 
+                   const vRate = GLOBAL_CONFIG.HOMING_TURN_RATE_VERTICAL * 5.0 * timeScale;
 
-                   // Apply drift force towards target
                    newVel.x += dirToTarget.x * hRate;
                    newVel.z += dirToTarget.z * hRate;
                    newVel.y += dirToTarget.y * vRate;
 
-                   // CONSTRAIN FORWARD SPEED
-                   // Decompose new velocity into Forward Component and Lateral Component
-                   
-                   // 1. Project onto forward axis
+                   // Constrain forward speed
                    const currentForwardSpeed = newVel.dot(fwd);
-                   // 2. Rebuild forward component to be exactly GLOBAL_CONFIG.BULLET_SPEED
-                   //    This ensures the bullet travels "forward" at a constant rate relative to its rotation.
                    const fixedForwardVel = fwd.clone().multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED);
-                   
-                   // 3. Get existing lateral component (remove the old forward speed part)
-                   //    We subtract the projection of the new velocity on forward axis
                    const lateralVel = newVel.clone().sub(fwd.clone().multiplyScalar(currentForwardSpeed));
                    
-                   // 4. Recombine: Fixed Forward + Accumulated Lateral
                    newVel = fixedForwardVel.add(lateralVel);
                }
             }
           }
 
-          // 3. Decrease TTL
-          return { ...p, position: newPos, velocity: newVel, isHoming: isStillHoming, ttl: p.ttl - 1 };
+          // 3. Decrease TTL (TTL is in frames, so decrease by timeScale)
+          return { ...p, position: newPos, velocity: newVel, isHoming: isStillHoming, ttl: p.ttl - timeScale };
         })
         .filter(p => p.ttl > 0); 
 

@@ -9,26 +9,13 @@ import { LockReticle } from './LockReticle';
 import { useGameStore } from '../store';
 import { GLOBAL_CONFIG } from '../types';
 
-// --- FPS LIMITER CONSTANTS ---
-const TARGET_FPS = 60;
-const FRAME_DURATION = 1 / TARGET_FPS;
-
 // Scene Manager: Handles Global Logic (Projectiles)
 const SceneManager: React.FC = () => {
     const updateProjectiles = useGameStore(state => state.updateProjectiles);
-    const clockRef = useRef(0);
 
     useFrame((state, delta) => {
-        clockRef.current += delta;
-        // Only execute if enough time has passed (Cap at 60 FPS)
-        if (clockRef.current >= FRAME_DURATION) {
-            updateProjectiles();
-            // Reset clock. 
-            // NOTE: Setting to 0 instead of subtracting ensures we never "catch up" 
-            // on low FPS, satisfying the "slow down on low FPS" requirement,
-            // and strictly caps high FPS devices to 1 update per interval.
-            clockRef.current = 0; 
-        }
+        // Run every frame, but pass delta for smooth interpolation
+        updateProjectiles(delta);
     });
     return null;
 }
@@ -40,14 +27,8 @@ const BoundaryWall: React.FC = () => {
     const meshRef2 = useRef<any>(null);
     const radius = GLOBAL_CONFIG.BOUNDARY_LIMIT;
     
-    const clockRef = useRef(0);
-
-    useFrame((state, delta) => {
-        clockRef.current += delta;
-        if (clockRef.current < FRAME_DURATION) return;
-        clockRef.current = 0;
-
-        // Animation Logic running at ~60FPS
+    useFrame((state) => {
+        // Animation Logic running at native refresh rate
         const t = state.clock.getElapsedTime();
         if (meshRef.current) {
             meshRef.current.material.opacity = 0.2 + Math.sin(t * 2) * 0.1;

@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, Group, MathUtils, DoubleSide } from 'three';
-import { Text, Html, Trail } from '@react-three/drei';
+import { Text, Html } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
 
@@ -149,7 +149,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             velocity.current.y = 0;
         }
 
-        // --- FIX: Circular Boundary Clamp for Knockback ---
+        // Circular Boundary Clamp
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         if (currentRadiusSq > maxRadius * maxRadius) {
@@ -165,7 +165,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     // --- AI: TARGET SELECTION ---
     targetSwitchTimer.current -= FRAME_DURATION; // Use fixed step
     if (targetSwitchTimer.current <= 0) {
-        targetSwitchTimer.current = MathUtils.randFloat(3, 6); 
+        // Use GLOBAL_CONFIG for switch time
+        targetSwitchTimer.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_TARGET_SWITCH_MIN, GLOBAL_CONFIG.AI_TARGET_SWITCH_MAX); 
         
         const potentialTargets = [];
         if (team === Team.RED) {
@@ -190,12 +191,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     shootCooldown.current -= FRAME_DURATION;
     
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
-        if (Math.random() < 0.02) { 
+        // Use GLOBAL_CONFIG for probability
+        if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
              aiState.current = 'SHOOTING';
              shootSequence.current = 0;
              const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+             // aiTimer uses milliseconds
              aiTimer.current = (totalFrames / 60) * 1000; 
-             shootCooldown.current = MathUtils.randFloat(2, 4); 
+             // Use GLOBAL_CONFIG for cooldown
+             shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
         }
     }
 
@@ -330,7 +334,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
         position.current.add(velocity.current);
         
-        // --- FIX: Circular Boundary Clamp for Normal Movement ---
+        // Circular Boundary Clamp
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0; 
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         
@@ -439,11 +443,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     <ThrusterPlume active={isThrusting} offset={[0, -0.2, -0.5]} isAscending={isAscending} />
                 </group>
             </group>
-            {isThrusting && (
-                <Trail width={2} length={4} color={engineColor} attenuation={(t) => t * t}>
-                    <mesh visible={false} />
-                </Trail>
-            )}
         </group>
       </group>
       <Html position={[0, 3.2, 0]} center style={{ pointerEvents: 'none' }}>
