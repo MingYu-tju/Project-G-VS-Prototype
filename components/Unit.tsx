@@ -26,7 +26,7 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
   return (
     <group ref={groupRef} position={offset}> 
        {/* Rotated to point backwards (Dash) or downwards (Ascend) */}
-       <group rotation={[isAscending ? Math.PI/2 : Math.PI, 0, 0]}>
+       <group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
             <mesh position={[0, 0, 0.8]}>
                 <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
                 <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
@@ -583,17 +583,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </mesh>
                         
                         {/* Nozzles & Plumes */}
-                        {/* Moved Nozzle Z to -0.15 (Back of Backpack) */}
-                        <group position={[0.25, -0.4, -0.15]}>
+
+                        <group position={[0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
                         </group>
-                        <group position={[-0.25, -0.4, -0.15]}>
+                        <group position={[-0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
                         </group>
+
                     </group>
             </group>
 
