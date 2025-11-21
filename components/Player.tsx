@@ -1,6 +1,7 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, Quaternion } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
@@ -149,6 +150,8 @@ const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
 
 export const Player: React.FC = () => {
   const meshRef = useRef<Mesh>(null);
+  const headRef = useRef<Group>(null);
+  const legsRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   const { camera } = useThree();
   
@@ -705,7 +708,9 @@ export const Player: React.FC = () => {
     setPlayerPos(position.current.clone());
     meshRef.current.position.copy(position.current);
 
+    // --- ANIMATION LOGIC (Procedural) ---
     if (!stunned) {
+        // 1. Orientation
         if (isShooting.current && currentTarget) {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
@@ -726,6 +731,44 @@ export const Player: React.FC = () => {
             }
         }
         meshRef.current.updateMatrixWorld(true);
+
+        // 2. Head Tracking
+        if (headRef.current) {
+             const t = targets[currentTargetIndex];
+             let shouldLook = false;
+             if (t) {
+                 // Check if target is within frontal cone (~160 degrees)
+                 const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                 const dirToT = t.position.clone().sub(position.current).normalize();
+                 if (fwd.dot(dirToT) > 0.2) { 
+                     shouldLook = true;
+                     headRef.current.lookAt(t.position);
+                 }
+             }
+             
+             if (!shouldLook) {
+                 // Smoothly reset head rotation
+                 const identity = new Quaternion();
+                 headRef.current.quaternion.slerp(identity, 0.1);
+             }
+        }
+
+        // 3. Leg Inertia Sway
+        if (legsRef.current) {
+             // Calculate local velocity
+             const invRot = meshRef.current.quaternion.clone().invert();
+             const localVel = velocity.current.clone().applyQuaternion(invRot);
+             
+             // Tilt legs opposite to movement direction (Drag)
+             // Forward (+Z) -> Legs drag back (-Pitch/X)
+             // Right (+X) -> Legs drag left (-Roll/Z)
+             
+             const targetPitch = localVel.z * 1.5; 
+             const targetRoll = -localVel.x * 1.5;
+
+             legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
+             legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
+        }
     }
 
     // ==========================================
@@ -907,7 +950,7 @@ export const Player: React.FC = () => {
 
 
                     {/* HEAD */}
-                    <group position={[0, 0.6, 0]}>
+                    <group ref={headRef} position={[0, 0.6, 0]}>
                         <mesh>
                             <boxGeometry args={[0.4, 0.4, 0.45]} />
                             <meshToonMaterial color={armorColor} />
@@ -1091,61 +1134,63 @@ export const Player: React.FC = () => {
                     </group>
             </group>
 
-            {/* LEGS */}
-            {/* Right Leg */}
-            <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                    <mesh position={[0, -0.4, 0]}>
-                        <boxGeometry args={[0.35, 0.7, 0.4]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <group position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+            {/* LEGS GROUP for Sway */}
+            <group ref={legsRef}>
+                {/* Right Leg */}
+                <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
-                            <boxGeometry args={[0.35, 0.8, 0.45]} />
+                            <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
+                        </mesh>
+                        <group position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                            <mesh position={[0, -0.4, 0]}>
+                                <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
+                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
+                                    <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
                             </mesh>
-                        </mesh>
-                        <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]}>
-                                <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                <meshToonMaterial color="red" />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
+                            <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                                <mesh position={[0, -0.1, 0.1]}>
+                                    <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                    <meshToonMaterial color="red" />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                            </group>
                         </group>
-                    </group>
-            </group>
+                </group>
 
-                {/* Left Leg */}
-            <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                    <mesh position={[0, -0.4, 0]}>
-                        <boxGeometry args={[0.35, 0.7, 0.4]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <group position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                    {/* Left Leg */}
+                <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                         <mesh position={[0, -0.4, 0]}>
-                            <boxGeometry args={[0.35, 0.8, 0.45]} />
+                            <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
+                        </mesh>
+                        <group position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                            <mesh position={[0, -0.4, 0]}>
+                                <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
+                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
+                                    <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
                             </mesh>
-                        </mesh>
-                        <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]}>
-                                <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                <meshToonMaterial color="red" />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
+                            <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                                <mesh position={[0, -0.1, 0.1]}>
+                                    <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                    <meshToonMaterial color="red" />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                            </group>
                         </group>
-                    </group>
+                </group>
             </group>
             
             {/* Trails */}
