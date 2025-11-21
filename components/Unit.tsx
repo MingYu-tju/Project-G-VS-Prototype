@@ -7,7 +7,8 @@ import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
 
 // Muzzle Offset matched to new model height (Adjusted Y from 1.5 to 2.4)
-const MUZZLE_OFFSET = new Vector3(0.85, 2.4, 2.5);
+// Swapped X from 0.85 to -0.85 (Gun is now on Left)
+const MUZZLE_OFFSET = new Vector3(-0.85, 2.4, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- VISUALS ---
@@ -511,7 +512,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     
 </group>
 
-                    {/* Vent (Right Side) */}
+                    {/* Vent (Left Side) */}
         <group position={[-0.28, 0.1, 0.36]}>
     {/* Yellow housing block */}
     <mesh>
@@ -602,7 +603,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     </group>
 
                     {/* ARMS */}
-                    {/* Right Shoulder & Arm (Holding Gun) */}
+                    {/* Right Shoulder & Arm (Holding SHIELD) */}
                     <group position={[0.65, 0.1, 0]}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -622,30 +623,23 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* GUN */}
-                                    <group position={[0, -0.2, 0.3]}>
-                                        <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
-                                            <boxGeometry args={[0.1, 0.2, 0.15]} />
-                                            <meshToonMaterial color="#222" />
-                                        </mesh>
-                                        <mesh position={[0, 0.2, 0.4]}>
-                                            <boxGeometry args={[0.15, 0.25, 1.0]} />
-                                            <meshToonMaterial color="#444" />
+                                    {/* SHIELD (Moved to Right) */}
+                                    <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
+                                        <mesh position={[0, 0.2, 0]}>
+                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                            <meshToonMaterial color={armorColor} />
                                             <Edges threshold={15} color="black" />
                                         </mesh>
-                                        <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
-                                            <cylinderGeometry args={[0.04, 0.04, 0.6]} />
-                                            <meshToonMaterial color="#222" />
+                                        <mesh position={[0.06, 0.2, 0]}>
+                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                            <meshToonMaterial color="#ffaa00" />
                                         </mesh>
-                                        <group position={[0, 0.2, 1.35]}>
-                                            <MuzzleFlash active={showMuzzleFlash} />
-                                        </group>
                                     </group>
                             </group>
                         </group>
                     </group>
 
-                    {/* Left Shoulder & Arm (Shield) */}
+                    {/* Left Shoulder & Arm (Holding GUN) */}
                     <group position={[-0.65, 0.1, 0]}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -664,17 +658,24 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* SHIELD */}
-                                    <group position={[-0.2, 0, 0.1]} rotation={[0, 0, 0]}>
-                                        <mesh position={[0, 0.2, 0]}>
-                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
-                                            <meshToonMaterial color={armorColor} />
+                                    {/* GUN (Moved to Left) */}
+                                    <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                        <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
+                                            <boxGeometry args={[0.1, 0.2, 0.15]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+                                        <mesh position={[0, 0.2, 0.4]}>
+                                            <boxGeometry args={[0.15, 0.25, 1.0]} />
+                                            <meshToonMaterial color="#444" />
                                             <Edges threshold={15} color="black" />
                                         </mesh>
-                                        <mesh position={[-0.06, 0.2, 0]}>
-                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
-                                            <meshToonMaterial color="#ffaa00" />
+                                        <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
+                                            <cylinderGeometry args={[0.04, 0.04, 0.6]} />
+                                            <meshToonMaterial color="#222" />
                                         </mesh>
+                                        <group position={[0, 0.2, 1.35]}>
+                                            <MuzzleFlash active={showMuzzleFlash} />
+                                        </group>
                                     </group>
                             </group>
                         </group>

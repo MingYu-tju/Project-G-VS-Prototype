@@ -9,7 +9,8 @@ import { Team, LockState, GLOBAL_CONFIG } from '../types';
 // Calculated Offset roughly where the gun barrel ends in the new model
 // Shoulder(0.65) + Arm offset + Gun Length
 // Adjusted Y from 1.5 to 2.4 to match new model height
-const MUZZLE_OFFSET = new Vector3(0.85, 2.4, 2.5);
+// SWAPPED X from 0.85 to -0.85 (Gun is now on Left Arm)
+const MUZZLE_OFFSET = new Vector3(-0.85, 2.4, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- SOUND ---
@@ -711,7 +712,9 @@ export const Player: React.FC = () => {
     // --- ANIMATION LOGIC (Procedural) ---
     if (!stunned) {
         // 1. Orientation
-        if (isShooting.current && currentTarget) {
+        // CHANGED: Only snap to target if it is a STOP shot.
+        // If MOVE shot, fall through to velocity-based orientation (or maintain previous).
+        if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
         else if (isEvading.current) {
@@ -890,7 +893,7 @@ export const Player: React.FC = () => {
             {/* WAIST */}
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[0.6, 0.5, 0.5]} />
-                <meshToonMaterial color={armorColor} />
+                <meshToonMaterial color="#ff0000" />
                 <Edges threshold={15} color="black" />
             </mesh>
 
@@ -902,52 +905,47 @@ export const Player: React.FC = () => {
                         <Edges threshold={15} color="black" />
                     </mesh>
                     {/* Vents */}
-
                     {/* Vent (Right Side) */}
-        <group position={[0.28, 0.1, 0.36]}>
-    {/* Yellow housing block */}
-    <mesh>
-        <boxGeometry args={[0.35, 0.25, 0.05]} />
-        <meshToonMaterial color="#ffaa00" />
-        <Edges threshold={15} color="black" />
-    </mesh>
+                    <group position={[0.28, 0.1, 0.36]}>
+                        {/* Yellow housing block */}
+                        <mesh>
+                            <boxGeometry args={[0.35, 0.25, 0.05]} />
+                            <meshToonMaterial color="#ffaa00" />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
 
-    {/* Dark internal grills */}
-    {[...Array(5)].map((_, index) => (
-        <mesh
-            key={index}
-            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-        >
-            <boxGeometry args={[0.33, 0.02, 0.02]} />
-            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-        </mesh>
-    ))}
-    
-</group>
+                        {/* Dark internal grills */}
+                        {[...Array(5)].map((_, index) => (
+                            <mesh
+                                key={index}
+                                position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+                            >
+                                <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                            </mesh>
+                        ))}
+                    </group>
 
-                    {/* Vent (Right Side) */}
-        <group position={[-0.28, 0.1, 0.36]}>
-    {/* Yellow housing block */}
-    <mesh>
-        <boxGeometry args={[0.35, 0.25, 0.05]} />
-        <meshToonMaterial color="#ffaa00" />
-        <Edges threshold={15} color="black" />
-    </mesh>
+                    {/* Vent (Left Side) */}
+                    <group position={[-0.28, 0.1, 0.36]}>
+                        {/* Yellow housing block */}
+                        <mesh>
+                            <boxGeometry args={[0.35, 0.25, 0.05]} />
+                            <meshToonMaterial color="#ffaa00" />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
 
-    {/* Dark internal grills */}
-    {[...Array(5)].map((_, index) => (
-        <mesh
-            key={index}
-            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-        >
-            <boxGeometry args={[0.33, 0.02, 0.02]} />
-            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-        </mesh>
-    ))}
-    
-</group>
-
-
+                        {/* Dark internal grills */}
+                        {[...Array(5)].map((_, index) => (
+                            <mesh
+                                key={index}
+                                position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+                            >
+                                <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                            </mesh>
+                        ))}
+                    </group>
 
                     {/* HEAD */}
                     <group ref={headRef} position={[0, 0.6, 0]}>
@@ -1017,7 +1015,7 @@ export const Player: React.FC = () => {
                     </group>
 
                     {/* ARMS */}
-                    {/* Right Shoulder & Arm (Holding Gun) */}
+                    {/* Right Shoulder & Arm (Holding SHIELD) */}
                     <group position={[0.65, 0.1, 0]}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -1037,8 +1035,43 @@ export const Player: React.FC = () => {
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* GUN */}
-                                    <group position={[0, -0.2, 0.3]}>
+                                    {/* SHIELD (Moved to Right) */}
+                                    <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
+                                        <mesh position={[0, 0.2, 0]}>
+                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        <mesh position={[0.06, 0.2, 0]}>
+                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                            <meshToonMaterial color="#ffaa00" />
+                                        </mesh>
+                                    </group>
+                            </group>
+                        </group>
+                    </group>
+
+                    {/* Left Shoulder & Arm (Holding GUN) */}
+                    <group position={[-0.65, 0.1, 0]}>
+                        <mesh>
+                            <boxGeometry args={[0.5, 0.5, 0.5]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        <group position={[0, -0.4, 0]}>
+                            <mesh>
+                                <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                <meshToonMaterial color="#444" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                    <mesh>
+                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                    </mesh>
+                                    {/* GUN (Moved to Left) */}
+                                    <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
                                         <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
                                             <boxGeometry args={[0.1, 0.2, 0.15]} />
                                             <meshToonMaterial color="#222" />
@@ -1063,41 +1096,6 @@ export const Player: React.FC = () => {
                                         <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
                                             <MuzzleFlash active={showMuzzleFlash} />
                                         </group>
-                                    </group>
-                            </group>
-                        </group>
-                    </group>
-
-                    {/* Left Shoulder & Arm (Shield) */}
-                    <group position={[-0.65, 0.1, 0]}>
-                        <mesh>
-                            <boxGeometry args={[0.5, 0.5, 0.5]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, -0.4, 0]}>
-                            <mesh>
-                                <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                <meshToonMaterial color="#444" />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh>
-                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                    <meshToonMaterial color={armorColor} />
-                                    <Edges threshold={15} color="black" />
-                                    </mesh>
-                                    {/* SHIELD */}
-                                    <group position={[-0.2, 0, 0.1]} rotation={[0, 0, 0]}>
-                                        <mesh position={[0, 0.2, 0]}>
-                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        <mesh position={[-0.06, 0.2, 0]}>
-                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
-                                            <meshToonMaterial color="#ffaa00" />
-                                        </mesh>
                                     </group>
                             </group>
                         </group>
