@@ -6,11 +6,8 @@ import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
 
-// Calculated Offset roughly where the gun barrel ends in the new model
-// Shoulder(0.65) + Arm offset + Gun Length
-// Adjusted Y from 1.5 to 2.4 to match new model height
-// SWAPPED X from 0.85 to -0.85 (Gun is now on Left Arm)
-const MUZZLE_OFFSET = new Vector3(-0.85, 2.4, 2.5);
+// Muzzle Offset is now used only as a fallback or local offset reference.
+// Actual spawning uses World Position of the muzzle ref.
 const FRAME_DURATION = 1 / 60;
 
 // --- SOUND ---
@@ -54,9 +51,6 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
 
   return (
     <group ref={groupRef} position={offset}> 
-       {/* Rotated to point backwards (Dash) or downwards (Ascend) */}
-       {/* isAscending ? Down (-Y) : Back (-Z) */}
-       {/* Default Geom is along +Z. Rot X 90 -> -Y. Rot X 180 -> -Z. */}
        <group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
             <mesh position={[0, 0, 0.8]}>
                 <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
@@ -110,18 +104,12 @@ const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
         groupRef.current.visible = visible;
         if (visible) {
             groupRef.current.children.forEach((child: any, i: number) => {
-                // Move lines BACKWARDS (negative Z relative to movement direction)
-                // This makes them streak behind the player
                 child.position.z -= 1.8;
-                
-                // Reset if too far back
                 if (child.position.z < -TRAIL_LENGTH) {
-                    child.position.z = MathUtils.randFloat(0, 3); // Start slightly ahead/at player
-                    child.position.x = MathUtils.randFloat(-0.6, 0.6); // Tight horizontal spread
-                    child.position.y = MathUtils.randFloat(0.5, 2.5); // Height of the mech
+                    child.position.z = MathUtils.randFloat(0, 3); 
+                    child.position.x = MathUtils.randFloat(-0.6, 0.6); 
+                    child.position.y = MathUtils.randFloat(0.5, 2.5); 
                 }
-                
-                // Fade out based on distance from center
                 const opacity = Math.max(0, 1 - (Math.abs(child.position.z) / TRAIL_LENGTH));
                 child.material.opacity = opacity * 0.6;
             });
@@ -136,11 +124,10 @@ const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
                     position={[
                         MathUtils.randFloat(-0.6, 0.6), 
                         MathUtils.randFloat(0.5, 2.5), 
-                        MathUtils.randFloat(-5, 0) // Initial scattered positions behind
+                        MathUtils.randFloat(-5, 0) 
                     ]} 
                     rotation={[Math.PI/2, 0, 0]}
                 >
-                     {/* Much longer and thinner for 'fast' look */}
                      <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
                      <meshBasicMaterial color="#ccffff" transparent opacity={0.6} depthWrite={false} />
                  </mesh>
@@ -153,6 +140,7 @@ export const Player: React.FC = () => {
   const meshRef = useRef<Mesh>(null);
   const headRef = useRef<Group>(null);
   const legsRef = useRef<Group>(null);
+  const gunArmRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   const { camera } = useThree();
   
@@ -172,7 +160,7 @@ export const Player: React.FC = () => {
     recoverAmmo,
     playerLastHitTime,
     playerKnockbackDir,
-    cutTracking // New Action
+    cutTracking
   } = useGameStore();
 
   // Physics State
@@ -180,11 +168,10 @@ export const Player: React.FC = () => {
   const position = useRef(new Vector3(0, 0, 0));
   const isGrounded = useRef(true);
   const landingFrames = useRef(0);
-  const wasStunnedRef = useRef(false); // Track previous stun state to detect recovery
+  const wasStunnedRef = useRef(false);
   
   // Input State
   const keys = useRef<{ [key: string]: boolean }>({});
-  // Double Tap State
   const lastKeyPressTime = useRef(0);
   const lastKeyPressed = useRef<string>("");
   
@@ -195,10 +182,10 @@ export const Player: React.FC = () => {
   const currentDashSpeed = useRef(0);
   const dashDirection = useRef(new Vector3(0, 0, -1)); 
   
-  // Evade State (Step)
+  // Evade State
   const isEvading = useRef(false);
   const evadeTimer = useRef(0);
-  const evadeDirection = useRef(new Vector3(0, 0, 0)); // Camera relative direction of the step
+  const evadeDirection = useRef(new Vector3(0, 0, 0));
   
   // Combat State
   const isShooting = useRef(false);
@@ -214,7 +201,6 @@ export const Player: React.FC = () => {
   
   const ammoRegenTimer = useRef(0);
 
-  // Helper to calculate direction based on a specific key (for double tap)
   const getDirectionFromKey = (key: string) => {
       const input = new Vector3(0,0,0);
       if (key === 'w') input.z -= 1;
@@ -242,32 +228,19 @@ export const Player: React.FC = () => {
       const key = e.key.toLowerCase();
       const now = Date.now();
       
-      // Check if key is already pressed to avoid repeat events triggering logic
       if (!keys.current[key]) {
-          
-          // Double Tap Detection (Moved INSIDE the !keys check)
           if (['w', 'a', 's', 'd'].includes(key)) {
               if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
-                 // Trigger Evade
                  if (!isOverheated && boost > GLOBAL_CONFIG.EVADE_BOOST_COST && !isStunned && landingFrames.current <= 0) {
-                     // Attempt Evade
                      if (consumeBoost(GLOBAL_CONFIG.EVADE_BOOST_COST)) {
                          isEvading.current = true;
                          evadeTimer.current = GLOBAL_CONFIG.EVADE_DURATION;
-                         
-                         // Cut Tracking
                          cutTracking('player');
-                         
-                         // Set Direction (Camera Relative)
                          const dir = getDirectionFromKey(key);
                          evadeDirection.current.copy(dir);
-                         
-                         // Set Burst Velocity
                          velocity.current.x = dir.x * GLOBAL_CONFIG.EVADE_SPEED;
                          velocity.current.z = dir.z * GLOBAL_CONFIG.EVADE_SPEED;
-                         velocity.current.y = 0; // Step is planar
-                         
-                         // Cancel Dash/Shoot
+                         velocity.current.y = 0;
                          isDashing.current = false;
                          isShooting.current = false;
                          shootTimer.current = 0;
@@ -280,7 +253,6 @@ export const Player: React.FC = () => {
     
           keys.current[key] = true;
     
-          // SHOOT Trigger ('J')
           if (key === 'j') {
                if (!isShooting.current && !isEvading.current && landingFrames.current <= 0 && !isStunned) {
                    const hasAmmo = consumeAmmo();
@@ -308,7 +280,6 @@ export const Player: React.FC = () => {
     
                        shootMode.current = isFrontal ? 'MOVE' : 'STOP';
     
-                       // Trigger Dash Cancel if dashing
                        if (isDashing.current) {
                            isDashing.current = false;
                        }
@@ -316,32 +287,24 @@ export const Player: React.FC = () => {
                }
           }
     
-          // Dash Trigger ('L' Key)
           if (key === 'l') {
             const now = Date.now();
             if (!isOverheated && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT && !isStunned) {
-              
-              // CANCEL EVADE into DASH
               if (isEvading.current) {
                   isEvading.current = false;
                   evadeTimer.current = 0;
               }
-    
-              // DASH CANCEL SHOOT
               if (isShooting.current) {
                   isShooting.current = false;
                   shootTimer.current = 0;
               }
-    
               isDashing.current = true;
               dashStartTime.current = now;
               dashReleaseTime.current = null; 
               currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
               consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
 
-              // GROUND DASH HOP MECHANIC
               if (isGrounded.current) {
-                  // Give a smooth initial upward velocity
                   velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
                   isGrounded.current = false;
               }
@@ -358,8 +321,6 @@ export const Player: React.FC = () => {
               
               velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
               velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              
-              // Don't reset Y velocity if already in air, let it dampen naturally in update loop
             }
           }
           
@@ -421,22 +382,16 @@ export const Player: React.FC = () => {
   useFrame((state, delta) => {
     if (!meshRef.current) return;
 
-    // --- DELTA TIME SCALING ---
     const timeScale = delta * 60;
-
     const now = Date.now();
     const currentTarget = targets[currentTargetIndex];
     const moveDir = getCameraRelativeInput();
     const spaceHeld = keys.current[' '];
     const hasMoveInput = !!moveDir;
 
-    // --- CHECK HIT STUN ---
     const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
     
-    // Detect Stun Recovery Transition
     if (wasStunnedRef.current && !stunned) {
-        // Just recovered from stun
-        // If on ground, trigger landing lag
         if (isGrounded.current) {
             landingFrames.current = getLandingLag();
             velocity.current.set(0, 0, 0);
@@ -445,14 +400,12 @@ export const Player: React.FC = () => {
     wasStunnedRef.current = stunned;
     setIsStunned(stunned);
 
-    // Ammo Regen
     ammoRegenTimer.current += delta;
     if (ammoRegenTimer.current > GLOBAL_CONFIG.AMMO_REGEN_TIME) {
         recoverAmmo();
         ammoRegenTimer.current = 0;
     }
 
-    let dashJustEnded = false; 
     let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' = 'IDLE';
 
     // ==========================================
@@ -460,10 +413,9 @@ export const Player: React.FC = () => {
     // ==========================================
 
     if (stunned) {
-        // --- STUNNED STATE ---
         isDashing.current = false;
         isShooting.current = false;
-        isEvading.current = false; // Cancel Evade
+        isEvading.current = false; 
         shootTimer.current = 0;
         landingFrames.current = 0; 
 
@@ -472,44 +424,33 @@ export const Player: React.FC = () => {
         position.current.y += velocity.current.y * timeScale;
 
     } else {
-        // --- NORMAL STATE ---
-        
-        // HANDLE EVADE STATE
         if (isEvading.current) {
             nextVisualState = 'EVADE';
             evadeTimer.current -= 1 * timeScale;
             
-            // Physics: Constant velocity during evade, no drag
             velocity.current.x = evadeDirection.current.x * GLOBAL_CONFIG.EVADE_SPEED;
             velocity.current.z = evadeDirection.current.z * GLOBAL_CONFIG.EVADE_SPEED;
-            velocity.current.y = 0; // Strict Planar movement
+            velocity.current.y = 0; 
 
-            // SC (Step Cancel) - Jump during evade to preserve inertia but gain height
             if (spaceHeld) {
                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
-                    isEvading.current = false; // Exit evade state
+                    isEvading.current = false; 
                     nextVisualState = 'ASCEND';
-                    // KEEP X/Z VELOCITY (Inertia Inheritance)
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED; 
-                } else {
-                    // Out of boost, finish evade
                 }
             }
 
             if (evadeTimer.current <= 0) {
                 isEvading.current = false;
                 velocity.current.set(0, 0, 0);
-                // If we end step on the ground, trigger landing lag
                 if (isGrounded.current) {
                     landingFrames.current = getLandingLag();
                 }
             }
         }
         else if (isDashing.current) {
-            // Dash Logic
             if (isOverheated || boost <= 0) {
                 isDashing.current = false;
-                dashJustEnded = true;
             }
             else if (spaceHeld && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
                 isDashing.current = false;
@@ -523,15 +464,12 @@ export const Player: React.FC = () => {
                     }
                     if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
                         isDashing.current = false;
-                        dashJustEnded = true;
                     }
                 }
             }
         }
 
-        // 1.2 Calculate Velocity based on State
         if (nextVisualState === 'EVADE') {
-             // Velocity already set in EVADE block
         }
         else if (isShooting.current) {
             nextVisualState = 'SHOOT';
@@ -555,8 +493,6 @@ export const Player: React.FC = () => {
             }
         } 
         else {
-            // Regular Movement Logic (Dash, Ascend, Walk, Fall)
-            
             if (isDashing.current) {
                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale)) {
                     nextVisualState = 'DASH';
@@ -570,94 +506,70 @@ export const Player: React.FC = () => {
                     }
                     velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
                     velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-                    
-                    // Apply strong damping to vertical velocity during dash to simulate hover/flight
-                    // This flattens out the initial hop smoothly
                     velocity.current.y *= 0.85;
 
                 } else {
                     isDashing.current = false;
-                    dashJustEnded = true;
                 }
             }
             else if (spaceHeld && !isOverheated) {
-                // ASCEND / SC Logic
                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
                     nextVisualState = 'ASCEND';
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                     
                     const currentPlanarSpeed = Math.sqrt(velocity.current.x**2 + velocity.current.z**2);
                     
-                    // UNIFIED STEERING LOGIC
                     if (moveDir) {
                          const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                         
-                         // If we have significant speed, steer by rotation
                          if (currentPlanarSpeed > 0.01) {
                              const angle = moveDir.angleTo(currentVel);
                              let axis = new Vector3().crossVectors(currentVel, moveDir).normalize();
-                             
-                             // Handle 180 degree turn case or parallel vectors
                              if (axis.lengthSq() < 0.01) {
-                                if (angle > 1.0) axis = new Vector3(0, 1, 0); // Anti-parallel
+                                if (angle > 1.0) axis = new Vector3(0, 1, 0);
                              }
-
                              if (axis.lengthSq() > 0.01) {
                                  const rotateAmount = Math.min(angle, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
                                  currentVel.applyAxisAngle(axis, rotateAmount);
                              }
                          } else {
-                             // From standstill, just point in direction (magnitude handled below)
                              currentVel.copy(moveDir).multiplyScalar(0.01);
                          }
 
-                         // Speed Management
                          if (currentPlanarSpeed > GLOBAL_CONFIG.WALK_SPEED * 1.1) {
-                             // SC / High Speed Inertia (Decay slowly)
                              velocity.current.x = currentVel.x * Math.pow(0.995, timeScale);
                              velocity.current.z = currentVel.z * Math.pow(0.995, timeScale);
                          } else {
-                             // Standard Ascent (Accelerate towards Walk Speed)
-                             // We want to smoothly transition to WALK_SPEED magnitude
                              const newDir = currentVel.normalize();
                              const newSpeed = MathUtils.lerp(currentPlanarSpeed, GLOBAL_CONFIG.WALK_SPEED, 0.2 * timeScale);
-                             
                              velocity.current.x = newDir.x * newSpeed;
                              velocity.current.z = newDir.z * newSpeed;
                          }
                     } else {
-                        // No Input - Air Friction
                         velocity.current.x *= Math.pow(0.9, timeScale);
                         velocity.current.z *= Math.pow(0.9, timeScale);
                     }
                 }
             }
             else {
-                // Free Fall / Walk
-                
                 if (isGrounded.current) {
                     if (moveDir) {
                         nextVisualState = 'WALK';
                         velocity.current.x = moveDir.x * GLOBAL_CONFIG.WALK_SPEED;
                         velocity.current.z = moveDir.z * GLOBAL_CONFIG.WALK_SPEED;
                     } else {
-                        // Ground Stop (Instant)
                         velocity.current.x = 0;
                         velocity.current.z = 0;
                     }
                 } else {
-                    // AIR DRIFT (Free Fall)
                     if (moveDir) {
                         velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
                     }
                 }
             }
 
-            // Global Friction (if not Evading)
             const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
             const frictionFactor = Math.pow(friction, timeScale);
             
-            // Don't apply heavy friction if we are ASCENDING (handled inside ascend block)
             if (nextVisualState !== 'ASCEND') {
                  velocity.current.x *= frictionFactor;
                  velocity.current.z *= frictionFactor;
@@ -668,7 +580,6 @@ export const Player: React.FC = () => {
             }
         }
         
-        // Apply Physics
         position.current.add(velocity.current.clone().multiplyScalar(timeScale));
     }
 
@@ -689,7 +600,6 @@ export const Player: React.FC = () => {
         position.current.y = 0;
         if (!isGrounded.current) {
             isGrounded.current = true;
-            // Trigger landing lag if we land (and we are not evading/stunned/dashing)
             if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
                  landingFrames.current = getLandingLag(); 
             }
@@ -711,9 +621,7 @@ export const Player: React.FC = () => {
 
     // --- ANIMATION LOGIC (Procedural) ---
     if (!stunned) {
-        // 1. Orientation
-        // CHANGED: Only snap to target if it is a STOP shot.
-        // If MOVE shot, fall through to velocity-based orientation (or maintain previous).
+        // 1. Orientation (Body)
         if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
@@ -735,36 +643,82 @@ export const Player: React.FC = () => {
         }
         meshRef.current.updateMatrixWorld(true);
 
-        // 2. Head Tracking
+        // 2. Gun Arm Aiming Logic (360 Degree Slerp)
+        if (gunArmRef.current) {
+            if (isShooting.current && currentTarget) {
+                // Get directions in world space
+                const shoulderPos = new Vector3();
+                gunArmRef.current.getWorldPosition(shoulderPos);
+                const targetPos = currentTarget.position.clone();
+                
+                // Direction from shoulder to target
+                const dirToTarget = targetPos.sub(shoulderPos).normalize();
+                
+                // Convert to Body Local Space (because gunArmRef is child of Body)
+                const bodyInverseQuat = meshRef.current.quaternion.clone().invert();
+                const localDir = dirToTarget.applyQuaternion(bodyInverseQuat);
+                
+                // The default forward vector for the gun arm (when rotation is 0,0,0)
+                // Based on hierarchy, Z+ seems to be forward relative to the shoulder group
+                const defaultForward = new Vector3(0, -1, 0.2).normalize();
+                
+                // Calculate target quaternion to look at direction
+                const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
+                
+                const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+                const recovery = GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                const identity = new Quaternion(); // Identity (0,0,0 rotation)
+
+                if (shootTimer.current < startup) {
+                    // Startup: Slerp from Identity to Target
+                    const t = shootTimer.current / startup;
+                    const smoothT = t * t * (3 - 2 * t);
+                    gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                } else {
+                     // Recovery: Slerp from Target back to Identity
+                     const t = (shootTimer.current - startup) / recovery;
+                     gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
+                }
+            } else {
+                // Instant reset if not shooting (e.g. Dash Cancel)
+                gunArmRef.current.quaternion.identity();
+            }
+        }
+
+        // 3. Head Tracking
         if (headRef.current) {
              const t = targets[currentTargetIndex];
              let shouldLook = false;
              if (t) {
-                 // Check if target is within frontal cone (~160 degrees)
                  const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
                  const dirToT = t.position.clone().sub(position.current).normalize();
                  if (fwd.dot(dirToT) > 0.2) { 
                      shouldLook = true;
-                     headRef.current.lookAt(t.position);
+                    // 1. 记录当前角度
+                    const startQuat = headRef.current.quaternion.clone();
+
+                    // 2. 瞬间看向目标（计算目标角度）
+                    headRef.current.lookAt(t.position);
+                    const targetQuat = headRef.current.quaternion.clone();
+
+                    // 3. 恢复当前角度
+                    headRef.current.quaternion.copy(startQuat);
+
+                    // 4. 平滑过渡到目标角度 (0.1 是速度，越小越慢)
+                    headRef.current.quaternion.slerp(targetQuat, 0.1);
                  }
              }
              
              if (!shouldLook) {
-                 // Smoothly reset head rotation
                  const identity = new Quaternion();
                  headRef.current.quaternion.slerp(identity, 0.1);
              }
         }
 
-        // 3. Leg Inertia Sway
+        // 4. Leg Inertia Sway
         if (legsRef.current) {
-             // Calculate local velocity
              const invRot = meshRef.current.quaternion.clone().invert();
              const localVel = velocity.current.clone().applyQuaternion(invRot);
-             
-             // Tilt legs opposite to movement direction (Drag)
-             // Forward (+Z) -> Legs drag back (-Pitch/X)
-             // Right (+X) -> Legs drag left (-Roll/Z)
              
              const targetPitch = localVel.z * 1.5; 
              const targetRoll = -localVel.x * 1.5;
@@ -787,16 +741,28 @@ export const Player: React.FC = () => {
             setShowMuzzleFlash(true);
             setTimeout(() => setShowMuzzleFlash(false), 100);
 
-            const playerRotation = meshRef.current.quaternion.clone();
-            const offset = MUZZLE_OFFSET.clone();
-            offset.applyQuaternion(playerRotation);
-            const spawnPos = position.current.clone().add(offset);
+            // DYNAMIC SPAWN POSITION & DIRECTION
+            const spawnPos = new Vector3();
+            if (muzzleRef.current) {
+                muzzleRef.current.getWorldPosition(spawnPos);
+            } else {
+                 spawnPos.copy(position.current).add(new Vector3(0, 2, 0));
+            }
 
             const targetEntity = targets[currentTargetIndex];
-            let direction = new Vector3(0, 0, 1).applyQuaternion(playerRotation);
-            
+            let direction: Vector3;
+
             if (targetEntity) {
                  direction = targetEntity.position.clone().sub(spawnPos).normalize();
+            } else {
+                if (muzzleRef.current) {
+                     const fwd = new Vector3(0,0,1);
+                     // Get world direction of muzzle
+                     muzzleRef.current.getWorldDirection(fwd); 
+                     direction = fwd.normalize();
+                } else {
+                     direction = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                }
             }
             
             const forwardDir = direction.clone();
@@ -827,23 +793,20 @@ export const Player: React.FC = () => {
     // 5. CAMERA (Unified)
     // ==========================================
     
-    // Update camera offset to account for taller model
-    let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); // Raised Y slightly from 6
-    let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); // Look at waist/chest, not feet
+    let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
+    let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
 
     if (currentTarget) {
         const pToT = new Vector3().subVectors(currentTarget.position, position.current);
         const dir = pToT.normalize();
         const camOffsetDist = 10;
-        // const camHeight = 5; // (implicit)
         
-        // Raised camera height for lock-on slightly
         targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, 6, 0));
         
         targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3);
-        targetLookAt.y += 2.0; // Look higher (at chest level)
+        targetLookAt.y += 2.0; 
     } else {
-        targetCamPos = position.current.clone().add(new Vector3(0, 6, 10)); // Standard follow cam
+        targetCamPos = position.current.clone().add(new Vector3(0, 6, 10));
         targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
     }
 
@@ -858,7 +821,6 @@ export const Player: React.FC = () => {
     camera.lookAt(targetLookAt);
   });
 
-  // Visual Colors
   let armorColor = '#eeeeee'; 
   if (isStunned) armorColor = '#ffffff'; 
   else if (isOverheated) armorColor = '#888888'; 
@@ -867,6 +829,7 @@ export const Player: React.FC = () => {
   const engineColor = visualState === 'DASH' ? '#00ffff' : (visualState === 'ASCEND' ? '#ffaa00' : '#333');
   const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND';
   const isAscending = visualState === 'ASCEND';
+  const isThrusting = isDashingOrAscending; 
   
   const speedLinesRef = useRef<Group>(null);
   useFrame(() => {
@@ -874,20 +837,18 @@ export const Player: React.FC = () => {
            const vel = velocity.current.clone().normalize();
            if (vel.lengthSq() > 0) {
                speedLinesRef.current.position.copy(position.current);
-               // lookAt aligns the Z-axis. 
-               // We look AT the direction we are going.
-               // This means Local -Z points FORWARD (movement dir).
-               // Therefore Local +Z points BACKWARD.
                speedLinesRef.current.lookAt(position.current.clone().sub(vel));
            }
       }
   })
 
+  // Colors for parts
+  const chestColor = isStunned ? '#ffffff' : '#2244aa';
+  const feetColor = '#aa2222';
+
   return (
     <group>
       <mesh ref={meshRef} castShadow>
-          {/* MECH MODEL GROUP */}
-          {/* ADJUSTED POSITION Y FROM 1.1 TO 2.0 TO PREVENT CLIPPING */}
           <group position={[0, 2.0, 0]}> {/* Center of Waist */}
             
             {/* WAIST */}
@@ -901,46 +862,32 @@ export const Player: React.FC = () => {
             <group position={[0, 0.65, 0]}>
                     <mesh>
                         <boxGeometry args={[0.9, 0.7, 0.7]} />
-                        <meshToonMaterial color="#2244aa" /> 
+                        <meshToonMaterial color={chestColor} /> 
                         <Edges threshold={15} color="black" />
                     </mesh>
                     {/* Vents */}
-                    {/* Vent (Right Side) */}
                     <group position={[0.28, 0.1, 0.36]}>
-                        {/* Yellow housing block */}
                         <mesh>
                             <boxGeometry args={[0.35, 0.25, 0.05]} />
                             <meshToonMaterial color="#ffaa00" />
                             <Edges threshold={15} color="black" />
                         </mesh>
-
-                        {/* Dark internal grills */}
                         {[...Array(5)].map((_, index) => (
-                            <mesh
-                                key={index}
-                                position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-                            >
+                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
                                 <boxGeometry args={[0.33, 0.02, 0.02]} />
                                 <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
                             </mesh>
                         ))}
                     </group>
 
-                    {/* Vent (Left Side) */}
                     <group position={[-0.28, 0.1, 0.36]}>
-                        {/* Yellow housing block */}
                         <mesh>
                             <boxGeometry args={[0.35, 0.25, 0.05]} />
                             <meshToonMaterial color="#ffaa00" />
                             <Edges threshold={15} color="black" />
                         </mesh>
-
-                        {/* Dark internal grills */}
                         {[...Array(5)].map((_, index) => (
-                            <mesh
-                                key={index}
-                                position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-                            >
+                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
                                 <boxGeometry args={[0.33, 0.02, 0.02]} />
                                 <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
                             </mesh>
@@ -976,30 +923,23 @@ export const Player: React.FC = () => {
                                 <Edges threshold={15} color="black" />
                         </mesh>
                         
-                        {/* "Citroën" Face Vents (The 100-degree obtuse V-slits) */}
+                        {/* Citroën Vents */}
                         <group position={[0, -0.06, 0.235]}>
-                            {/* Top V */}
                             <group position={[0, 0.025, 0]}>
-                                {/* Right Stroke (\) */}
                                 <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                {/* Left Stroke (/) */}
                                 <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
-                            
-                            {/* Bottom V */}
                             <group position={[0, -0.025, 0]}>
-                                {/* Right Stroke (\) */}
                                 <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                {/* Left Stroke (/) */}
                                 <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
@@ -1028,14 +968,12 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color="#444" />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            {/* Forearm */}
                             <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
                                     <mesh>
                                     <boxGeometry args={[0.28, 0.6, 0.35]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* SHIELD (Moved to Right) */}
                                     <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
                                         <mesh position={[0, 0.2, 0]}>
                                             <boxGeometry args={[0.1, 1.4, 0.6]} />
@@ -1052,7 +990,7 @@ export const Player: React.FC = () => {
                     </group>
 
                     {/* Left Shoulder & Arm (Holding GUN) */}
-                    <group position={[-0.65, 0.1, 0]}>
+                    <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
                             <meshToonMaterial color={armorColor} />
@@ -1070,7 +1008,6 @@ export const Player: React.FC = () => {
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* GUN (Moved to Left) */}
                                     <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
                                         <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
                                             <boxGeometry args={[0.1, 0.2, 0.15]} />
@@ -1118,23 +1055,23 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color="white" />
                                 <Edges threshold={15} color="black" />
                         </mesh>
-                        {/* Thruster Nozzles & Plumes */}
+                        
                         <group position={[0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
                         </group>
                         <group position={[-0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
                         </group>
+
                     </group>
             </group>
 
-            {/* LEGS GROUP for Sway */}
+            {/* LEGS GROUP */}
             <group ref={legsRef}>
-                {/* Right Leg */}
                 <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
@@ -1155,14 +1092,13 @@ export const Player: React.FC = () => {
                             <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
                                 <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                    <meshToonMaterial color="red" />
+                                    <meshToonMaterial color={feetColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </group>
                         </group>
                 </group>
 
-                    {/* Left Leg */}
                 <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
@@ -1183,7 +1119,7 @@ export const Player: React.FC = () => {
                             <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
                                 <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                    <meshToonMaterial color="red" />
+                                    <meshToonMaterial color={feetColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </group>
@@ -1191,7 +1127,6 @@ export const Player: React.FC = () => {
                 </group>
             </group>
             
-            {/* Trails */}
             {isDashingOrAscending && (
                 <Trail width={2} length={4} color={engineColor} attenuation={(t) => t * t}>
                     <mesh visible={false} />
@@ -1200,7 +1135,6 @@ export const Player: React.FC = () => {
           </group>
       </mesh>
       
-      {/* Speed Lines Overlay */}
       <group ref={speedLinesRef}>
           <SpeedLines visible={visualState === 'EVADE'} />
       </group>

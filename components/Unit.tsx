@@ -6,9 +6,6 @@ import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
 
-// Muzzle Offset matched to new model height (Adjusted Y from 1.5 to 2.4)
-// Swapped X from 0.85 to -0.85 (Gun is now on Left)
-const MUZZLE_OFFSET = new Vector3(-0.85, 2.4, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- VISUALS ---
@@ -27,7 +24,6 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
 
   return (
     <group ref={groupRef} position={offset}> 
-       {/* Rotated to point backwards (Dash) or downwards (Ascend) */}
        <group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
             <mesh position={[0, 0, 0.8]}>
                 <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
@@ -84,6 +80,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
   const legsRef = useRef<Group>(null);
+  const gunArmRef = useRef<Group>(null);
+  const muzzleRef = useRef<Group>(null);
   
   // Physics State
   const position = useRef(initialPos.clone());
@@ -102,6 +100,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const localTargetId = useRef<string | null>(null);
   const shootCooldown = useRef(0);
   const shootSequence = useRef(0); 
+  // const aimAngleRef = useRef(0); // No longer needed for 3D aiming
 
   // Movement Vars
   const dashDirection = useRef(new Vector3(0, 0, 1));
@@ -110,32 +109,25 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
   // Visual State
   const [isThrusting, setIsThrusting] = useState(false);
-  const [isAscendingState, setIsAscendingState] = useState(false); // New State for proper visual update
+  const [isAscendingState, setIsAscendingState] = useState(false); 
   const [isStunned, setIsStunned] = useState(false);
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
 
-  // Access Store (We still use these for setup, but inside useFrame we use getState())
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
-  
-  // FPS Limiter
   const clockRef = useRef(0);
 
   useFrame((state, delta) => {
     if (!groupRef.current || !rotateGroupRef.current) return;
 
-    // --- FPS LIMITER ---
     clockRef.current += delta;
     if (clockRef.current < FRAME_DURATION) return;
     clockRef.current = 0;
 
-    // --- UPDATE VISUAL STATE ---
-    // Ensure React re-renders if AI state changes between dash/ascend
     const currentlyAscending = aiState.current === 'ASCENDING';
     if (currentlyAscending !== isAscendingState) {
         setIsAscendingState(currentlyAscending);
     }
 
-    // --- CHECK STUN ---
     const now = Date.now();
     const stunned = now - lastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
     setIsStunned(stunned);
@@ -153,7 +145,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             velocity.current.y = 0;
         }
 
-        // Circular Boundary Clamp
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         if (currentRadiusSq > maxRadius * maxRadius) {
@@ -166,15 +157,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return; 
     }
 
-    // --- CRITICAL: GET FRESH STATE DIRECTLY TO AVOID STALE CLOSURES ---
     const freshState = useGameStore.getState();
     const freshTargets = freshState.targets;
     const freshPlayerPos = freshState.playerPos;
 
-    // --- AI: TARGET SELECTION ---
-    targetSwitchTimer.current -= FRAME_DURATION; // Use fixed step
+    targetSwitchTimer.current -= FRAME_DURATION; 
     if (targetSwitchTimer.current <= 0) {
-        // Use GLOBAL_CONFIG for switch time
         targetSwitchTimer.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_TARGET_SWITCH_MIN, GLOBAL_CONFIG.AI_TARGET_SWITCH_MAX); 
         
         const potentialTargets = [];
@@ -187,7 +175,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         
         if (potentialTargets.length > 0) {
             localTargetId.current = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
-            // Sync Target to Store for UI Alert
             useGameStore.getState().updateUnitTarget(id, localTargetId.current);
         }
     }
@@ -198,14 +185,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return t ? t.position.clone() : null;
     };
 
-    // --- AI: SHOOTING TRIGGER ---
     shootCooldown.current -= FRAME_DURATION;
     
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
-        // Use GLOBAL_CONFIG for probability
         if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
              
-             // CHECK ANGLE FOR MOVE/STOP SHOT
              const tPos = getTargetPos();
              let isFrontal = true;
              if (tPos && rotateGroupRef.current) {
@@ -223,15 +207,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              aiState.current = 'SHOOTING';
              shootSequence.current = 0;
              const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
-             // aiTimer uses milliseconds
              aiTimer.current = (totalFrames / 60) * 1000; 
-             // Use GLOBAL_CONFIG for cooldown
              shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
         }
     }
 
-    // --- AI: DECISION ---
-    aiTimer.current -= FRAME_DURATION * 1000; // Use fixed step
+    aiTimer.current -= FRAME_DURATION * 1000; 
 
     if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
         aiState.current = 'IDLE';
@@ -275,8 +256,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
       }
     }
 
-    // --- PHYSICS LOOP ---
-    
     if (isGrounded.current && landingFrames.current <= 0) {
         boost.current = Math.min(100, boost.current + 1);
     }
@@ -292,7 +271,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             if (shootMode.current === 'STOP') {
                  velocity.current.set(0,0,0);
             } else {
-                 // Move Shot Drift
                  const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
                  velocity.current.x *= friction;
                  velocity.current.z *= friction;
@@ -309,20 +287,31 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 setShowMuzzleFlash(true);
                 setTimeout(() => setShowMuzzleFlash(false), 100);
 
-                const unitRotation = rotateGroupRef.current.quaternion.clone();
-                const offset = MUZZLE_OFFSET.clone().applyQuaternion(unitRotation);
-                const spawnPos = position.current.clone().add(offset);
+                // DYNAMIC SPAWN POS
+                const spawnPos = new Vector3();
+                if (muzzleRef.current) {
+                     muzzleRef.current.getWorldPosition(spawnPos);
+                } else {
+                     spawnPos.copy(position.current).add(new Vector3(0, 2, 0));
+                }
                 
                 const tPos = getTargetPos();
-                let direction = new Vector3(0,0,1).applyQuaternion(unitRotation);
-                let isRedLock = false;
+                let direction: Vector3;
 
                 if (tPos) {
                     direction = tPos.clone().sub(spawnPos).normalize();
-                    // CHECK RED LOCK DISTANCE WITH FRESH POS
-                    const dist = position.current.distanceTo(tPos);
-                    isRedLock = dist < RED_LOCK_DISTANCE;
+                } else {
+                    if (muzzleRef.current) {
+                         const fwd = new Vector3();
+                         muzzleRef.current.getWorldDirection(fwd);
+                         direction = fwd.normalize();
+                    } else {
+                         direction = new Vector3(0,0,1).applyQuaternion(rotateGroupRef.current.quaternion);
+                    }
                 }
+
+                const dist = tPos ? position.current.distanceTo(tPos) : 999;
+                const isRedLock = dist < RED_LOCK_DISTANCE;
                 
                 const forwardDir = direction.clone();
 
@@ -333,7 +322,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     position: spawnPos,
                     velocity: direction.multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED),
                     forwardDirection: forwardDir,
-                    isHoming: isRedLock, // Use Calculated Red Lock State
+                    isHoming: isRedLock,
                     team: team,
                     ttl: 300
                 });
@@ -375,7 +364,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
         position.current.add(velocity.current);
         
-        // Circular Boundary Clamp
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0; 
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         
@@ -398,17 +386,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
-    // Sync Store
     useGameStore.getState().updateTargetPosition(id, position.current.clone());
 
     // 3. VISUAL UPDATE
     groupRef.current.position.copy(position.current);
 
-    // Rotation Logic
     if (aiState.current === 'SHOOTING') {
         const tPos = getTargetPos();
-        if (tPos) {
-            rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+        if (tPos && shootMode.current === 'STOP') {
+             rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
         }
     } else if (aiState.current === 'DASHING') {
         const lookPos = position.current.clone().add(dashDirection.current);
@@ -421,7 +407,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              rotateGroupRef.current.lookAt(0, position.current.y, 0);
         }
     }
-    
     rotateGroupRef.current.updateMatrixWorld(true);
 
     // --- PROCEDURAL ANIMATION ---
@@ -440,14 +425,51 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  headRef.current.lookAt(tPos);
              }
         }
-        
         if (!shouldLook) {
             const identity = new Quaternion();
             headRef.current.quaternion.slerp(identity, 0.1);
         }
     }
 
-    // 2. Leg Inertia Sway
+    // 2. Gun Arm Aiming (360 Degree Slerp)
+    if (gunArmRef.current && !stunned) {
+         if (aiState.current === 'SHOOTING') {
+             const tPos = getTargetPos();
+             if (tPos) {
+                 const shoulderPos = new Vector3();
+                 gunArmRef.current.getWorldPosition(shoulderPos);
+                 
+                 const dirToTarget = tPos.clone().sub(shoulderPos).normalize();
+                 const bodyInvQuat = rotateGroupRef.current.quaternion.clone().invert();
+                 const localDir = dirToTarget.applyQuaternion(bodyInvQuat);
+                 
+                 const defaultForward = new Vector3(0, -1, 0.2).normalize();
+                 const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
+                 
+                 const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                 const totalDurationMs = (totalFrames / 60) * 1000;
+                 const elapsedMs = totalDurationMs - aiTimer.current;
+                 const elapsedFrames = (elapsedMs / 1000) * 60;
+                 
+                 const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+                 const recovery = GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                 const identity = new Quaternion();
+
+                 if (elapsedFrames < startup) {
+                     const t = elapsedFrames / startup;
+                     const smoothT = t * t * (3 - 2 * t);
+                     gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                 } else {
+                     const t = (elapsedFrames - startup) / recovery;
+                     gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
+                 }
+             }
+         } else {
+             gunArmRef.current.quaternion.identity();
+         }
+    }
+
+    // 3. Leg Inertia Sway
     if (legsRef.current && !stunned) {
          const invRot = rotateGroupRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
@@ -461,9 +483,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
   });
 
-  // --- COLORS ---
-  // Red Team: Red Armor / Dark Red Chest
-  // Blue Team: White Armor / Blue Chest
   const armorColor = isStunned ? '#ffffff' : (team === Team.RED ? '#ff8888' : '#eeeeee');
   const chestColor = isStunned ? '#ffffff' : (team === Team.RED ? '#880000' : '#2244aa');
   const feetColor = team === Team.RED ? '#333333' : '#aa2222';
@@ -471,7 +490,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
-         {/* ADJUSTED POSITION Y FROM 1.1 TO 2.0 TO PREVENT CLIPPING */}
          <group position={[0, 2.0, 0]}> {/* Waist Center */}
             
             {/* WAIST */}
@@ -489,51 +507,32 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         <Edges threshold={15} color="black" />
                     </mesh>
                    {/* Vents */}
-
-                    {/* Vent (Right Side) */}
-        <group position={[0.28, 0.1, 0.36]}>
-    {/* Yellow housing block */}
-    <mesh>
-        <boxGeometry args={[0.35, 0.25, 0.05]} />
-        <meshToonMaterial color="#ffaa00" />
-        <Edges threshold={15} color="black" />
-    </mesh>
-
-    {/* Dark internal grills */}
-    {[...Array(5)].map((_, index) => (
-        <mesh
-            key={index}
-            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-        >
-            <boxGeometry args={[0.33, 0.02, 0.02]} />
-            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-        </mesh>
-    ))}
-    
-</group>
-
-                    {/* Vent (Left Side) */}
-        <group position={[-0.28, 0.1, 0.36]}>
-    {/* Yellow housing block */}
-    <mesh>
-        <boxGeometry args={[0.35, 0.25, 0.05]} />
-        <meshToonMaterial color="#ffaa00" />
-        <Edges threshold={15} color="black" />
-    </mesh>
-
-    {/* Dark internal grills */}
-    {[...Array(5)].map((_, index) => (
-        <mesh
-            key={index}
-            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
-        >
-            <boxGeometry args={[0.33, 0.02, 0.02]} />
-            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-        </mesh>
-    ))}
-    
-</group>
-
+                    <group position={[0.28, 0.1, 0.36]}>
+                        <mesh>
+                            <boxGeometry args={[0.35, 0.25, 0.05]} />
+                            <meshToonMaterial color="#ffaa00" />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        {[...Array(5)].map((_, index) => (
+                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                            </mesh>
+                        ))}
+                    </group>
+                    <group position={[-0.28, 0.1, 0.36]}>
+                        <mesh>
+                            <boxGeometry args={[0.35, 0.25, 0.05]} />
+                            <meshToonMaterial color="#ffaa00" />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        {[...Array(5)].map((_, index) => (
+                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                            </mesh>
+                        ))}
+                    </group>
 
                     {/* HEAD */}
                     <group ref={headRef} position={[0, 0.6, 0]}>
@@ -542,7 +541,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        {/* V-Fin */}
                         <group position={[0, 0.15, 0.23]}>
                             <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
                                 <boxGeometry args={[0.3, 0.05, 0.02]} />
@@ -557,45 +555,33 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <meshToonMaterial color="#ff0000" />
                             </mesh>
                         </group>
-                        {/* Chin */}
                         <mesh position={[0, -0.18, 0.23]}>
                                 <boxGeometry args={[0.1, 0.08, 0.05]} />
                                 <meshToonMaterial color="red" />
                                 <Edges threshold={15} color="black" />
                         </mesh>
-
-                        {/* "Citroën" Face Vents (The 100-degree obtuse V-slits) */}
                         <group position={[0, -0.06, 0.235]}>
-                            {/* Top V */}
                             <group position={[0, 0.025, 0]}>
-                                {/* Right Stroke (\) */}
                                 <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                {/* Left Stroke (/) */}
                                 <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
-                            
-                            {/* Bottom V */}
                             <group position={[0, -0.025, 0]}>
-                                {/* Right Stroke (\) */}
                                 <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                {/* Left Stroke (/) */}
                                 <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
                                         <boxGeometry args={[0.07, 0.015, 0.01]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
                         </group>
-
-                        {/* Eye Sensor */}
                         <mesh position={[0, 0.05, 0.226]}>
                             <planeGeometry args={[0.25, 0.08]} />
                             <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
@@ -616,14 +602,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <meshToonMaterial color="#444" />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            {/* Forearm */}
                             <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
                                     <mesh>
                                     <boxGeometry args={[0.28, 0.6, 0.35]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* SHIELD (Moved to Right) */}
                                     <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
                                         <mesh position={[0, 0.2, 0]}>
                                             <boxGeometry args={[0.1, 1.4, 0.6]} />
@@ -640,7 +624,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     </group>
 
                     {/* Left Shoulder & Arm (Holding GUN) */}
-                    <group position={[-0.65, 0.1, 0]}>
+                    <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
                             <meshToonMaterial color={armorColor} />
@@ -658,7 +642,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    {/* GUN (Moved to Left) */}
                                     <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
                                         <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
                                             <boxGeometry args={[0.1, 0.2, 0.15]} />
@@ -673,7 +656,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                             <cylinderGeometry args={[0.04, 0.04, 0.6]} />
                                             <meshToonMaterial color="#222" />
                                         </mesh>
-                                        <group position={[0, 0.2, 1.35]}>
+                                        <mesh position={[0.05, 0.35, 0.2]}>
+                                            <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
+                                            <meshToonMaterial color="#222" />
+                                            <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
+                                                <circleGeometry args={[0.06]} />
+                                                <meshBasicMaterial color="#00ff00" />
+                                            </mesh>
+                                        </mesh>
+                                        <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
                                             <MuzzleFlash active={showMuzzleFlash} />
                                         </group>
                                     </group>
@@ -699,8 +690,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <Edges threshold={15} color="black" />
                         </mesh>
                         
-                        {/* Nozzles & Plumes */}
-
                         <group position={[0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
@@ -717,7 +706,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
             {/* LEGS GROUP */}
             <group ref={legsRef}>
-                {/* Right Leg */}
                 <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
@@ -745,7 +733,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </group>
                 </group>
 
-                    {/* Left Leg */}
                 <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
@@ -776,7 +763,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             
          </group>
       </group>
-      {/* ADJUSTED NAME TAG HEIGHT FROM 3.2 TO 4.2 */}
       <Html position={[0, 4.2, 0]} center style={{ pointerEvents: 'none' }}>
         <div className={`text-xs font-bold px-2 py-0.5 rounded border whitespace-nowrap ${
               isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
