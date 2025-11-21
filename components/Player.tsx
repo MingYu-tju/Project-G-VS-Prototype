@@ -1,12 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide } from 'three';
-import { Trail } from '@react-three/drei';
+import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
 
-// Calculated Offset based on model hierarchy
-const MUZZLE_OFFSET = new Vector3(0.6, 1.6, 1.45);
+// Calculated Offset roughly where the gun barrel ends in the new model
+// Shoulder(0.65) + Arm offset + Gun Length
+const MUZZLE_OFFSET = new Vector3(0.85, 1.5, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- SOUND ---
@@ -48,26 +49,21 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
     groupRef.current.visible = groupRef.current.scale.z > 0.05;
   });
 
-  const rotationX = isAscending ? Math.PI / 2 - Math.PI / 3 : Math.PI / 2;
-
   return (
     <group ref={groupRef} position={offset}> 
-      <group rotation={[rotationX, 0, 0]}>
-        <group position={[0, 0.2, 0]}>
-            <mesh rotation={[0, Math.PI / 4, 0]}>
-                <planeGeometry args={[0.3, 2.0]} /> 
-                <meshBasicMaterial color="#00ffff" transparent opacity={0.7} side={DoubleSide} depthWrite={false} />
+       {/* Rotated to point backwards (Dash) or downwards (Ascend) */}
+       {/* isAscending ? Down (-Y) : Back (-Z) */}
+       {/* Default Geom is along +Z. Rot X 90 -> -Y. Rot X 180 -> -Z. */}
+       <group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
+            <mesh position={[0, 0, 0.8]}>
+                <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
+                <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
             </mesh>
-            <mesh rotation={[0, -Math.PI / 4, 0]}>
-                <planeGeometry args={[0.3, 2.0]} />
-                <meshBasicMaterial color="#00ffff" transparent opacity={0.7} side={DoubleSide} depthWrite={false} />
+             <mesh position={[0, 0, 0.5]}>
+                <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
+                <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
             </mesh>
-            <mesh position={[0, -0.8, 0]}> 
-                <cylinderGeometry args={[0.03, 0.01, 1.5, 8]} />
-                <meshBasicMaterial color="#e0ffff" transparent opacity={0.9} depthWrite={false} />
-            </mesh>
-        </group>
-      </group>
+       </group>
     </group>
   );
 };
@@ -634,8 +630,6 @@ export const Player: React.FC = () => {
             else {
                 // Free Fall / Walk
                 
-                // NOTE: Removed "Snap to ground on dash end" block here to allow natural fall
-                
                 if (isGrounded.current) {
                     if (moveDir) {
                         nextVisualState = 'WALK';
@@ -691,7 +685,6 @@ export const Player: React.FC = () => {
         if (!isGrounded.current) {
             isGrounded.current = true;
             // Trigger landing lag if we land (and we are not evading/stunned/dashing)
-            // We allow Landing Lag even if dashJustEnded is true (i.e. we landed immediately after dash)
             if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
                  landingFrames.current = getLandingLag(); 
             }
@@ -716,13 +709,8 @@ export const Player: React.FC = () => {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
         else if (isEvading.current) {
-             // During EVADE, do NOT rotate body to movement dir (strafing)
-             // If targeted, face target, else face generic forward
              if (currentTarget) {
                 meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
-             } else {
-                 // Maintain previous rotation or lock to camera?
-                 // Let's keep it looking where it was (don't update lookAt) OR look at 'virtual' front
              }
         }
         else if (isDashing.current) {
@@ -744,7 +732,7 @@ export const Player: React.FC = () => {
     // ==========================================
     
     if (!stunned && isShooting.current) {
-        shootTimer.current += 1 * timeScale; // Scale timer
+        shootTimer.current += 1 * timeScale; 
         
         if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
             hasFired.current = true;
@@ -815,25 +803,23 @@ export const Player: React.FC = () => {
         targetCamPos.z += (Math.random() - 0.5) * shakeAmount;
     }
 
-    camera.position.lerp(targetCamPos, 0.1 * timeScale); // Smooth cam slightly adjusted by time
+    camera.position.lerp(targetCamPos, 0.1 * timeScale);
     camera.lookAt(targetLookAt);
   });
 
   // Visual Colors
-  let meshColor = '#eee'; 
-  if (isStunned) meshColor = '#ffffff'; 
-  else if (isOverheated) meshColor = '#333'; 
-  else if (visualState === 'LANDING') meshColor = '#666'; 
+  let armorColor = '#eeeeee'; 
+  if (isStunned) armorColor = '#ffffff'; 
+  else if (isOverheated) armorColor = '#888888'; 
+  else if (visualState === 'LANDING') armorColor = '#aaaaaa'; 
 
   const engineColor = visualState === 'DASH' ? '#00ffff' : (visualState === 'ASCEND' ? '#ffaa00' : '#333');
   const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND';
   const isAscending = visualState === 'ASCEND';
   
-  // Align speed lines group to movement direction
   const speedLinesRef = useRef<Group>(null);
   useFrame(() => {
       if (speedLinesRef.current && isEvading.current) {
-           // Orient lines opposite to velocity
            const vel = velocity.current.clone().normalize();
            if (vel.lengthSq() > 0) {
                speedLinesRef.current.position.copy(position.current);
@@ -849,64 +835,243 @@ export const Player: React.FC = () => {
   return (
     <group>
       <mesh ref={meshRef} castShadow>
-          {/* LIFT VISUALS UP so Y=0 is feet */}
-          <group position={[0, 1, 0]}>
+          {/* MECH MODEL GROUP */}
+          <group position={[0, 1.1, 0]}> {/* Center of Waist */}
             
-            {/* Body */}
-            <mesh castShadow receiveShadow>
-                <boxGeometry args={[1, 2, 1]} />
-                <meshStandardMaterial color={meshColor} />
-            </mesh>
-            
-            {/* Head */}
-            <mesh position={[0, 1.2, 0]}>
-                <boxGeometry args={[0.6, 0.4, 0.6]} />
-                <meshStandardMaterial color="#333" />
-                <mesh position={[0, 0, 0.31]}>
-                    <planeGeometry args={[0.4, 0.15]} />
-                    <meshBasicMaterial color="#00ff00" />
-                </mesh>
+            {/* WAIST */}
+            <mesh position={[0, 0, 0]}>
+                <boxGeometry args={[0.6, 0.5, 0.5]} />
+                <meshToonMaterial color={armorColor} />
+                <Edges threshold={15} color="black" />
             </mesh>
 
-            {/* Weapon (Right Hand) */}
-            <group position={[0.6, 0.5, 0.5]}>
-                {/* Gun Body */}
-                <mesh>
-                    <boxGeometry args={[0.2, 0.3, 1.2]} />
-                    <meshStandardMaterial color="#555" />
-                </mesh>
-                {/* Barrel */}
-                <mesh position={[0, 0.1, 0.7]} rotation={[Math.PI/2, 0, 0]}>
-                    <cylinderGeometry args={[0.05, 0.05, 0.4]} />
-                    <meshStandardMaterial color="#222" />
-                </mesh>
-                
-                {/* Invisible Muzzle Marker */}
-                <group position={[0, 0.1, 0.95]} ref={muzzleRef}>
-                     <MuzzleFlash active={showMuzzleFlash} />
-                </group>
+            {/* CHEST */}
+            <group position={[0, 0.65, 0]}>
+                    <mesh>
+                        <boxGeometry args={[0.9, 0.7, 0.7]} />
+                        <meshToonMaterial color="#2244aa" /> 
+                        <Edges threshold={15} color="black" />
+                    </mesh>
+                    {/* Vents */}
+                    <mesh position={[0.35, 0.1, 0.36]}>
+                        <boxGeometry args={[0.15, 0.25, 0.05]} />
+                        <meshToonMaterial color="#ffaa00" />
+                        <Edges threshold={15} color="black" />
+                    </mesh>
+                    <mesh position={[-0.35, 0.1, 0.36]}>
+                        <boxGeometry args={[0.15, 0.25, 0.05]} />
+                        <meshToonMaterial color="#ffaa00" />
+                        <Edges threshold={15} color="black" />
+                    </mesh>
+
+                    {/* HEAD */}
+                    <group position={[0, 0.6, 0]}>
+                        <mesh>
+                            <boxGeometry args={[0.4, 0.4, 0.45]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        {/* V-Fin */}
+                        <group position={[0, 0.15, 0.23]}>
+                            <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
+                                <boxGeometry args={[0.3, 0.05, 0.02]} />
+                                <meshToonMaterial color="#ffaa00" />
+                            </mesh>
+                            <mesh rotation={[0, 0, -0.4]} position={[-0.15, 0.15, 0]}>
+                                <boxGeometry args={[0.3, 0.05, 0.02]} />
+                                <meshToonMaterial color="#ffaa00" />
+                            </mesh>
+                            <mesh position={[0, 0, 0]}>
+                                <boxGeometry args={[0.08, 0.08, 0.05]} />
+                                <meshToonMaterial color="#ff0000" />
+                            </mesh>
+                        </group>
+                        {/* Chin */}
+                        <mesh position={[0, -0.18, 0.23]}>
+                                <boxGeometry args={[0.1, 0.08, 0.05]} />
+                                <meshToonMaterial color="red" />
+                                <Edges threshold={15} color="black" />
+                        </mesh>
+                        {/* Eyes */}
+                        <mesh position={[0, 0.05, 0.21]}>
+                            <planeGeometry args={[0.25, 0.08]} />
+                            <meshBasicMaterial color="#00ff00" toneMapped={false} />
+                        </mesh>
+                    </group>
+
+                    {/* ARMS */}
+                    {/* Right Shoulder & Arm (Holding Gun) */}
+                    <group position={[0.65, 0.1, 0]}>
+                        <mesh>
+                            <boxGeometry args={[0.5, 0.5, 0.5]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        <group position={[0, -0.4, 0]}>
+                            <mesh>
+                                <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                <meshToonMaterial color="#444" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                            {/* Forearm */}
+                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                    <mesh>
+                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                    </mesh>
+                                    {/* GUN */}
+                                    <group position={[0, -0.2, 0.3]}>
+                                        <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
+                                            <boxGeometry args={[0.1, 0.2, 0.15]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+                                        <mesh position={[0, 0.2, 0.4]}>
+                                            <boxGeometry args={[0.15, 0.25, 1.0]} />
+                                            <meshToonMaterial color="#444" />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
+                                            <cylinderGeometry args={[0.04, 0.04, 0.6]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+                                        <mesh position={[0.05, 0.35, 0.2]}>
+                                            <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
+                                            <meshToonMaterial color="#222" />
+                                            <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
+                                                <circleGeometry args={[0.06]} />
+                                                <meshBasicMaterial color="#00ff00" />
+                                            </mesh>
+                                        </mesh>
+                                        <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
+                                            <MuzzleFlash active={showMuzzleFlash} />
+                                        </group>
+                                    </group>
+                            </group>
+                        </group>
+                    </group>
+
+                    {/* Left Shoulder & Arm (Shield) */}
+                    <group position={[-0.65, 0.1, 0]}>
+                        <mesh>
+                            <boxGeometry args={[0.5, 0.5, 0.5]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        <group position={[0, -0.4, 0]}>
+                            <mesh>
+                                <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                <meshToonMaterial color="#444" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                    <mesh>
+                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                    </mesh>
+                                    {/* SHIELD */}
+                                    <group position={[-0.2, 0, 0.1]} rotation={[0, 0, 0]}>
+                                        <mesh position={[0, 0.2, 0]}>
+                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        <mesh position={[-0.06, 0.2, 0]}>
+                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                            <meshToonMaterial color="#ffaa00" />
+                                        </mesh>
+                                    </group>
+                            </group>
+                        </group>
+                    </group>
+
+                    {/* BACKPACK */}
+                    <group position={[0, 0.2, -0.4]}>
+                        <mesh>
+                            <boxGeometry args={[0.7, 0.8, 0.4]} />
+                            <meshToonMaterial color="#333" />
+                            <Edges threshold={15} color="black" />
+                        </mesh>
+                        <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
+                                <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                <meshToonMaterial color="white" />
+                                <Edges threshold={15} color="black" />
+                        </mesh>
+                        <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
+                                <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                <meshToonMaterial color="white" />
+                                <Edges threshold={15} color="black" />
+                        </mesh>
+                        {/* Thruster Nozzles & Plumes */}
+                        <group position={[0.25, -0.8, -0.45]}>
+                                <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                                <meshToonMaterial color="#222" />
+                                <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                        </group>
+                        <group position={[-0.25, -0.8, -0.45]}>
+                                <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                                <meshToonMaterial color="#222" />
+                                <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                        </group>
+                    </group>
             </group>
 
-            {/* Backpack */}
-            <group position={[0, 0.5, -0.55]}>
-                <mesh>
-                    <boxGeometry args={[0.8, 1.2, 0.4]} />
-                    <meshStandardMaterial color="#444" />
-                </mesh>
-                <group position={[-0.25, -0.6, 0]}>
-                    <mesh rotation={[Math.PI/2, 0, 0]}>
-                        <cylinderGeometry args={[0.15, 0.2, 0.4]} />
-                        <meshStandardMaterial color="#222" />
+            {/* LEGS */}
+            {/* Right Leg */}
+            <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
+                    <mesh position={[0, -0.4, 0]}>
+                        <boxGeometry args={[0.35, 0.7, 0.4]} />
+                        <meshToonMaterial color={armorColor} />
+                        <Edges threshold={15} color="black" />
                     </mesh>
-                    <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.2, -0.5]} isAscending={isAscending} />
-                </group>
-                <group position={[0.25, -0.6, 0]}>
-                    <mesh rotation={[Math.PI/2, 0, 0]}>
-                        <cylinderGeometry args={[0.15, 0.2, 0.4]} />
-                        <meshStandardMaterial color="#222" />
+                    <group position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                        <mesh position={[0, -0.4, 0]}>
+                            <boxGeometry args={[0.35, 0.8, 0.45]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
+                                <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                <meshToonMaterial color={armorColor} />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                        </mesh>
+                        <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                            <mesh position={[0, -0.1, 0.1]}>
+                                <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                <meshToonMaterial color="red" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                        </group>
+                    </group>
+            </group>
+
+                {/* Left Leg */}
+            <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
+                    <mesh position={[0, -0.4, 0]}>
+                        <boxGeometry args={[0.35, 0.7, 0.4]} />
+                        <meshToonMaterial color={armorColor} />
+                        <Edges threshold={15} color="black" />
                     </mesh>
-                    <ThrusterPlume active={isDashingOrAscending} offset={[0, -0.2, -0.5]} isAscending={isAscending} />
-                </group>
+                    <group position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                        <mesh position={[0, -0.4, 0]}>
+                            <boxGeometry args={[0.35, 0.8, 0.45]} />
+                            <meshToonMaterial color={armorColor} />
+                            <Edges threshold={15} color="black" />
+                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
+                                <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                <meshToonMaterial color={armorColor} />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                        </mesh>
+                        <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                            <mesh position={[0, -0.1, 0.1]}>
+                                <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                <meshToonMaterial color="red" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                        </group>
+                    </group>
             </group>
             
             {/* Trails */}
@@ -918,7 +1083,7 @@ export const Player: React.FC = () => {
           </group>
       </mesh>
       
-      {/* Speed Lines Overlay Group - Detached from main mesh rotation to align with velocity */}
+      {/* Speed Lines Overlay */}
       <group ref={speedLinesRef}>
           <SpeedLines visible={visualState === 'EVADE'} />
       </group>

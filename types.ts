@@ -42,13 +42,13 @@ export const GLOBAL_CONFIG = {
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.25,
     ASCENT_SPEED: 0.38,
-    ASCENT_TURN_SPEED: 0.15, // New: Air steering speed (radians per frame)
+    ASCENT_TURN_SPEED: 0.05, // New: Air steering speed (radians per frame)
     
     // Dash
     DASH_BURST_SPEED: 0.7,
     DASH_SUSTAIN_SPEED: 0.4,
     DASH_DECAY_FACTOR: 0.05,
-    DASH_TURN_SPEED: 0.08,
+    DASH_TURN_SPEED: 0.06,
     DASH_GRACE_PERIOD: 80,
     DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
     DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
