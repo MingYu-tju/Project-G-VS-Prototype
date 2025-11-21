@@ -1,6 +1,7 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, DoubleSide } from 'three';
+import { Mesh, Vector3, DoubleSide, AdditiveBlending } from 'three';
 import { Projectile as ProjectileType, Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
 
@@ -79,19 +80,35 @@ export const Projectile: React.FC<Props> = ({ data }) => {
 
   const renderPos = hit && impactPos ? impactPos : data.position;
 
-  // Color based on team
-  const bulletColor = data.team === Team.RED ? "red" : "#4488ff";
-  const glowColor = data.team === Team.RED ? "#ff5555" : "#88bbff";
+  // Beam Colors
+  const isRed = data.team === Team.RED;
+  const glowColor = isRed ? "#ff2266" : "#00ffff"; // Pinkish Red vs Cyan
+  const coreColor = "#ffffff";
 
   return (
     <group position={renderPos}>
         {!hit ? (
             <mesh ref={meshRef}>
-                <boxGeometry args={[0.7, 0.7, 7]} /> 
-                <meshBasicMaterial color={bulletColor} />
-                <mesh scale={[1.2, 1.2, 1.02]}>
-                     <boxGeometry args={[0.3, 0.3, 4]} />
-                     <meshBasicMaterial color={glowColor} transparent opacity={0.5} />
+                {/* The mesh looks at the target, so Z is forward.
+                    Cylinders are Y-up by default. We rotate them X=90 to lie on Z.
+                */}
+                
+                {/* 1. Core Beam (High Intensity White Center) */}
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                    <cylinderGeometry args={[0.08, 0.08, 7, 8]} />
+                    <meshBasicMaterial color={coreColor} />
+                </mesh>
+
+                {/* 2. Beam Glow (Wide, Colored, Additive) */}
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                    <cylinderGeometry args={[0.4, 0.4, 7.5, 8]} />
+                    <meshBasicMaterial 
+                        color={glowColor} 
+                        transparent 
+                        opacity={0.5} 
+                        blending={AdditiveBlending} 
+                        depthWrite={false} 
+                    />
                 </mesh>
             </mesh>
         ) : (
