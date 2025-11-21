@@ -103,37 +103,28 @@ const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
 const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
     const groupRef = useRef<Group>(null);
     const LINE_COUNT = 6;
-    const MAX_DIST = 3;
-    const SPEED = 1.0; // Fast backward speed relative to player
-    const SPAWN_Z_OFFSET = 2.0; // Spawn behind the player center
+    const TRAIL_LENGTH = 3; // How far back they go
+    const LINE_GEOM_LENGTH = 3; // The visual length of the mesh
 
     useFrame(() => {
         if (!groupRef.current) return;
         groupRef.current.visible = visible;
         if (visible) {
-            groupRef.current.children.forEach((child: any) => {
-                // Move lines BACKWARDS (Local +Z)
-                // We lookAt the velocity direction, so -Z is forward. +Z is backward.
-                child.position.z += SPEED;
+            groupRef.current.children.forEach((child: any, i: number) => {
+                // Move lines BACKWARDS (negative Z relative to movement direction)
+                // This makes them streak behind the player
+                child.position.z -= 1.8;
                 
                 // Reset if too far back
-                if (child.position.z > MAX_DIST) {
-                    // Reset to just behind the player
-                    child.position.z = MathUtils.randFloat(SPAWN_Z_OFFSET, SPAWN_Z_OFFSET + 5); 
-                    
-                    // Tighter spread around the body width
-                    child.position.x = MathUtils.randFloat(-1.0, 1.0); 
-                    
-                    // Full height of the mech
-                    child.position.y = MathUtils.randFloat(0.5, 3.0); 
+                if (child.position.z < -TRAIL_LENGTH) {
+                    child.position.z = MathUtils.randFloat(0, 3); // Start slightly ahead/at player
+                    child.position.x = MathUtils.randFloat(-0.6, 0.6); // Tight horizontal spread
+                    child.position.y = MathUtils.randFloat(0.5, 2.5); // Height of the mech
                 }
                 
-                // Fade out based on distance
-                // Near spawn (2.0) = Opacity 0.8
-                // Near Max Dist (25.0) = Opacity 0
-                const distRatio = (child.position.z - SPAWN_Z_OFFSET) / (MAX_DIST - SPAWN_Z_OFFSET);
-                const opacity = Math.max(0, (1 - distRatio) * 0.8);
-                child.material.opacity = opacity;
+                // Fade out based on distance from center
+                const opacity = Math.max(0, 1 - (Math.abs(child.position.z) / TRAIL_LENGTH));
+                child.material.opacity = opacity * 0.6;
             });
         }
     });
@@ -144,14 +135,14 @@ const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
                  <mesh 
                     key={i} 
                     position={[
-                        MathUtils.randFloat(-1.0, 1.0), 
-                        MathUtils.randFloat(0.5, 3.0), 
-                        MathUtils.randFloat(SPAWN_Z_OFFSET, MAX_DIST) // Initial random spread
+                        MathUtils.randFloat(-0.6, 0.6), 
+                        MathUtils.randFloat(0.5, 2.5), 
+                        MathUtils.randFloat(-5, 0) // Initial scattered positions behind
                     ]} 
                     rotation={[Math.PI/2, 0, 0]}
                 >
-                     {/* Long thin lines */}
-                     <cylinderGeometry args={[0.02, 0.02, 8]} />
+                     {/* Much longer and thinner for 'fast' look */}
+                     <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
                      <meshBasicMaterial color="#ccffff" transparent opacity={0.6} depthWrite={false} />
                  </mesh>
             ))}
@@ -346,6 +337,13 @@ export const Player: React.FC = () => {
               dashReleaseTime.current = null; 
               currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
               consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
+
+              // GROUND DASH HOP MECHANIC
+              if (isGrounded.current) {
+                  // Give a smooth initial upward velocity
+                  velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
+                  isGrounded.current = false;
+              }
               
               const inputDir = getCameraRelativeInput();
               if (inputDir) {
@@ -359,7 +357,8 @@ export const Player: React.FC = () => {
               
               velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
               velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              velocity.current.y = 0;
+              
+              // Don't reset Y velocity if already in air, let it dampen naturally in update loop
             }
           }
           
@@ -570,8 +569,11 @@ export const Player: React.FC = () => {
                     }
                     velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
                     velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-                    if (position.current.y < 3.0) velocity.current.y = -0.05;
-                    else velocity.current.y = 0;
+                    
+                    // Apply strong damping to vertical velocity during dash to simulate hover/flight
+                    // This flattens out the initial hop smoothly
+                    velocity.current.y *= 0.85;
+
                 } else {
                     isDashing.current = false;
                     dashJustEnded = true;
@@ -585,55 +587,67 @@ export const Player: React.FC = () => {
                     
                     const currentPlanarSpeed = Math.sqrt(velocity.current.x**2 + velocity.current.z**2);
                     
-                    // SC / Inertia Handling: If moving fast, retain vector direction but allow slight steer
-                    if (currentPlanarSpeed > GLOBAL_CONFIG.WALK_SPEED * 1.1) {
-                        if (moveDir) {
-                             const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                    // UNIFIED STEERING LOGIC
+                    if (moveDir) {
+                         const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                         
+                         // If we have significant speed, steer by rotation
+                         if (currentPlanarSpeed > 0.01) {
                              const angle = moveDir.angleTo(currentVel);
-                             const axis = new Vector3().crossVectors(currentVel, moveDir).normalize();
-                             // Hard to turn while SC-ing
-                             const rotateAmount = Math.min(angle, 0.05 * timeScale); 
-                             currentVel.applyAxisAngle(axis, rotateAmount);
-                             velocity.current.x = currentVel.x;
-                             velocity.current.z = currentVel.z;
-                        }
-                        // Minimal Friction during SC to glide
-                        velocity.current.x *= Math.pow(0.98, timeScale);
-                        velocity.current.z *= Math.pow(0.98, timeScale);
+                             let axis = new Vector3().crossVectors(currentVel, moveDir).normalize();
+                             
+                             // Handle 180 degree turn case or parallel vectors
+                             if (axis.lengthSq() < 0.01) {
+                                if (angle > 1.0) axis = new Vector3(0, 1, 0); // Anti-parallel
+                             }
+
+                             if (axis.lengthSq() > 0.01) {
+                                 const rotateAmount = Math.min(angle, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
+                                 currentVel.applyAxisAngle(axis, rotateAmount);
+                             }
+                         } else {
+                             // From standstill, just point in direction (magnitude handled below)
+                             currentVel.copy(moveDir).multiplyScalar(0.01);
+                         }
+
+                         // Speed Management
+                         if (currentPlanarSpeed > GLOBAL_CONFIG.WALK_SPEED * 1.1) {
+                             // SC / High Speed Inertia (Decay slowly)
+                             velocity.current.x = currentVel.x * Math.pow(0.995, timeScale);
+                             velocity.current.z = currentVel.z * Math.pow(0.995, timeScale);
+                         } else {
+                             // Standard Ascent (Accelerate towards Walk Speed)
+                             // We want to smoothly transition to WALK_SPEED magnitude
+                             const newDir = currentVel.normalize();
+                             const newSpeed = MathUtils.lerp(currentPlanarSpeed, GLOBAL_CONFIG.WALK_SPEED, 0.2 * timeScale);
+                             
+                             velocity.current.x = newDir.x * newSpeed;
+                             velocity.current.z = newDir.z * newSpeed;
+                         }
                     } else {
-                        // Standard Ascent from standstill/walk
-                        if (moveDir) {
-                            velocity.current.x = moveDir.x * GLOBAL_CONFIG.WALK_SPEED;
-                            velocity.current.z = moveDir.z * GLOBAL_CONFIG.WALK_SPEED;
-                        } else {
-                            velocity.current.x *= Math.pow(0.9, timeScale);
-                            velocity.current.z *= Math.pow(0.9, timeScale);
-                        }
+                        // No Input - Air Friction
+                        velocity.current.x *= Math.pow(0.9, timeScale);
+                        velocity.current.z *= Math.pow(0.9, timeScale);
                     }
                 }
             }
             else {
                 // Free Fall / Walk
-                if (dashJustEnded && (isGrounded.current || position.current.y < 2.0)) {
-                    landingFrames.current = getLandingLag();
-                    nextVisualState = 'LANDING';
-                    velocity.current.set(0,0,0);
-                    position.current.y = 0; 
-                    isGrounded.current = true;
-                }
-                else if (isGrounded.current) {
+                
+                // NOTE: Removed "Snap to ground on dash end" block here to allow natural fall
+                
+                if (isGrounded.current) {
                     if (moveDir) {
                         nextVisualState = 'WALK';
                         velocity.current.x = moveDir.x * GLOBAL_CONFIG.WALK_SPEED;
                         velocity.current.z = moveDir.z * GLOBAL_CONFIG.WALK_SPEED;
                     } else {
-                        // Ground Friction/Stop
-                        // Fix: Instead of friction, we want instant stop if no input on ground (Arcade feel)
+                        // Ground Stop (Instant)
                         velocity.current.x = 0;
                         velocity.current.z = 0;
                     }
                 } else {
-                    // AIR DRIFT
+                    // AIR DRIFT (Free Fall)
                     if (moveDir) {
                         velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
                     }
@@ -644,7 +658,7 @@ export const Player: React.FC = () => {
             const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
             const frictionFactor = Math.pow(friction, timeScale);
             
-            // Don't apply heavy friction if we are SC-ing (Fast Ascend)
+            // Don't apply heavy friction if we are ASCENDING (handled inside ascend block)
             if (nextVisualState !== 'ASCEND') {
                  velocity.current.x *= frictionFactor;
                  velocity.current.z *= frictionFactor;
@@ -676,7 +690,9 @@ export const Player: React.FC = () => {
         position.current.y = 0;
         if (!isGrounded.current) {
             isGrounded.current = true;
-            if (!stunned && !isDashing.current && !dashJustEnded && nextVisualState !== 'EVADE') {
+            // Trigger landing lag if we land (and we are not evading/stunned/dashing)
+            // We allow Landing Lag even if dashJustEnded is true (i.e. we landed immediately after dash)
+            if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
                  landingFrames.current = getLandingLag(); 
             }
             if (isDashing.current) isDashing.current = false; 

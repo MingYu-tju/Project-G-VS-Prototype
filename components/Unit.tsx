@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, Group, MathUtils, DoubleSide } from 'three';
 import { Text, Html } from '@react-three/drei';
-import { Team, GLOBAL_CONFIG } from '../types';
+import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
 
 // Helper for Muzzle position
@@ -116,11 +116,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const [isStunned, setIsStunned] = useState(false);
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
 
-  // Access Store
+  // Access Store (We still use these for setup, but inside useFrame we use getState())
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
-  const playerPos = useGameStore(state => state.playerPos);
-  const targets = useGameStore(state => state.targets);
-
+  
   // FPS Limiter
   const clockRef = useRef(0);
 
@@ -163,6 +161,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return; 
     }
 
+    // --- CRITICAL: GET FRESH STATE DIRECTLY TO AVOID STALE CLOSURES ---
+    const freshState = useGameStore.getState();
+    const freshTargets = freshState.targets;
+    const freshPlayerPos = freshState.playerPos;
+
     // --- AI: TARGET SELECTION ---
     targetSwitchTimer.current -= FRAME_DURATION; // Use fixed step
     if (targetSwitchTimer.current <= 0) {
@@ -172,9 +175,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         const potentialTargets = [];
         if (team === Team.RED) {
             potentialTargets.push('player');
-            targets.forEach(t => { if (t.team === Team.BLUE) potentialTargets.push(t.id); });
+            freshTargets.forEach(t => { if (t.team === Team.BLUE) potentialTargets.push(t.id); });
         } else {
-            targets.forEach(t => { if (t.team === Team.RED) potentialTargets.push(t.id); });
+            freshTargets.forEach(t => { if (t.team === Team.RED) potentialTargets.push(t.id); });
         }
         
         if (potentialTargets.length > 0) {
@@ -185,8 +188,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     const getTargetPos = (): Vector3 | null => {
-        if (localTargetId.current === 'player') return playerPos.clone();
-        const t = targets.find(t => t.id === localTargetId.current);
+        if (localTargetId.current === 'player') return freshPlayerPos.clone();
+        const t = freshTargets.find(t => t.id === localTargetId.current);
         return t ? t.position.clone() : null;
     };
 
@@ -307,8 +310,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 
                 const tPos = getTargetPos();
                 let direction = new Vector3(0,0,1).applyQuaternion(unitRotation);
+                let isRedLock = false;
+
                 if (tPos) {
-                    direction = tPos.sub(spawnPos).normalize();
+                    direction = tPos.clone().sub(spawnPos).normalize();
+                    // CHECK RED LOCK DISTANCE WITH FRESH POS
+                    const dist = position.current.distanceTo(tPos);
+                    isRedLock = dist < RED_LOCK_DISTANCE;
                 }
                 
                 const forwardDir = direction.clone();
@@ -320,7 +328,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     position: spawnPos,
                     velocity: direction.multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED),
                     forwardDirection: forwardDir,
-                    isHoming: true, 
+                    isHoming: isRedLock, // Use Calculated Red Lock State
                     team: team,
                     ttl: 300
                 });

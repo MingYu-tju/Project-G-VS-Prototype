@@ -21,7 +21,7 @@ export enum LockState {
   RED = 'RED' // Close, tracking active
 }
 
-export const RED_LOCK_DISTANCE = 50;
+export const RED_LOCK_DISTANCE = 55;
 
 export interface Projectile {
   id: string;
@@ -42,6 +42,7 @@ export const GLOBAL_CONFIG = {
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.25,
     ASCENT_SPEED: 0.38,
+    ASCENT_TURN_SPEED: 0.15, // New: Air steering speed (radians per frame)
     
     // Dash
     DASH_BURST_SPEED: 0.7,
@@ -50,6 +51,7 @@ export const GLOBAL_CONFIG = {
     DASH_TURN_SPEED: 0.08,
     DASH_GRACE_PERIOD: 80,
     DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
+    DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
 
     // Evade (Step)
     EVADE_SPEED: 0.4,          // Faster than dash burst
