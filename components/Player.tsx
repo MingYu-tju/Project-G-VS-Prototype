@@ -7,7 +7,8 @@ import { Team, LockState, GLOBAL_CONFIG } from '../types';
 
 // Calculated Offset roughly where the gun barrel ends in the new model
 // Shoulder(0.65) + Arm offset + Gun Length
-const MUZZLE_OFFSET = new Vector3(0.85, 1.5, 2.5);
+// Adjusted Y from 1.5 to 2.4 to match new model height
+const MUZZLE_OFFSET = new Vector3(0.85, 2.4, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- SOUND ---
@@ -780,20 +781,24 @@ export const Player: React.FC = () => {
     // 5. CAMERA (Unified)
     // ==========================================
     
-    let targetCamPos = position.current.clone().add(new Vector3(0, 6, 14)); 
-    let targetLookAt = position.current.clone();
+    // Update camera offset to account for taller model
+    let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); // Raised Y slightly from 6
+    let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); // Look at waist/chest, not feet
 
     if (currentTarget) {
         const pToT = new Vector3().subVectors(currentTarget.position, position.current);
         const dir = pToT.normalize();
         const camOffsetDist = 10;
-        const camHeight = 5;
-        targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, camHeight, 0));
+        // const camHeight = 5; // (implicit)
+        
+        // Raised camera height for lock-on slightly
+        targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, 6, 0));
+        
         targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3);
-        targetLookAt.y += 1;
+        targetLookAt.y += 2.0; // Look higher (at chest level)
     } else {
-        targetCamPos = position.current.clone().add(new Vector3(0, 5, 10));
-        targetLookAt = position.current.clone();
+        targetCamPos = position.current.clone().add(new Vector3(0, 6, 10)); // Standard follow cam
+        targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
     }
 
     if (stunned) {
@@ -836,7 +841,8 @@ export const Player: React.FC = () => {
     <group>
       <mesh ref={meshRef} castShadow>
           {/* MECH MODEL GROUP */}
-          <group position={[0, 1.1, 0]}> {/* Center of Waist */}
+          {/* ADJUSTED POSITION Y FROM 1.1 TO 2.0 TO PREVENT CLIPPING */}
+          <group position={[0, 2.0, 0]}> {/* Center of Waist */}
             
             {/* WAIST */}
             <mesh position={[0, 0, 0]}>
@@ -853,16 +859,52 @@ export const Player: React.FC = () => {
                         <Edges threshold={15} color="black" />
                     </mesh>
                     {/* Vents */}
-                    <mesh position={[0.35, 0.1, 0.36]}>
-                        <boxGeometry args={[0.15, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <mesh position={[-0.35, 0.1, 0.36]}>
-                        <boxGeometry args={[0.15, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
+
+                    {/* Vent (Right Side) */}
+        <group position={[0.28, 0.1, 0.36]}>
+    {/* Yellow housing block */}
+    <mesh>
+        <boxGeometry args={[0.35, 0.25, 0.05]} />
+        <meshToonMaterial color="#ffaa00" />
+        <Edges threshold={15} color="black" />
+    </mesh>
+
+    {/* Dark internal grills */}
+    {[...Array(5)].map((_, index) => (
+        <mesh
+            key={index}
+            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+        >
+            <boxGeometry args={[0.33, 0.02, 0.02]} />
+            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+        </mesh>
+    ))}
+    
+</group>
+
+                    {/* Vent (Right Side) */}
+        <group position={[-0.28, 0.1, 0.36]}>
+    {/* Yellow housing block */}
+    <mesh>
+        <boxGeometry args={[0.35, 0.25, 0.05]} />
+        <meshToonMaterial color="#ffaa00" />
+        <Edges threshold={15} color="black" />
+    </mesh>
+
+    {/* Dark internal grills */}
+    {[...Array(5)].map((_, index) => (
+        <mesh
+            key={index}
+            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+        >
+            <boxGeometry args={[0.33, 0.02, 0.02]} />
+            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+        </mesh>
+    ))}
+    
+</group>
+
+
 
                     {/* HEAD */}
                     <group position={[0, 0.6, 0]}>
@@ -892,8 +934,40 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color="red" />
                                 <Edges threshold={15} color="black" />
                         </mesh>
+                        
+                        {/* "Citroën" Face Vents (The 100-degree obtuse V-slits) */}
+                        <group position={[0, -0.06, 0.235]}>
+                            {/* Top V */}
+                            <group position={[0, 0.025, 0]}>
+                                {/* Right Stroke (\) */}
+                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                                {/* Left Stroke (/) */}
+                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                            </group>
+                            
+                            {/* Bottom V */}
+                            <group position={[0, -0.025, 0]}>
+                                {/* Right Stroke (\) */}
+                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                                {/* Left Stroke (/) */}
+                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                            </group>
+                        </group>
+
                         {/* Eyes */}
-                        <mesh position={[0, 0.05, 0.21]}>
+                        <mesh position={[0, 0.05, 0.226]}>
                             <planeGeometry args={[0.25, 0.08]} />
                             <meshBasicMaterial color="#00ff00" toneMapped={false} />
                         </mesh>

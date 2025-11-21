@@ -5,8 +5,8 @@ import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
 
-// Muzzle Offset matched to new model
-const MUZZLE_OFFSET = new Vector3(0.85, 1.5, 2.5);
+// Muzzle Offset matched to new model height (Adjusted Y from 1.5 to 2.4)
+const MUZZLE_OFFSET = new Vector3(0.85, 2.4, 2.5);
 const FRAME_DURATION = 1 / 60;
 
 // --- VISUALS ---
@@ -432,7 +432,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
-         <group position={[0, 1.1, 0]}> {/* Waist Center */}
+         {/* ADJUSTED POSITION Y FROM 1.1 TO 2.0 TO PREVENT CLIPPING */}
+         <group position={[0, 2.0, 0]}> {/* Waist Center */}
             
             {/* WAIST */}
             <mesh position={[0, 0, 0]}>
@@ -448,17 +449,52 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         <meshToonMaterial color={chestColor} /> 
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    {/* Vents */}
-                    <mesh position={[0.35, 0.1, 0.36]}>
-                        <boxGeometry args={[0.15, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <mesh position={[-0.35, 0.1, 0.36]}>
-                        <boxGeometry args={[0.15, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
+                   {/* Vents */}
+
+                    {/* Vent (Right Side) */}
+        <group position={[0.28, 0.1, 0.36]}>
+    {/* Yellow housing block */}
+    <mesh>
+        <boxGeometry args={[0.35, 0.25, 0.05]} />
+        <meshToonMaterial color="#ffaa00" />
+        <Edges threshold={15} color="black" />
+    </mesh>
+
+    {/* Dark internal grills */}
+    {[...Array(5)].map((_, index) => (
+        <mesh
+            key={index}
+            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+        >
+            <boxGeometry args={[0.33, 0.02, 0.02]} />
+            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+        </mesh>
+    ))}
+    
+</group>
+
+                    {/* Vent (Right Side) */}
+        <group position={[-0.28, 0.1, 0.36]}>
+    {/* Yellow housing block */}
+    <mesh>
+        <boxGeometry args={[0.35, 0.25, 0.05]} />
+        <meshToonMaterial color="#ffaa00" />
+        <Edges threshold={15} color="black" />
+    </mesh>
+
+    {/* Dark internal grills */}
+    {[...Array(5)].map((_, index) => (
+        <mesh
+            key={index}
+            position={[0, 0.12 - index * 0.05, 0.03]} // vertical spacing
+        >
+            <boxGeometry args={[0.33, 0.02, 0.02]} />
+            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+        </mesh>
+    ))}
+    
+</group>
+
 
                     {/* HEAD */}
                     <group position={[0, 0.6, 0]}>
@@ -478,8 +514,46 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <meshToonMaterial color="#ffaa00" />
                             </mesh>
                         </group>
+                        {/* Chin */}
+                        <mesh position={[0, -0.18, 0.23]}>
+                                <boxGeometry args={[0.1, 0.08, 0.05]} />
+                                <meshToonMaterial color="red" />
+                                <Edges threshold={15} color="black" />
+                        </mesh>
+
+                        {/* "Citroën" Face Vents (The 100-degree obtuse V-slits) */}
+                        <group position={[0, -0.06, 0.235]}>
+                            {/* Top V */}
+                            <group position={[0, 0.025, 0]}>
+                                {/* Right Stroke (\) */}
+                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                                {/* Left Stroke (/) */}
+                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                            </group>
+                            
+                            {/* Bottom V */}
+                            <group position={[0, -0.025, 0]}>
+                                {/* Right Stroke (\) */}
+                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                                {/* Left Stroke (/) */}
+                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
+                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                        <meshBasicMaterial color="#111" />
+                                </mesh>
+                            </group>
+                        </group>
+
                         {/* Eye Sensor */}
-                        <mesh position={[0, 0.05, 0.21]}>
+                        <mesh position={[0, 0.05, 0.226]}>
                             <planeGeometry args={[0.25, 0.08]} />
                             <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
                         </mesh>
@@ -657,7 +731,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             
          </group>
       </group>
-      <Html position={[0, 3.2, 0]} center style={{ pointerEvents: 'none' }}>
+      {/* ADJUSTED NAME TAG HEIGHT FROM 3.2 TO 4.2 */}
+      <Html position={[0, 4.2, 0]} center style={{ pointerEvents: 'none' }}>
         <div className={`text-xs font-bold px-2 py-0.5 rounded border whitespace-nowrap ${
               isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
             }`}>
