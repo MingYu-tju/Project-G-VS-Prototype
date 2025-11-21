@@ -7,5 +7,5 @@ export default defineConfig({
   // IMPORTANT: Change this to your repo name if deploying to https://<USERNAME>.github.io/<REPO>/
   // e.g. base: '/my-game-repo/'
   // If deploying to https://<USERNAME>.github.io/, keep it as '/'
-  base: '/Project-G-VS-Prototype/', 
+  base: './', 
 })
