@@ -148,17 +148,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => {
       const nextProjectiles = state.projectiles
         .map(p => {
-          // 1. Move Projectile
+          // 1. Move Projectile (Velocity is total movement vector)
           const newPos = p.position.clone().add(p.velocity);
           
-          // 2. Homing Logic (Steering)
           let newVel = p.velocity.clone();
           let isStillHoming = p.isHoming;
 
           if (p.isHoming && p.targetId) {
-            // Resolve target (Player or Entity)
             let targetPos: Vector3 | null = null;
-            
             if (p.targetId === 'player') {
                 targetPos = state.playerPos.clone();
             } else {
@@ -167,45 +164,45 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
 
             if (targetPos) {
-               const dirToTarget = targetPos.sub(newPos).normalize();
-               const currentDir = p.velocity.clone().normalize();
-               const currentSpeed = p.velocity.length();
+               // FIX: Aim at chest height (1.5) instead of feet (0)
+               const aimTargetPos = targetPos.clone().add(new Vector3(0, 0, 0));
+                
+               const dirToTarget = aimTargetPos.sub(newPos).normalize();
+               const fwd = p.forwardDirection.clone().normalize();
                
-               // Dot Check for pass-through
+               // Stop homing if we passed the target (dot product check)
+               const currentDir = p.velocity.clone().normalize();
                const dot = currentDir.dot(dirToTarget);
 
                if (dot < 0) {
                    isStillHoming = false;
                } else {
-                   // Separate Horizontal and Vertical Steering (Spherical Coordinates)
+                   // --- DRIFT HOMING LOGIC ---
+                   // Instead of rotating, we add Lateral Velocity towards the target.
+                   // Multipliers adjusted to feel right as a "force" rather than "rotation speed"
+                   const hRate = GLOBAL_CONFIG.HOMING_TURN_RATE_HORIZONTAL * 5.0; 
+                   const vRate = GLOBAL_CONFIG.HOMING_TURN_RATE_VERTICAL * 5.0;
+
+                   // Apply drift force towards target
+                   newVel.x += dirToTarget.x * hRate;
+                   newVel.z += dirToTarget.z * hRate;
+                   newVel.y += dirToTarget.y * vRate;
+
+                   // CONSTRAIN FORWARD SPEED
+                   // Decompose new velocity into Forward Component and Lateral Component
                    
-                   // Current Angles
-                   const currentYaw = Math.atan2(currentDir.z, currentDir.x);
-                   const currentPitch = Math.asin(MathUtils.clamp(currentDir.y, -1, 1));
-
-                   // Target Angles
-                   const targetYaw = Math.atan2(dirToTarget.z, dirToTarget.x);
-                   const targetPitch = Math.asin(MathUtils.clamp(dirToTarget.y, -1, 1));
-
-                   // Yaw Interpolation (Horizontal)
-                   let deltaYaw = targetYaw - currentYaw;
-                   // Wrap angle to [-PI, PI]
-                   while (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
-                   while (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
+                   // 1. Project onto forward axis
+                   const currentForwardSpeed = newVel.dot(fwd);
+                   // 2. Rebuild forward component to be exactly GLOBAL_CONFIG.BULLET_SPEED
+                   //    This ensures the bullet travels "forward" at a constant rate relative to its rotation.
+                   const fixedForwardVel = fwd.clone().multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED);
                    
-                   const newYaw = currentYaw + deltaYaw * GLOBAL_CONFIG.HOMING_TURN_RATE_HORIZONTAL;
-
-                   // Pitch Interpolation (Vertical)
-                   const deltaPitch = targetPitch - currentPitch;
-                   const newPitch = currentPitch + deltaPitch * GLOBAL_CONFIG.HOMING_TURN_RATE_VERTICAL;
-
-                   // Reconstruct Velocity Vector
-                   const cosPitch = Math.cos(newPitch);
-                   const newDirX = cosPitch * Math.cos(newYaw);
-                   const newDirY = Math.sin(newPitch);
-                   const newDirZ = cosPitch * Math.sin(newYaw);
+                   // 3. Get existing lateral component (remove the old forward speed part)
+                   //    We subtract the projection of the new velocity on forward axis
+                   const lateralVel = newVel.clone().sub(fwd.clone().multiplyScalar(currentForwardSpeed));
                    
-                   newVel.set(newDirX, newDirY, newDirZ).multiplyScalar(currentSpeed);
+                   // 4. Recombine: Fixed Forward + Accumulated Lateral
+                   newVel = fixedForwardVel.add(lateralVel);
                }
             }
           }

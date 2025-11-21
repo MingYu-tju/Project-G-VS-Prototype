@@ -30,7 +30,9 @@ export const Projectile: React.FC<Props> = ({ data }) => {
 
     if (!meshRef.current) return;
     
-    const lookAtPos = data.position.clone().add(data.velocity);
+    // CHANGED: Look along the FIXED forward direction, not the drifting velocity vector
+    // This gives the "sliding/strafing" bullet effect common in mech games.
+    const lookAtPos = data.position.clone().add(data.forwardDirection);
     meshRef.current.lookAt(lookAtPos);
 
     // --- COLLISION DETECTION ---

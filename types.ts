@@ -28,53 +28,57 @@ export interface Projectile {
   targetId: string | null;
   position: Vector3;
   velocity: Vector3;
+  forwardDirection: Vector3; // New: The fixed facing direction of the bullet model
   isHoming: boolean;
   team: Team;
   ttl: number; // Time To Live (frames)
 }
 
+
+
 // --- GLOBAL CONFIGURATION ---
 export const GLOBAL_CONFIG = {
     // Movement
-    BOUNDARY_LIMIT: 60,
-    WALK_SPEED: 0.08,
-    ASCENT_SPEED: 0.21,
+    BOUNDARY_LIMIT: 80,
+    WALK_SPEED: 0.25,
+    ASCENT_SPEED: 0.38,
     
     // Dash
-    DASH_BURST_SPEED: 0.4,
-    DASH_SUSTAIN_SPEED: 0.20,
+    DASH_BURST_SPEED: 0.7,
+    DASH_SUSTAIN_SPEED: 0.4,
     DASH_DECAY_FACTOR: 0.05,
-    DASH_TURN_SPEED: 0.02,
+    DASH_TURN_SPEED: 0.05,
     DASH_GRACE_PERIOD: 80,
+    DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
 
     // Physics
-    GRAVITY: 0.004,
+    GRAVITY: 0.018,
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
     
     // Boost
-    BOOST_CONSUMPTION_DASH_INIT: 8,
-    BOOST_CONSUMPTION_DASH_HOLD: 0.25,
-    BOOST_CONSUMPTION_ASCENT: 0.3,
+    BOOST_CONSUMPTION_DASH_INIT: 7,
+    BOOST_CONSUMPTION_DASH_HOLD: 0.5,
+    BOOST_CONSUMPTION_ASCENT: 0.62,
 
     // Combat / Weapons
-    BULLET_SPEED: 0.7, // Increased slightly from 0.5 for better feel
-    HOMING_TURN_RATE_HORIZONTAL: 0.03, // Stronger horizontal tracking
-    HOMING_TURN_RATE_VERTICAL: 0.06,   // Weaker vertical tracking
+    BULLET_SPEED: 1.68, // Increased slightly from 0.5 for better feel
+    HOMING_TURN_RATE_HORIZONTAL: 0.02, // Stronger horizontal tracking
+    HOMING_TURN_RATE_VERTICAL: 0.02,   // Weaker vertical tracking
     MAX_AMMO: 20,
-    AMMO_REGEN_TIME: 2.0, // Seconds per shot
+    AMMO_REGEN_TIME: 2.5, // Seconds per shot
     
     // Shooting Animation (Frames @ 60fps)
     // Total time = Startup + Recovery
-    SHOT_STARTUP_FRAMES: 20,
-    SHOT_RECOVERY_FRAMES: 30,
+    SHOT_STARTUP_FRAMES: 8,
+    SHOT_RECOVERY_FRAMES: 12,
     
     // Hit Response
     KNOCKBACK_DURATION: 350, // ms
-    KNOCKBACK_SPEED: 0.1,
+    KNOCKBACK_SPEED: 0.2,
     
     // Landing Lag (Frames)
-    LANDING_LAG_MIN: 30,
-    LANDING_LAG_MAX: 60,
-    LANDING_LAG_OVERHEAT: 90,
+    LANDING_LAG_MIN: 12,
+    LANDING_LAG_MAX: 25,
+    LANDING_LAG_OVERHEAT: 38,
 };

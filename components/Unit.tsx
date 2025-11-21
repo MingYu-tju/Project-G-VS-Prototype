@@ -7,6 +7,7 @@ import { useGameStore } from '../store';
 
 // Helper for Muzzle position
 const MUZZLE_OFFSET = new Vector3(0.6, 1.6, 1.45);
+const FRAME_DURATION = 1 / 60;
 
 // --- VISUALS ---
 const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
@@ -119,8 +120,16 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const playerPos = useGameStore(state => state.playerPos);
   const targets = useGameStore(state => state.targets);
 
+  // FPS Limiter
+  const clockRef = useRef(0);
+
   useFrame((state, delta) => {
     if (!groupRef.current || !rotateGroupRef.current) return;
+
+    // --- FPS LIMITER ---
+    clockRef.current += delta;
+    if (clockRef.current < FRAME_DURATION) return;
+    clockRef.current = 0;
 
     // --- CHECK STUN ---
     const now = Date.now();
@@ -140,7 +149,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             velocity.current.y = 0;
         }
 
-        // Circular Boundary Clamp
+        // --- FIX: Circular Boundary Clamp for Knockback ---
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         if (currentRadiusSq > maxRadius * maxRadius) {
@@ -154,7 +163,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     // --- AI: TARGET SELECTION ---
-    targetSwitchTimer.current -= delta;
+    targetSwitchTimer.current -= FRAME_DURATION; // Use fixed step
     if (targetSwitchTimer.current <= 0) {
         targetSwitchTimer.current = MathUtils.randFloat(3, 6); 
         
@@ -178,7 +187,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     };
 
     // --- AI: SHOOTING TRIGGER ---
-    shootCooldown.current -= delta;
+    shootCooldown.current -= FRAME_DURATION;
     
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
         if (Math.random() < 0.02) { 
@@ -191,7 +200,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     // --- AI: DECISION ---
-    aiTimer.current -= delta * 1000;
+    aiTimer.current -= FRAME_DURATION * 1000; // Use fixed step
 
     if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
         aiState.current = 'IDLE';
@@ -269,6 +278,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 if (tPos) {
                     direction = tPos.sub(spawnPos).normalize();
                 }
+                
+                const forwardDir = direction.clone();
 
                 spawnProjectile({
                     id: `proj-${id}-${Date.now()}`,
@@ -276,6 +287,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     targetId: localTargetId.current,
                     position: spawnPos,
                     velocity: direction.multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED),
+                    forwardDirection: forwardDir,
                     isHoming: true, 
                     team: team,
                     ttl: 300
@@ -318,7 +330,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
         position.current.add(velocity.current);
         
-        // --- CIRCULAR BOUNDARY CHECK ---
+        // --- FIX: Circular Boundary Clamp for Normal Movement ---
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0; 
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         
@@ -341,10 +353,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
+    // Sync Store
     useGameStore.getState().updateTargetPosition(id, position.current.clone());
 
+    // 3. VISUAL UPDATE
     groupRef.current.position.copy(position.current);
 
+    // Rotation Logic
     if (aiState.current === 'SHOOTING') {
         const tPos = getTargetPos();
         if (tPos) {
