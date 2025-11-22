@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion } from 'three';
@@ -206,7 +205,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
              aiState.current = 'SHOOTING';
              shootSequence.current = 0;
-             const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+             
+             // --- CHANGED: Dynamic Total Frames calculation for AI ---
+             const currentRecovery = shootMode.current === 'STOP' 
+                ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+             const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
+             
              aiTimer.current = (totalFrames / 60) * 1000; 
              shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
         }
@@ -277,7 +282,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
             }
             
-            const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+            const currentRecovery = shootMode.current === 'STOP' 
+                ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+            const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
+
             const totalDurationMs = (totalFrames / 60) * 1000;
             const elapsedMs = totalDurationMs - aiTimer.current;
             const elapsedFrames = (elapsedMs / 1000) * 60;
@@ -457,13 +466,17 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const defaultForward = new Vector3(0, -1, 0.2).normalize();
                  const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
                  
-                 const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                 // --- CHANGED: Dynamic Recovery for AI Aiming ---
+                 const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+                 const recovery = shootMode.current === 'STOP' 
+                    ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                    : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                 const totalFrames = startup + recovery;
+
                  const totalDurationMs = (totalFrames / 60) * 1000;
                  const elapsedMs = totalDurationMs - aiTimer.current;
                  const elapsedFrames = (elapsedMs / 1000) * 60;
                  
-                 const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
-                 const recovery = GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
                  const identity = new Quaternion();
 
                  if (elapsedFrames < startup) {

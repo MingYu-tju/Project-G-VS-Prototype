@@ -1,7 +1,9 @@
+
 import React from 'react';
 import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
 import { MobileControls } from './components/MobileControls';
+import { GamepadControls } from './components/GamepadControls';
 
 function App() {
   return (
@@ -20,8 +22,10 @@ function App() {
       <div className="absolute inset-0 z-20 pointer-events-none">
         <MobileControls />
       </div>
+
+      {/* Gamepad Input Listener */}
+      <GamepadControls />
       
-      {/* Simple Overlay if no WebGL support (optional, keeping it clean for now) */}
     </div>
   );
 }

@@ -123,8 +123,9 @@ export const GLOBAL_CONFIG = {
     
     // Shooting Animation (Frames @ 60fps)
     // Total time = Startup + Recovery
-    SHOT_STARTUP_FRAMES: 8,
-    SHOT_RECOVERY_FRAMES: 12,
+    SHOT_STARTUP_FRAMES: 12,
+    SHOT_RECOVERY_FRAMES: 60,       // Normal Recovery (Move Shot)
+    SHOT_RECOVERY_FRAMES_STOP: 25,  // NEW: Recovery for Stop Shot (Usually faster or distinct)
     
     // Hit Response
     KNOCKBACK_DURATION: 350, // ms

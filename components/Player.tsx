@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4 } from 'three';
@@ -363,6 +362,14 @@ export const Player: React.FC = () => {
           }
     
           keys.current[key] = true;
+          
+          // --- SPACE: Jump & Cancel Dash ---
+          if (key === ' ') {
+               // Pressing jump explicitly cancels dash state (Jump Cancel)
+               if (isDashing.current) {
+                   isDashing.current = false;
+               }
+          }
     
           if (key === 'j') {
                if (!isShooting.current && !isEvading.current && landingFrames.current <= 0 && !isStunned) {
@@ -386,12 +393,14 @@ export const Player: React.FC = () => {
                           toTarget.normalize();
     
                           const dot = playerDir.dot(toTarget);
-                          isFrontal = dot >= 0;
+                          isFrontal = dot >= -0.307;
                        }
     
                        shootMode.current = isFrontal ? 'MOVE' : 'STOP';
-    
-                       if (isDashing.current) {
+                       
+                       // ONLY cancel dash if it is a STOP shot.
+                       // Move shots should continue the dash momentum.
+                       if (shootMode.current === 'STOP' && isDashing.current) {
                            isDashing.current = false;
                        }
                    }
@@ -405,6 +414,7 @@ export const Player: React.FC = () => {
                   isEvading.current = false;
                   evadeTimer.current = 0;
               }
+              // Dash cancels shooting recoil instantly
               if (isShooting.current) {
                   isShooting.current = false;
                   shootTimer.current = 0;
@@ -567,40 +577,14 @@ export const Player: React.FC = () => {
                 }
             }
         }
-        else if (isDashing.current) {
-            if (isOverheated || boost <= 0) {
-                isDashing.current = false;
-            }
-            else if (spaceHeld && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
-                isDashing.current = false;
-            }
-            else {
-                if (hasMoveInput) {
-                    dashReleaseTime.current = null;
-                } else {
-                    if (dashReleaseTime.current === null) {
-                        dashReleaseTime.current = now;
-                    }
-                    if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
-                        isDashing.current = false;
-                    }
-                }
-            }
-        }
-
-        if (nextVisualState === 'EVADE') {
-        }
-        else if (isShooting.current) {
+        // --- SHOOTING STATE LOGIC ---
+        // If shooting AND stop-mode, we freeze movement.
+        // If shooting AND move-mode, we fall through to DASH/ASCEND/WALK logic.
+        else if (isShooting.current && shootMode.current === 'STOP') {
             nextVisualState = 'SHOOT';
-            if (shootMode.current === 'STOP') {
-                velocity.current.set(0, 0, 0); 
-            } else {
-                const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-                const frictionFactor = Math.pow(friction, timeScale);
-                velocity.current.x *= frictionFactor;
-                velocity.current.z *= frictionFactor;
-                velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
-            }
+            velocity.current.set(0, 0, 0);
+            // Apply gravity if in air? Usually stop-shot halts gravity too (Vernier) or falls slowly.
+            // For Vernier effect, we set 0.
         }
         else if (landingFrames.current > 0) {
             velocity.current.set(0, 0, 0);
@@ -612,21 +596,54 @@ export const Player: React.FC = () => {
             }
         } 
         else {
+            // MOVEMENT LOGIC (DASH / ASCEND / WALK)
+            
             if (isDashing.current) {
-                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale)) {
+                if (isOverheated || boost <= 0) {
+                    isDashing.current = false;
+                }
+                else if (spaceHeld && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
+                    // Jump Cancel (Note: also handled in KeyDown, but safety check here)
+                    isDashing.current = false;
+                }
+                else {
+                    // --- COASTING LOGIC FIX ---
+                    // If we are already coasting (released keys), ignore input for sustaining state.
+                    if (dashReleaseTime.current !== null) {
+                         if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
+                             isDashing.current = false;
+                         }
+                    } else {
+                         // Sustaining Mode
+                         if (!hasMoveInput) {
+                             // Keys released, start coasting
+                             dashReleaseTime.current = now;
+                         }
+                         // If keys held, continue sustaining (dashReleaseTime remains null)
+                    }
+                }
+            }
+
+            // --- APPLY PHYSICS BASED ON STATE ---
+
+            if (isDashing.current) {
+                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale)) {
                     nextVisualState = 'DASH';
                     currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
-                    if (moveDir) {
+                    
+                    // STEERING LOGIC
+                    // Only steer if we are SUSTAINING (not coasting)
+                    if (moveDir && dashReleaseTime.current === null) {
                         const angle = moveDir.angleTo(dashDirection.current);
                         const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
                         const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
                         dashDirection.current.applyAxisAngle(axis, rotateAmount);
                         dashDirection.current.normalize();
                     }
+                    
                     velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
                     velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-                    velocity.current.y *= 0.85;
-
+                    velocity.current.y *= 0.85; // Flatten flight
                 } else {
                     isDashing.current = false;
                 }
@@ -636,9 +653,7 @@ export const Player: React.FC = () => {
                     nextVisualState = 'ASCEND';
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                     
-                    // PURE INERTIA LOGIC: 
-                    // Do NOT apply horizontal velocity from inputs during ascent.
-                    // Just decay existing momentum very slowly to simulate gliding/flying with inertia.
+                    // PURE INERTIA LOGIC for Ascent
                     velocity.current.x *= Math.pow(0.995, timeScale);
                     velocity.current.z *= Math.pow(0.995, timeScale);
                 }
@@ -648,13 +663,10 @@ export const Player: React.FC = () => {
                 if (isGrounded.current) {
                     if (moveDir) {
                         nextVisualState = 'WALK';
-                        
-                        // Smooth Steering Logic
                         const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
                         const speed = currentVel.length();
-
+                        
                         // Smooth Steering Logic
-                        // 获取当前的基准方向：如果有速度则用速度方向，如果是静止则用机体当前朝向
                         let effectiveDir = currentVel.clone();
                         if (speed < 0.01) {
                             effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
@@ -662,25 +674,15 @@ export const Player: React.FC = () => {
                         }
                         effectiveDir.normalize();
 
-                        // 计算输入方向与当前基准方向的夹角
                         const angle = moveDir.angleTo(effectiveDir);
                         if (angle > 0.001) {
                             let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
-                            // 防止共线导致的 axis 异常
-                            if (axis.lengthSq() < 0.01) {
-                                axis = new Vector3(0, 1, 0);
-                            }
-                            
+                            if (axis.lengthSq() < 0.01) axis = new Vector3(0, 1, 0);
                             const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
                             const rotateAmount = Math.min(angle, turnRate);
-                            
-                            // 核心修改：将 effectiveDir (基准方向) 旋转一点点，作为新的速度方向
                             effectiveDir.applyAxisAngle(axis, rotateAmount);
-                            
-                            // 将旋转后的方向赋值回 currentVel
                             currentVel.copy(effectiveDir);
                         } else {
-                            // 已经在方向上了，直接沿用
                             currentVel.copy(effectiveDir);
                         }
                         
@@ -692,6 +694,7 @@ export const Player: React.FC = () => {
                         velocity.current.z = 0;
                     }
                 } else {
+                    // AIR DRIFT (when not Dashing/Ascending)
                     if (moveDir) {
                         velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
                     }
@@ -753,6 +756,8 @@ export const Player: React.FC = () => {
     // --- ANIMATION LOGIC (Procedural) ---
     if (!stunned) {
         // 1. Orientation (Body)
+        // If STOP Shot, look at target.
+        // If MOVE Shot, default to movement state orientation.
         if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
@@ -773,11 +778,7 @@ export const Player: React.FC = () => {
                 m.lookAt(position.current, targetLookAt, new Vector3(0,1,0));
                 const targetQuat = new Quaternion();
                 targetQuat.setFromRotationMatrix(m);
-                
-                // Smooth rotation towards input direction
                 meshRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
-            } else {
-                // If no input, just maintain current rotation (do nothing)
             }
         }
         else if (nextVisualState === 'WALK'){
@@ -792,41 +793,33 @@ export const Player: React.FC = () => {
         // 2. Gun Arm Aiming Logic (360 Degree Slerp)
         if (gunArmRef.current) {
             if (isShooting.current && currentTarget) {
-                // Get directions in world space
+                // Aiming logic works regardless of visual state (Move Shot supported)
                 const shoulderPos = new Vector3();
                 gunArmRef.current.getWorldPosition(shoulderPos);
                 const targetPos = currentTarget.position.clone();
-                
-                // Direction from shoulder to target
                 const dirToTarget = targetPos.sub(shoulderPos).normalize();
-                
-                // Convert to Body Local Space (because gunArmRef is child of Body)
                 const bodyInverseQuat = meshRef.current.quaternion.clone().invert();
                 const localDir = dirToTarget.applyQuaternion(bodyInverseQuat);
-                
-                // The default forward vector for the gun arm (when rotation is 0,0,0)
-                // Based on hierarchy, Z+ seems to be forward relative to the shoulder group
                 const defaultForward = new Vector3(0, -1, 0.2).normalize();
-                
-                // Calculate target quaternion to look at direction
                 const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
                 
                 const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
-                const recovery = GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
-                const identity = new Quaternion(); // Identity (0,0,0 rotation)
+                // --- CHANGED: Dynamic Recovery based on Shoot Mode ---
+                const recovery = shootMode.current === 'STOP' 
+                    ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                    : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                
+                const identity = new Quaternion();
 
                 if (shootTimer.current < startup) {
-                    // Startup: Slerp from Identity to Target
                     const t = shootTimer.current / startup;
                     const smoothT = t * t * (3 - 2 * t);
                     gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
                 } else {
-                     // Recovery: Slerp from Target back to Identity
                      const t = (shootTimer.current - startup) / recovery;
                      gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
                 }
             } else {
-                // Instant reset if not shooting (e.g. Dash Cancel)
                 gunArmRef.current.quaternion.identity();
             }
         }
@@ -840,21 +833,13 @@ export const Player: React.FC = () => {
                  const dirToT = t.position.clone().sub(position.current).normalize();
                  if (fwd.dot(dirToT) > 0.2) { 
                      shouldLook = true;
-                    // 1. 记录当前角度
                     const startQuat = headRef.current.quaternion.clone();
-
-                    // 2. 瞬间看向目标（计算目标角度）
                     headRef.current.lookAt(t.position);
                     const targetQuat = headRef.current.quaternion.clone();
-
-                    // 3. 恢复当前角度
                     headRef.current.quaternion.copy(startQuat);
-
-                    // 4. 平滑过渡到目标角度 (0.1 是速度，越小越慢)
                     headRef.current.quaternion.slerp(targetQuat, 0.1);
                  }
              }
-             
              if (!shouldLook) {
                  const identity = new Quaternion();
                  headRef.current.quaternion.slerp(identity, 0.1);
@@ -865,21 +850,25 @@ export const Player: React.FC = () => {
         if (legsRef.current) {
              const invRot = meshRef.current.quaternion.clone().invert();
              const localVel = velocity.current.clone().applyQuaternion(invRot);
-             
              const targetPitch = localVel.z * 1.5; 
              const targetRoll = -localVel.x * 1.5;
-
              legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
              legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
         }
     }
 
     // ==========================================
-    // 4. ACTIONS (Shooting)
+    // 4. ACTIONS (Shooting Timer & Projectile)
     // ==========================================
     
     if (!stunned && isShooting.current) {
         shootTimer.current += 1 * timeScale; 
+        
+        // --- CHANGED: Dynamic Total Frames calculation ---
+        const currentRecovery = shootMode.current === 'STOP' 
+            ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+            : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+        const totalShotFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
         
         if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
             hasFired.current = true;
@@ -887,7 +876,6 @@ export const Player: React.FC = () => {
             setShowMuzzleFlash(true);
             setTimeout(() => setShowMuzzleFlash(false), 100);
 
-            // DYNAMIC SPAWN POSITION & DIRECTION
             const spawnPos = new Vector3();
             if (muzzleRef.current) {
                 muzzleRef.current.getWorldPosition(spawnPos);
@@ -903,7 +891,6 @@ export const Player: React.FC = () => {
             } else {
                 if (muzzleRef.current) {
                      const fwd = new Vector3(0,0,1);
-                     // Get world direction of muzzle
                      muzzleRef.current.getWorldDirection(fwd); 
                      direction = fwd.normalize();
                 } else {
@@ -926,10 +913,10 @@ export const Player: React.FC = () => {
             });
         }
 
-        if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES) {
+        if (shootTimer.current >= totalShotFrames) {
             isShooting.current = false;
             shootTimer.current = 0;
-            if (isGrounded.current) {
+            if (isGrounded.current && shootMode.current === 'STOP') {
                 landingFrames.current = getLandingLag();
             }
         }
@@ -946,9 +933,7 @@ export const Player: React.FC = () => {
         const pToT = new Vector3().subVectors(currentTarget.position, position.current);
         const dir = pToT.normalize();
         const camOffsetDist = 10;
-        
         targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, 6, 0));
-        
         targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3);
         targetLookAt.y += 2.0; 
     } else {
@@ -988,15 +973,13 @@ export const Player: React.FC = () => {
       }
   })
 
-  // Colors for parts
   const chestColor = isStunned ? '#ffffff' : '#2244aa';
   const feetColor = '#aa2222';
 
   return (
     <group>
       <mesh ref={meshRef} castShadow>
-          <group position={[0, 2.0, 0]}> {/* Center of Waist */}
-            
+          <group position={[0, 2.0, 0]}> 
             {/* WAIST */}
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[0.6, 0.5, 0.5]} />
@@ -1025,7 +1008,6 @@ export const Player: React.FC = () => {
                             </mesh>
                         ))}
                     </group>
-
                     <group position={[-0.28, 0.1, 0.36]}>
                         <mesh>
                             <boxGeometry args={[0.35, 0.25, 0.05]} />
@@ -1047,7 +1029,6 @@ export const Player: React.FC = () => {
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        {/* V-Fin */}
                         <group position={[0, 0.15, 0.23]}>
                             <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
                                 <boxGeometry args={[0.3, 0.05, 0.02]} />
@@ -1062,14 +1043,11 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color="#ff0000" />
                             </mesh>
                         </group>
-                        {/* Chin */}
                         <mesh position={[0, -0.18, 0.23]}>
                                 <boxGeometry args={[0.1, 0.08, 0.05]} />
                                 <meshToonMaterial color="red" />
                                 <Edges threshold={15} color="black" />
                         </mesh>
-                        
-                        {/* Citroën Vents */}
                         <group position={[0, -0.06, 0.235]}>
                             <group position={[0, 0.025, 0]}>
                                 <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
@@ -1092,8 +1070,6 @@ export const Player: React.FC = () => {
                                 </mesh>
                             </group>
                         </group>
-
-                        {/* Eyes */}
                         <mesh position={[0, 0.05, 0.226]}>
                             <planeGeometry args={[0.25, 0.08]} />
                             <meshBasicMaterial color="#00ff00" toneMapped={false} />
