@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import React from 'react';
 
 // --- FIX: Add missing JSX Intrinsic Elements for React Three Fiber ---
 declare global {
@@ -22,6 +23,7 @@ declare global {
       hemisphereLight: any;
       color: any;
       fog: any;
+      primitive: any;
       [elemName: string]: any;
     }
   }
@@ -73,12 +75,12 @@ export const GLOBAL_CONFIG = {
     ASCENT_TURN_SPEED: 0.08, // New: Air steering speed (radians per frame)
     
     // Dash
-    DASH_BURST_SPEED: 0.7,
-    DASH_SUSTAIN_SPEED: 0.4,
+    DASH_BURST_SPEED: 0.75,
+    DASH_SUSTAIN_SPEED: 0.5,
     DASH_DECAY_FACTOR: 0.05,
     DASH_TURN_SPEED: 0.06,
     DASH_GRACE_PERIOD: 80,
-    DASH_COAST_DURATION: 300, // ms - Time to keep dashing after releasing keys
+    DASH_COAST_DURATION: 320, // ms - Time to keep dashing after releasing keys
     DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
 
     // Evade (Step)

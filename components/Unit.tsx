@@ -422,7 +422,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              
              if (fwd.dot(dirToT) > 0.2) {
                  shouldLook = true;
+                 // 1. 记录当前角度
+                 const startQuat = headRef.current.quaternion.clone();
+
+                 // 2. 瞬间看向目标（计算目标角度）
                  headRef.current.lookAt(tPos);
+                 const targetQuat = headRef.current.quaternion.clone();
+
+                 // 3. 恢复当前角度
+                 headRef.current.quaternion.copy(startQuat);
+
+                 // 4. 平滑过渡到目标角度 (0.1 是速度，越小越慢)
+                 headRef.current.quaternion.slerp(targetQuat, 0.1);
              }
         }
         if (!shouldLook) {
@@ -764,7 +775,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          </group>
       </group>
       <Html position={[0, 4.2, 0]} center style={{ pointerEvents: 'none' }}>
-        <div className={`text-xs font-bold px-2 py-0.5 rounded border whitespace-nowrap ${
+        {/* SCALED NAME TAG FOR MOBILE: smaller text and padding */}
+        <div className={`text-[10px] md:text-xs font-bold px-1 md:px-2 py-0.5 rounded border whitespace-nowrap ${
               isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
             }`}>
               {name}
