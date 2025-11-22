@@ -290,6 +290,13 @@ export const Player: React.FC = () => {
   const dashReleaseTime = useRef<number | null>(null); 
   const currentDashSpeed = useRef(0);
   const dashDirection = useRef(new Vector3(0, 0, -1)); 
+  const dashBuffer = useRef(false); // Buffer input for dash
+  const dashCooldownTimer = useRef(0); // Cooldown timer for dash
+  
+  // NEW: Dash Burst / Jump Cancel Buffer logic
+  const dashBurstTimer = useRef(0); // Counts down during burst phase
+  const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
+  const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
   
   // Evade State
   const isEvading = useRef(false);
@@ -332,6 +339,84 @@ export const Player: React.FC = () => {
       return moveDir.normalize();
   }
 
+  const getCameraRelativeInput = () => {
+    const input = new Vector3(0, 0, 0);
+    if (keys.current['w']) input.z -= 1;
+    if (keys.current['s']) input.z += 1;
+    if (keys.current['a']) input.x -= 1; 
+    if (keys.current['d']) input.x += 1;
+
+    if (input.lengthSq() === 0) return null;
+    input.normalize();
+
+    const camDir = new Vector3();
+    camera.getWorldDirection(camDir);
+    camDir.y = 0;
+    camDir.normalize();
+
+    const camRight = new Vector3();
+    camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
+
+    const moveDir = new Vector3();
+    moveDir.addScaledVector(camDir, -input.z); 
+    moveDir.addScaledVector(camRight, input.x);
+    
+    return moveDir.normalize();
+  };
+
+  // Helper to start dash logic (extracted for reuse in input buffer)
+  const startDashAction = () => {
+      const now = Date.now();
+      // Use getState() to get the absolute latest state (especially useful if called inside useFrame after refill)
+      const state = useGameStore.getState();
+      
+      if (!state.isOverheated && state.boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT && !isStunned) {
+          if (isEvading.current) {
+              isEvading.current = false;
+              evadeTimer.current = 0;
+          }
+          if (isShooting.current) {
+              isShooting.current = false;
+              shootTimer.current = 0;
+          }
+          isDashing.current = true;
+          dashStartTime.current = now;
+          dashReleaseTime.current = null; 
+          currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
+          
+          dashCooldownTimer.current = GLOBAL_CONFIG.DASH_COOLDOWN_FRAMES; // Start Cooldown
+          dashBurstTimer.current = GLOBAL_CONFIG.DASH_BURST_DURATION; // Start Burst Lockout
+          jumpBuffer.current = false; // Reset jump buffer
+          
+          // Note: using the action from the hook, which is stable
+          consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
+
+          setDashTriggerTime(now);
+          playBoostSound();
+
+          if (isGrounded.current) {
+              velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
+              isGrounded.current = false;
+          }
+          
+          const inputDir = getCameraRelativeInput();
+          if (inputDir) {
+              dashDirection.current.copy(inputDir);
+          } else {
+              if (meshRef.current) {
+                  const currentDir = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                  currentDir.y = 0;
+                  if (currentDir.lengthSq() > 0) {
+                      dashDirection.current.copy(currentDir.normalize());
+                  }
+              }
+          }
+          
+          velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
+          velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
+      }
+  };
+
   // Setup Inputs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -365,9 +450,15 @@ export const Player: React.FC = () => {
           
           // --- SPACE: Jump & Cancel Dash ---
           if (key === ' ') {
-               // Pressing jump explicitly cancels dash state (Jump Cancel)
-               if (isDashing.current) {
-                   isDashing.current = false;
+               // Check for Burst Lockout
+               if (isDashing.current && dashBurstTimer.current > 0) {
+                   jumpBuffer.current = true; // Buffer the input
+                   // Do NOT cancel dash here. Wait for timer.
+               } else {
+                   // Normal Jump Cancel if allowed
+                   if (isDashing.current) {
+                       isDashing.current = false;
+                   }
                }
           }
     
@@ -393,13 +484,11 @@ export const Player: React.FC = () => {
                           toTarget.normalize();
     
                           const dot = playerDir.dot(toTarget);
-                          isFrontal = dot >= -0.307;
+                          isFrontal = dot >= -0.28;
                        }
     
                        shootMode.current = isFrontal ? 'MOVE' : 'STOP';
                        
-                       // ONLY cancel dash if it is a STOP shot.
-                       // Move shots should continue the dash momentum.
                        if (shootMode.current === 'STOP' && isDashing.current) {
                            isDashing.current = false;
                        }
@@ -408,49 +497,25 @@ export const Player: React.FC = () => {
           }
     
           if (key === 'l') {
-            const now = Date.now();
-            if (!isOverheated && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT && !isStunned) {
-              if (isEvading.current) {
-                  isEvading.current = false;
-                  evadeTimer.current = 0;
-              }
-              // Dash cancels shooting recoil instantly
-              if (isShooting.current) {
-                  isShooting.current = false;
-                  shootTimer.current = 0;
-              }
-              isDashing.current = true;
-              dashStartTime.current = now;
-              dashReleaseTime.current = null; 
-              currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
-              consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
-
-              // TRIGGER BOOST BURST EFFECTS
-              setDashTriggerTime(now);
-              playBoostSound();
-
-              if (isGrounded.current) {
-                  velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
-                  isGrounded.current = false;
-              }
-              
-              const inputDir = getCameraRelativeInput();
-              if (inputDir) {
-                  dashDirection.current.copy(inputDir);
-              } else {
-                  // If no input, dash in current model direction
-                  if (meshRef.current) {
-                      const currentDir = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
-                      currentDir.y = 0;
-                      if (currentDir.lengthSq() > 0) {
-                          dashDirection.current.copy(currentDir.normalize());
-                      }
-                  }
-              }
-              
-              velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
+            // DASH LOGIC
+            
+            // 1. If in Landing Lag, BUFFER the input
+            if (landingFrames.current > 0) {
+                // INPUT BUFFER: Only buffer if close to recovery
+                if (landingFrames.current <= GLOBAL_CONFIG.LANDING_LAG_BUFFER_WINDOW) {
+                    dashBuffer.current = true;
+                }
+                return;
             }
+            
+            // 2. If in Dash Cooldown, BUFFER the input
+            if (dashCooldownTimer.current > 0) {
+                dashBuffer.current = true;
+                return;
+            }
+
+            // 3. Otherwise attempt dash immediately
+            startDashAction();
           }
           
           if (key === 'e') {
@@ -470,31 +535,6 @@ export const Player: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [boost, isOverheated, consumeBoost, camera, consumeAmmo, isStunned, targets, currentTargetIndex, cutTracking]);
-
-  const getCameraRelativeInput = () => {
-    const input = new Vector3(0, 0, 0);
-    if (keys.current['w']) input.z -= 1;
-    if (keys.current['s']) input.z += 1;
-    if (keys.current['a']) input.x -= 1; 
-    if (keys.current['d']) input.x += 1;
-
-    if (input.lengthSq() === 0) return null;
-    input.normalize();
-
-    const camDir = new Vector3();
-    camera.getWorldDirection(camDir);
-    camDir.y = 0;
-    camDir.normalize();
-
-    const camRight = new Vector3();
-    camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
-
-    const moveDir = new Vector3();
-    moveDir.addScaledVector(camDir, -input.z); 
-    moveDir.addScaledVector(camRight, input.x);
-    
-    return moveDir.normalize();
-  };
 
   const getLandingLag = () => {
     if (isOverheated) {
@@ -529,6 +569,44 @@ export const Player: React.FC = () => {
     wasStunnedRef.current = stunned;
     setIsStunned(stunned);
 
+    // Decrement Dash Cooldown
+    if (dashCooldownTimer.current > 0) {
+        dashCooldownTimer.current -= 1 * timeScale;
+        if (dashCooldownTimer.current <= 0) {
+            dashCooldownTimer.current = 0;
+            // --- COOLDOWN BUFFER CHECK ---
+            if (dashBuffer.current && landingFrames.current <= 0 && !stunned) {
+                startDashAction();
+                dashBuffer.current = false;
+            }
+        }
+    }
+
+    // Decrement Dash Burst Timer (Lockout)
+    if (dashBurstTimer.current > 0) {
+        dashBurstTimer.current -= 1 * timeScale;
+        if (dashBurstTimer.current <= 0) {
+            dashBurstTimer.current = 0;
+            // --- BURST BUFFER CHECK ---
+            if (jumpBuffer.current) {
+                // Cancel Dash to allow transition to Ascend
+                isDashing.current = false;
+                jumpBuffer.current = false;
+                
+                // If key is NOT held anymore, force a short hop
+                if (!keys.current[' ']) {
+                    forcedAscentFrames.current = GLOBAL_CONFIG.JUMP_SHORT_HOP_FRAMES;
+                }
+                // If key IS held, physics loop below will catch 'spaceHeld' naturally
+            }
+        }
+    }
+
+    // Decrement Forced Ascent Timer
+    if (forcedAscentFrames.current > 0) {
+        forcedAscentFrames.current -= 1 * timeScale;
+    }
+
     ammoRegenTimer.current += delta;
     if (ammoRegenTimer.current > GLOBAL_CONFIG.AMMO_REGEN_TIME) {
         recoverAmmo();
@@ -545,6 +623,9 @@ export const Player: React.FC = () => {
         isDashing.current = false;
         isShooting.current = false;
         isEvading.current = false; 
+        dashBuffer.current = false; 
+        jumpBuffer.current = false; // Clear Buffers
+        forcedAscentFrames.current = 0;
         shootTimer.current = 0;
         landingFrames.current = 0; 
 
@@ -578,13 +659,9 @@ export const Player: React.FC = () => {
             }
         }
         // --- SHOOTING STATE LOGIC ---
-        // If shooting AND stop-mode, we freeze movement.
-        // If shooting AND move-mode, we fall through to DASH/ASCEND/WALK logic.
         else if (isShooting.current && shootMode.current === 'STOP') {
             nextVisualState = 'SHOOT';
             velocity.current.set(0, 0, 0);
-            // Apply gravity if in air? Usually stop-shot halts gravity too (Vernier) or falls slowly.
-            // For Vernier effect, we set 0.
         }
         else if (landingFrames.current > 0) {
             velocity.current.set(0, 0, 0);
@@ -593,6 +670,14 @@ export const Player: React.FC = () => {
             if (landingFrames.current <= 0) { 
                  landingFrames.current = 0;
                  refillBoost();
+                 
+                 // --- BUFFERED ACTION CHECK (LANDING) ---
+                 if (dashBuffer.current) {
+                     if (dashCooldownTimer.current <= 0) {
+                        startDashAction();
+                        dashBuffer.current = false;
+                     }
+                 }
             }
         } 
         else {
@@ -602,13 +687,13 @@ export const Player: React.FC = () => {
                 if (isOverheated || boost <= 0) {
                     isDashing.current = false;
                 }
-                else if (spaceHeld && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
-                    // Jump Cancel (Note: also handled in KeyDown, but safety check here)
+                // Regular Jump Cancel check (Only if NOT bursting)
+                // Note: KeyDown handler manages the buffer, but we double check here
+                else if (spaceHeld && dashBurstTimer.current <= 0 && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
                     isDashing.current = false;
                 }
                 else {
                     // --- COASTING LOGIC FIX ---
-                    // If we are already coasting (released keys), ignore input for sustaining state.
                     if (dashReleaseTime.current !== null) {
                          if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
                              isDashing.current = false;
@@ -616,23 +701,26 @@ export const Player: React.FC = () => {
                     } else {
                          // Sustaining Mode
                          if (!hasMoveInput) {
-                             // Keys released, start coasting
                              dashReleaseTime.current = now;
                          }
-                         // If keys held, continue sustaining (dashReleaseTime remains null)
                     }
                 }
             }
 
             // --- APPLY PHYSICS BASED ON STATE ---
 
+            // Determine if we are trying to Ascend (Key Held OR Forced Short Hop)
+            const effectiveSpace = (spaceHeld || forcedAscentFrames.current > 0);
+            const isDashBursting = dashBurstTimer.current > 0;
+
             if (isDashing.current) {
-                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale)) {
+                 const isCoasting = dashReleaseTime.current !== null;
+                 const canSustain = isCoasting ? true : consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale);
+
+                 if (canSustain) {
                     nextVisualState = 'DASH';
                     currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
                     
-                    // STEERING LOGIC
-                    // Only steer if we are SUSTAINING (not coasting)
                     if (moveDir && dashReleaseTime.current === null) {
                         const angle = moveDir.angleTo(dashDirection.current);
                         const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
@@ -648,7 +736,7 @@ export const Player: React.FC = () => {
                     isDashing.current = false;
                 }
             }
-            else if (spaceHeld && !isOverheated) {
+            else if (effectiveSpace && !isOverheated && !isDashBursting) {
                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
                     nextVisualState = 'ASCEND';
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;

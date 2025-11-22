@@ -90,9 +90,14 @@ export const GLOBAL_CONFIG = {
     DASH_SUSTAIN_SPEED: 0.5,
     DASH_DECAY_FACTOR: 0.05,
     DASH_TURN_SPEED: 0.06,
-    DASH_GRACE_PERIOD: 80,
+    DASH_GRACE_PERIOD: 80, // (Deprecated/Secondary check)
+    DASH_BURST_DURATION: 25, // Frames where Jump Cancel is locked (Speed decays during this)
     DASH_COAST_DURATION: 320, // ms - Time to keep dashing after releasing keys
     DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
+    DASH_COOLDOWN_FRAMES: 30, // New: Minimum frames between dashes
+
+    // Jump / Ascend
+    JUMP_SHORT_HOP_FRAMES: 20, // Frames to ascend if jump buffer was triggered but key released
 
     // Evade (Step)
     EVADE_SPEED: 0.4,          // Faster than dash burst
@@ -135,12 +140,13 @@ export const GLOBAL_CONFIG = {
     LANDING_LAG_MIN: 12,
     LANDING_LAG_MAX: 25,
     LANDING_LAG_OVERHEAT: 38,
+    LANDING_LAG_BUFFER_WINDOW: 18, // New: Only buffer inputs in the last X frames of lag
 
     
-        // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.08, // Chance per frame to attempt shot (0.08 = very aggressive)
-    AI_SHOOT_COOLDOWN_MIN: 0.8, // Seconds
-    AI_SHOOT_COOLDOWN_MAX: 1.7, // Seconds
+    // --- AI CONFIGURATION (New) ---
+    AI_SHOOT_PROBABILITY: 0.04, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
+    AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
     AI_TARGET_SWITCH_MAX: 10.0,  // Seconds
 
