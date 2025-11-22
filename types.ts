@@ -2,30 +2,41 @@ import { Vector3 } from 'three';
 import React from 'react';
 
 // --- FIX: Add missing JSX Intrinsic Elements for React Three Fiber ---
+// Define the interface for R3F elements to ensure they are recognized in JSX
+interface ThreeElements {
+  group: any;
+  mesh: any;
+  boxGeometry: any;
+  sphereGeometry: any;
+  cylinderGeometry: any;
+  planeGeometry: any;
+  circleGeometry: any;
+  ringGeometry: any;
+  icosahedronGeometry: any;
+  meshBasicMaterial: any;
+  meshStandardMaterial: any;
+  meshToonMaterial: any;
+  ambientLight: any;
+  directionalLight: any;
+  pointLight: any;
+  hemisphereLight: any;
+  color: any;
+  fog: any;
+  primitive: any;
+  [elemName: string]: any;
+}
+
+// Augment global JSX namespace (for legacy or global-based setups)
 declare global {
   namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      boxGeometry: any;
-      sphereGeometry: any;
-      cylinderGeometry: any;
-      planeGeometry: any;
-      circleGeometry: any;
-      ringGeometry: any;
-      icosahedronGeometry: any;
-      meshBasicMaterial: any;
-      meshStandardMaterial: any;
-      meshToonMaterial: any;
-      ambientLight: any;
-      directionalLight: any;
-      pointLight: any;
-      hemisphereLight: any;
-      color: any;
-      fog: any;
-      primitive: any;
-      [elemName: string]: any;
-    }
+    interface IntrinsicElements extends ThreeElements {}
+  }
+}
+
+// Augment React module JSX namespace (required for React 18+ / newer TypeScript configurations)
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
   }
 }
 
@@ -86,7 +97,7 @@ export const GLOBAL_CONFIG = {
     // Evade (Step)
     EVADE_SPEED: 0.4,          // Faster than dash burst
     EVADE_DURATION: 20,         // Frames (approx 0.3s)
-    EVADE_BOOST_COST: 12,       // Costly maneuver
+    EVADE_BOOST_COST: 10,       // Costly maneuver
     DOUBLE_TAP_WINDOW: 250,     // ms
 
     // Physics
@@ -95,9 +106,9 @@ export const GLOBAL_CONFIG = {
     FRICTION_AIR: 0.99,
     
     // Boost
-    BOOST_CONSUMPTION_DASH_INIT: 7,
-    BOOST_CONSUMPTION_DASH_HOLD: 0.5,
-    BOOST_CONSUMPTION_ASCENT: 0.62,
+    BOOST_CONSUMPTION_DASH_INIT: 6,
+    BOOST_CONSUMPTION_DASH_HOLD: 0.45,
+    BOOST_CONSUMPTION_ASCENT: 0.55,
 
     // Combat / Weapons
     BULLET_SPEED: 1.28, 

@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, Quaternion, Matrix4 } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4 } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
@@ -33,7 +33,117 @@ const playShootSound = () => {
     osc.stop(ctx.currentTime + 0.2);
 };
 
+const playBoostSound = () => {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    // Low frequency saw/square for engine roar
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.4);
+
+    // Lowpass filter to muffle the harshness
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.4);
+
+    // Envelope: Fast attack, medium decay
+    gain.gain.setValueAtTime(0.0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+};
+
 // --- VISUAL EFFECTS ---
+
+const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
+    const groupRef = useRef<Group>(null);
+    
+    // --- CONFIGURATION (ADJUST HERE) ---
+    const DURATION = 0.4; 
+    const CONE_LENGTH = 1.6;      // Length of the burst cones
+    const CONE_WIDTH = 0.08;    // Width at the base (outer end)
+    const TILT_ANGLE = -35;     // Degrees. -90 points straight back. -65 flares out.
+    const BURST_COLOR = "#00ffff"; 
+    // -----------------------------------
+
+    useFrame(() => {
+        if (!groupRef.current) return;
+        
+        const now = Date.now();
+        const elapsed = (now - triggerTime) / 1000; // convert to seconds
+
+        if (elapsed > DURATION) {
+            groupRef.current.visible = false;
+            return;
+        }
+
+        groupRef.current.visible = true;
+
+        // Animation Logic
+        // 1. Scale: Explodes outward (0.5 -> 2.5)
+        const scaleProgress = elapsed / DURATION;
+        const scale = MathUtils.lerp(0.5, 2.5, Math.pow(scaleProgress, 0.3));
+        groupRef.current.scale.setScalar(scale);
+
+        // 2. Opacity: Fast fade in, then slow fade out
+        let opacity = 0;
+        if (elapsed < 0.1) {
+            opacity = elapsed / 0.1; // 0 -> 1
+        } else {
+            const fadeOutProgress = (elapsed - 0.1) / (DURATION - 0.1);
+            opacity = 1 - fadeOutProgress; // 1 -> 0
+        }
+        
+        // Apply opacity to specific children (Meshes)
+        groupRef.current.children.forEach((angleGroup: any) => {
+            if (angleGroup.children && angleGroup.children[0] && angleGroup.children[0].children[0]) {
+                const mesh = angleGroup.children[0].children[0];
+                if (mesh.material) mesh.material.opacity = opacity;
+            }
+        });
+    });
+
+    return (
+        <group ref={groupRef} visible={false} position={[0, -0.2, -0.3]} rotation={[0, 0, 0]}>
+            {/* 4 Cones forming a Tetrahedron-like X shape */}
+            {[45, 135, 225, 315].map((angle, i) => (
+                // 1. Rotate around Z axis to form X cross
+                <group key={i} rotation={[0, 0, MathUtils.degToRad(angle)]}>
+                    
+                    {/* 2. Tilt X axis to flare OUT from the center (Tetrahedron style) */}
+                    {/* Cylinder points +Y. Rotating X by -90 points it to +Z. */}
+                    <group rotation={[MathUtils.degToRad(TILT_ANGLE), 0, 0]}>
+                        
+                        {/* 3. Offset Mesh so it starts at center and grows outward */}
+                        <mesh position={[0, CONE_LENGTH / 2, 0]}> 
+                            {/* Top Radius 0 (Cone Tip), Bottom Radius CONE_WIDTH. */}
+                            {/* R3F Cylinder: radiusTop, radiusBottom, height */}
+                            <cylinderGeometry args={[0, CONE_WIDTH, CONE_LENGTH, 8, 1]} /> 
+                            <meshBasicMaterial 
+                                color={BURST_COLOR} 
+                                transparent 
+                                depthWrite={false} 
+                                blending={AdditiveBlending} 
+                            />
+                        </mesh>
+                    </group>
+                </group>
+            ))}
+        </group>
+    );
+};
 
 const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
   const groupRef = useRef<Group>(null);
@@ -194,6 +304,7 @@ export const Player: React.FC = () => {
   const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
   
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
+  const [dashTriggerTime, setDashTriggerTime] = useState(0);
   
   // Visual State
   const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE'>('IDLE');
@@ -303,6 +414,10 @@ export const Player: React.FC = () => {
               dashReleaseTime.current = null; 
               currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
               consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
+
+              // TRIGGER BOOST BURST EFFECTS
+              setDashTriggerTime(now);
+              playBoostSound();
 
               if (isGrounded.current) {
                   velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
@@ -1097,6 +1212,9 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color="#222" />
                                 <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
                         </group>
+                        
+                        {/* BOOST BURST EFFECT */}
+                        <BoostBurst triggerTime={dashTriggerTime} />
 
                     </group>
             </group>
@@ -1158,11 +1276,6 @@ export const Player: React.FC = () => {
                 </group>
             </group>
             
-            {isDashingOrAscending && (
-                <Trail width={2} length={4} color={engineColor} attenuation={(t) => t * t}>
-                    <mesh visible={false} />
-                </Trail>
-            )}
           </group>
       </mesh>
       
