@@ -21,7 +21,7 @@ export const HUD: React.FC = () => {
       
       {/* TARGET ALERT INDICATOR (Top Center) */}
       {isTargetingPlayer && (
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 md:w-1/3 h-24 z-50">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[220px] md:w-1/3 max-w-md h-24 z-50">
               <svg viewBox="0 0 400 80" className="w-full h-full drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]">
                   {/* Background Shape */}
                   <path d="M0,0 L400,0 L360,40 L200,60 L40,40 Z" className={`${warningColor} opacity-20`} />
@@ -58,12 +58,12 @@ export const HUD: React.FC = () => {
         </div>
       )}
 
-      {/* Weapon Info - MOVED TO TOP LEFT ON MOBILE */}
-      <div className="absolute top-4 left-4 md:top-auto md:left-auto md:bottom-8 md:right-8 w-48 md:w-60 transition-all duration-300">
+      {/* Weapon Info - ADAPTIVE (Top Right on Mobile, Bottom Right on Desktop) */}
+      <div className="absolute top-4 right-4 md:top-auto md:left-auto md:bottom-8 md:right-8 w-32 md:w-60 transition-all duration-300">
           <div className="flex items-end justify-between bg-black/40 p-2 rounded border-r-4 border-red-500">
-              <div className="text-red-400 font-mono text-xs md:text-sm">BEAM RIFLE</div>
-              <div className="text-white font-mono text-2xl md:text-3xl font-bold">
-                  {ammo} <span className="text-sm md:text-lg text-gray-500">/ {maxAmmo}</span>
+              <div className="text-red-400 font-mono text-[10px] md:text-sm">BEAM RIFLE</div>
+              <div className="text-white font-mono text-xl md:text-3xl font-bold">
+                  {ammo} <span className="text-xs md:text-lg text-gray-500">/ {maxAmmo}</span>
               </div>
           </div>
       </div>

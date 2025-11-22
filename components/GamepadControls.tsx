@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 
 // Actions we can bind
@@ -90,10 +91,7 @@ export const GamepadControls: React.FC = () => {
         // If selected gamepad is disconnected, try to fallback to the first available one
         if (!gp && currentAvailable.length > 0) {
             // Auto-switch only if we effectively lost connection
-            // (We handle this state update outside render loop usually, but let's just use the first one for logic this frame)
             gp = gamepads[currentAvailable[0].index];
-            // Note: We can't call setActiveGamepadIndex here inside the loop easily without causing render loop issues if not careful.
-            // But for the input handling strictly, we can temporarily use a fallback.
         }
 
         // --- UI STATE SYNC (Only periodically or if menu is open to save perf) ---
@@ -190,7 +188,6 @@ export const GamepadControls: React.FC = () => {
         requestRef.current = requestAnimationFrame(update);
         return () => cancelAnimationFrame(requestRef.current);
     }, [isOpen, listeningFor, mapping, activeGamepadIndex, availableGamepads]); 
-    // Added availableGamepads dep to ensure update loop sees fresh state if we update it
 
     // --- UI HANDLERS ---
     const getButtonForAction = (action: ActionType) => {
@@ -215,7 +212,7 @@ export const GamepadControls: React.FC = () => {
             <div className="absolute top-4 left-4 z-50">
                 <button 
                     onClick={() => setIsOpen(true)}
-                    className="bg-black/60 border border-cyan-500/50 text-cyan-400 px-4 py-2 rounded hover:bg-cyan-900/50 transition-colors font-mono text-xs tracking-widest backdrop-blur-sm"
+                    className="bg-black/60 border border-cyan-500/50 text-cyan-400 px-2 py-1 md:px-4 md:py-2 rounded hover:bg-cyan-900/50 transition-colors font-mono text-[10px] md:text-xs tracking-widest backdrop-blur-sm"
                 >
                     GAME PAD SETTINGS
                 </button>

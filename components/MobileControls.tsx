@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 
 // Helper to dispatch keyboard events that Player.tsx can hear
@@ -172,7 +173,6 @@ export const MobileControls: React.FC = () => {
         const handleTouchStart = (e: React.TouchEvent) => {
             e.preventDefault(); // Prevent ghost clicks
             simulateKey(kKey, 'keydown');
-            // Provide simple haptic if available
             if (navigator.vibrate) navigator.vibrate(10);
         };
         const handleTouchEnd = (e: React.TouchEvent) => {
@@ -217,26 +217,18 @@ export const MobileControls: React.FC = () => {
             {/* RIGHT BUTTONS AREA */}
             <div className="absolute bottom-8 right-8 w-48 h-48 pointer-events-auto">
                 
-                {/* Layout: Diamond Shape */}
+                {/* Layout: Triangle configuration */}
                 
-                {/* TOP: TARGET (E) */}
+                {/* RIGHT: TARGET (E) - Moved from Top to Right (Previously Jump position) */}
                 <ActionButton 
                     label="TGT" 
                     kKey="e" 
                     color="bg-yellow-600/60" 
-                    posClass="top-0 left-1/2 -translate-x-1/2" 
+                    posClass="top-1/2 right-0 -translate-y-1/2" 
                     sizeClass="w-14 h-14"
                 />
 
-                {/* RIGHT: JUMP (Space) - Swapped Position */}
-                <ActionButton 
-                    label="JUMP" 
-                    kKey=" " 
-                    color="bg-gray-600/60" 
-                    posClass="top-1/2 right-0 -translate-y-1/2" 
-                />
-
-                {/* BOTTOM: DASH (L) - Swapped Position */}
+                {/* BOTTOM: DASH (L) */}
                 <ActionButton 
                     label="DASH" 
                     kKey="l" 
@@ -244,7 +236,7 @@ export const MobileControls: React.FC = () => {
                     posClass="bottom-0 left-1/2 -translate-x-1/2" 
                 />
 
-                {/* LEFT: SHOOT (J) - Main Action */}
+                {/* LEFT: SHOOT (J) */}
                 <ActionButton 
                     label="SHT" 
                     kKey="j" 
