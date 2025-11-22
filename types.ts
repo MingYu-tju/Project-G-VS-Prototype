@@ -21,7 +21,7 @@ export enum LockState {
   RED = 'RED' // Close, tracking active
 }
 
-export const RED_LOCK_DISTANCE = 55;
+export const RED_LOCK_DISTANCE = 45;
 
 export interface Projectile {
   id: string;
@@ -41,6 +41,7 @@ export const GLOBAL_CONFIG = {
     // Movement
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.25,
+    GROUND_TURN_SPEED: 0.1, // New: Ground steering speed (radians per frame)
     ASCENT_SPEED: 0.38,
     ASCENT_TURN_SPEED: 0.05, // New: Air steering speed (radians per frame)
     
@@ -60,7 +61,7 @@ export const GLOBAL_CONFIG = {
     DOUBLE_TAP_WINDOW: 250,     // ms
 
     // Physics
-    GRAVITY: 0.018,
+    GRAVITY: 0.016,
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
     
@@ -70,15 +71,14 @@ export const GLOBAL_CONFIG = {
     BOOST_CONSUMPTION_ASCENT: 0.62,
 
     // Combat / Weapons
-    BULLET_SPEED: 1.28, // Increased slightly from 0.5 for better feel
-    HOMING_TURN_RATE_HORIZONTAL: 0.02, // Stronger horizontal tracking
-    HOMING_TURN_RATE_VERTICAL: 0.02,   // Weaker vertical tracking
+    BULLET_SPEED: 1.28, 
+    HOMING_LATERAL_SPEED: 0.28, // New: Constant sideways speed for homing (drift speed)
     MAX_AMMO: 20,
     AMMO_REGEN_TIME: 1.6, // Seconds per shot
     
     // Combat / Hitboxes (Collision Sizes)
-    UNIT_HITBOX_RADIUS: 1.6,       // The size of the mechs (Hurtbox)
-    PROJECTILE_HITBOX_RADIUS: 0.6, // The size of the bullet (Hitbox)
+    UNIT_HITBOX_RADIUS: 1.4,       // The size of the mechs (Hurtbox)
+    PROJECTILE_HITBOX_RADIUS: 0.5, // The size of the bullet (Hitbox)
                                    // Total hit distance = UNIT + PROJECTILE radii
     
     // Shooting Animation (Frames @ 60fps)

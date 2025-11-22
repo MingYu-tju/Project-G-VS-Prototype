@@ -157,7 +157,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   updateProjectiles: (delta: number) => {
     // Calculate Time Scale: 
     // If delta is 1/60 (16ms), timeScale is 1.
-    // If delta is 1/144 (7ms), timeScale is ~0.42.
     const timeScale = delta * 60;
 
     set((state) => {
@@ -182,32 +181,42 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (targetPos) {
                // Aim at chest height
                const aimTargetPos = targetPos.clone().add(new Vector3(0, 1.5, 0));
-                
-               const dirToTarget = aimTargetPos.sub(newPos).normalize();
-               const fwd = p.forwardDirection.clone().normalize();
                
-               // Stop homing if we passed the target
+               // Vector from Bullet to Target
+               const toTarget = aimTargetPos.sub(newPos);
+               const dirToTarget = toTarget.clone().normalize();
                const currentDir = p.velocity.clone().normalize();
-               const dot = currentDir.dot(dirToTarget);
-
-               if (dot < 0) {
+               
+               // Stop homing if we passed the target (dot product check)
+               if (currentDir.dot(dirToTarget) < 0) {
                    isStillHoming = false;
                } else {
-                   // Drift Logic
-                   // Apply turn rate scaled by timeScale
-                   const hRate = GLOBAL_CONFIG.HOMING_TURN_RATE_HORIZONTAL * 5.0 * timeScale; 
-                   const vRate = GLOBAL_CONFIG.HOMING_TURN_RATE_VERTICAL * 5.0 * timeScale;
-
-                   newVel.x += dirToTarget.x * hRate;
-                   newVel.z += dirToTarget.z * hRate;
-                   newVel.y += dirToTarget.y * vRate;
-
-                   // Constrain forward speed
-                   const currentForwardSpeed = newVel.dot(fwd);
-                   const fixedForwardVel = fwd.clone().multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED);
-                   const lateralVel = newVel.clone().sub(fwd.clone().multiplyScalar(currentForwardSpeed));
+                   // --- CONSTANT VELOCITY HOMING LOGIC ---
                    
-                   newVel = fixedForwardVel.add(lateralVel);
+                   // 1. Get Fixed Forward Velocity (Bullet Logic: Always moves forward at BULLET_SPEED)
+                   const fwd = p.forwardDirection.clone().normalize();
+                   const forwardVel = fwd.clone().multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED);
+                   
+                   // 2. Calculate Desired Lateral Direction
+                   // We want the component of 'toTarget' that is PERPENDICULAR to 'fwd'.
+                   // Projection of A onto B: (A . B) * B
+                   const forwardComponent = fwd.clone().multiplyScalar(toTarget.dot(fwd));
+                   const lateralVector = toTarget.clone().sub(forwardComponent);
+                   
+                   // 3. Apply Fixed Lateral Speed
+                   // If there is a need to correct laterally...
+                   if (lateralVector.lengthSq() > 0.001) {
+                       lateralVector.normalize();
+                       const lateralVel = lateralVector.multiplyScalar(GLOBAL_CONFIG.HOMING_LATERAL_SPEED);
+                       
+                       // 4. Combine: New Velocity = Fixed Forward + Fixed Lateral
+                       // NOTE: Velocity is stored as "units per frame", so we don't multiply by timeScale here.
+                       // Movement step calculation above handles timeScale.
+                       newVel = forwardVel.add(lateralVel);
+                   } else {
+                       // Perfectly aligned, just move forward
+                       newVel = forwardVel;
+                   }
                }
             }
           }

@@ -42,7 +42,7 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
     if (!groupRef.current) return;
     const flicker = MathUtils.randFloat(0.8, 1.2);
     const targetScale = active ? 1 : 0;
-    const lerpSpeed = 0.2;
+    const lerpSpeed = 0.1;
     groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
     groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
     groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
@@ -551,11 +551,49 @@ export const Player: React.FC = () => {
                 }
             }
             else {
+                // GROUND MOVEMENT (WALK)
                 if (isGrounded.current) {
                     if (moveDir) {
                         nextVisualState = 'WALK';
-                        velocity.current.x = moveDir.x * GLOBAL_CONFIG.WALK_SPEED;
-                        velocity.current.z = moveDir.z * GLOBAL_CONFIG.WALK_SPEED;
+                        
+                        // Smooth Steering Logic
+                        const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                        const speed = currentVel.length();
+
+                        // Smooth Steering Logic
+                        // 获取当前的基准方向：如果有速度则用速度方向，如果是静止则用机体当前朝向
+                        let effectiveDir = currentVel.clone();
+                        if (speed < 0.01) {
+                            effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
+                            effectiveDir.y = 0;
+                        }
+                        effectiveDir.normalize();
+
+                        // 计算输入方向与当前基准方向的夹角
+                        const angle = moveDir.angleTo(effectiveDir);
+                        if (angle > 0.001) {
+                            let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
+                            // 防止共线导致的 axis 异常
+                            if (axis.lengthSq() < 0.01) {
+                                axis = new Vector3(0, 1, 0);
+                            }
+                            
+                            const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
+                            const rotateAmount = Math.min(angle, turnRate);
+                            
+                            // 核心修改：将 effectiveDir (基准方向) 旋转一点点，作为新的速度方向
+                            effectiveDir.applyAxisAngle(axis, rotateAmount);
+                            
+                            // 将旋转后的方向赋值回 currentVel
+                            currentVel.copy(effectiveDir);
+                        } else {
+                            // 已经在方向上了，直接沿用
+                            currentVel.copy(effectiveDir);
+                        }
+                        
+                        currentVel.normalize().multiplyScalar(GLOBAL_CONFIG.WALK_SPEED);
+                        velocity.current.x = currentVel.x;
+                        velocity.current.z = currentVel.z;
                     } else {
                         velocity.current.x = 0;
                         velocity.current.z = 0;
@@ -1059,12 +1097,12 @@ export const Player: React.FC = () => {
                         <group position={[0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
                         </group>
                         <group position={[-0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
                         </group>
 
                     </group>

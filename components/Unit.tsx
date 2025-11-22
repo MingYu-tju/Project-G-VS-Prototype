@@ -15,7 +15,7 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
     if (!groupRef.current) return;
     const flicker = MathUtils.randFloat(0.8, 1.2);
     const targetScale = active ? 1 : 0;
-    const lerpSpeed = 0.2;
+    const lerpSpeed = 0.1;
     groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
     groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
     groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
@@ -693,12 +693,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         <group position={[0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                         </group>
                         <group position={[-0.25, -0.8, -0.45]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isThrusting} />
+                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                         </group>
 
                     </group>
