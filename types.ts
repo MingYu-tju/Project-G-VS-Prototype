@@ -1,3 +1,4 @@
+
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -81,9 +82,9 @@ export const GLOBAL_CONFIG = {
     // Movement
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.25,
-    GROUND_TURN_SPEED: 0.13, // New: Ground steering speed (radians per frame)
+    GROUND_TURN_SPEED: 0.10, // New: Ground steering speed (radians per frame)
     ASCENT_SPEED: 0.38,
-    ASCENT_TURN_SPEED: 0.08, // New: Air steering speed (radians per frame)
+    ASCENT_TURN_SPEED: 0.04, // New: Air steering speed (radians per frame)
     ASCENT_HORIZONTAL_ACCEL: 0.01, // New: Horizontal acceleration during ascent (Drift control)
     ASCENT_MAX_HORIZONTAL_SPEED: 0.2, // New: Cap for horizontal speed gained via input during ascent
 
@@ -91,21 +92,26 @@ export const GLOBAL_CONFIG = {
     DASH_BURST_SPEED: 0.75,
     DASH_SUSTAIN_SPEED: 0.5,
     DASH_DECAY_FACTOR: 0.058,
-    DASH_TURN_SPEED: 0.06,
+    DASH_TURN_SPEED: 0.04,
     DASH_GRACE_PERIOD: 80, // (Deprecated/Secondary check)
     DASH_BURST_DURATION: 25, // Frames where Jump Cancel is locked (Speed decays during this)
     DASH_COAST_DURATION: 320, // ms - Time to keep dashing after releasing keys
     DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
     DASH_COOLDOWN_FRAMES: 30, // New: Minimum frames between dashes
 
-    // Jump / Ascend
-    JUMP_SHORT_HOP_FRAMES: 20, // Frames to ascend if jump buffer was triggered but key released
+    // Jump / Ascend / Short Hop
+    JUMP_SHORT_HOP_FRAMES: 5, // Frames to ascend if jump buffer was triggered but key released
+    JUMP_SHORT_HOP_SPEED: 0.28, // Velocity for a single-tap short hop
 
     // Evade (Step)
     EVADE_SPEED: 0.5,          // Faster than dash burst
     EVADE_DURATION: 24,         // Frames (approx 0.3s)
     EVADE_BOOST_COST: 10,       // Costly maneuver
     DOUBLE_TAP_WINDOW: 250,     // ms
+
+    // Input Configuration (New)
+    INPUT_ASCENT_HOLD_THRESHOLD: 115, // ms: Time to hold L to trigger ascent
+    INPUT_DASH_WINDOW: 210,      // ms: Time window for double tap L to trigger dash
 
     // Physics
     GRAVITY: 0.016,
@@ -116,6 +122,7 @@ export const GLOBAL_CONFIG = {
     BOOST_CONSUMPTION_DASH_INIT: 6,
     BOOST_CONSUMPTION_DASH_HOLD: 0.45,
     BOOST_CONSUMPTION_ASCENT: 0.55,
+    BOOST_CONSUMPTION_SHORT_HOP: 4, // Cost for a short hop
 
     // Combat / Weapons
     BULLET_SPEED: 1.28, 

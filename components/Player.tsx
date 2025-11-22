@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -268,6 +269,17 @@ const wasStunnedRef = useRef(false);
 const keys = useRef<{ [key: string]: boolean }>({});
 const lastKeyPressTime = useRef(0);
 const lastKeyPressed = useRef<string>("");
+
+// NEW INPUT STATE FOR L-KEY (Ascent/Dash)
+const lPressStartTime = useRef(0);
+const lastLReleaseTime = useRef(0);
+// lConsumedByAction: Tracks if the current press did *anything* (Dash, Ascent, Hop).
+// If true, releasing the key will NOT trigger a short hop or double tap prime.
+const lConsumedByAction = useRef(false); 
+// lConsumedByDash: SPECIFICALLY tracks if the current press was used to trigger a DASH.
+// If true, holding the key will NOT trigger an ascent (prevents Jump Cancel during dash hold).
+const lConsumedByDash = useRef(false);
+
 // Action State
 const isDashing = useRef(false);
 const dashStartTime = useRef(0);
@@ -425,20 +437,6 @@ if (!keys.current[key]) {
 
       keys.current[key] = true;
       
-      // --- SPACE: Jump & Cancel Dash ---
-      if (key === ' ') {
-           // Check for Burst Lockout
-           if (isDashing.current && dashBurstTimer.current > 0) {
-               jumpBuffer.current = true; // Buffer the input
-               // Do NOT cancel dash here. Wait for timer.
-           } else {
-               // Normal Jump Cancel if allowed
-               if (isDashing.current) {
-                   isDashing.current = false;
-               }
-           }
-      }
-
       if (key === 'j') {
            if (!isShooting.current && !isEvading.current && landingFrames.current <= 0 && !isStunned) {
                const hasAmmo = consumeAmmo();
@@ -474,25 +472,39 @@ if (!keys.current[key]) {
       }
 
       if (key === 'l') {
-        // DASH LOGIC
-        
-        // 1. If in Landing Lag, BUFFER the input
-        if (landingFrames.current > 0) {
-            // INPUT BUFFER: Only buffer if close to recovery
-            if (landingFrames.current <= GLOBAL_CONFIG.LANDING_LAG_BUFFER_WINDOW) {
-                dashBuffer.current = true;
-            }
-            return;
-        }
-        
-        // 2. If in Dash Cooldown, BUFFER the input
-        if (dashCooldownTimer.current > 0) {
-            dashBuffer.current = true;
-            return;
-        }
+        const timeSinceLastRelease = now - lastLReleaseTime.current;
 
-        // 3. Otherwise attempt dash immediately
-        startDashAction();
+        if (timeSinceLastRelease < GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
+            // --- DOUBLE TAP DETECTED: DASH LOGIC ---
+            
+            // Mark as consumed specifically by Dash
+            lConsumedByDash.current = true;
+            // Also mark as consumed generically to prevent release actions
+            lConsumedByAction.current = true;
+
+            // 1. If in Landing Lag, BUFFER the input
+            if (landingFrames.current > 0) {
+                // INPUT BUFFER: Only buffer if close to recovery
+                if (landingFrames.current <= GLOBAL_CONFIG.LANDING_LAG_BUFFER_WINDOW) {
+                    dashBuffer.current = true;
+                }
+                return;
+            }
+            
+            // 2. If in Dash Cooldown, BUFFER the input
+            if (dashCooldownTimer.current > 0) {
+                dashBuffer.current = true;
+                return;
+            }
+
+            // 3. Otherwise attempt dash immediately
+            startDashAction();
+        } else {
+            // --- FIRST PRESS: START HOLD TIMER FOR ASCENT ---
+            lPressStartTime.current = now;
+            lConsumedByAction.current = false; // Reset to allow ascent check
+            lConsumedByDash.current = false;   // Reset Dash flag
+        }
       }
       
       if (key === 'e') {
@@ -502,7 +514,20 @@ if (!keys.current[key]) {
 };
 
 const handleKeyUp = (e: KeyboardEvent) => {
-  keys.current[e.key.toLowerCase()] = false;
+    const key = e.key.toLowerCase();
+    keys.current[key] = false;
+    
+    if (key === 'l') {
+        if (lConsumedByAction.current) {
+            // CRITICAL FIX: If this press was already used for Ascent or Dash, 
+            // we invalidate the release time by setting it to 0. 
+            // This prevents this release from acting as the "First Tap" for a subsequent Double Tap.
+            lastLReleaseTime.current = 0;
+        } else {
+            lastLReleaseTime.current = Date.now();
+        }
+        // We DON'T reset lConsumedByAction here, we reset it on next KeyDown.
+    }
 };
 
 window.addEventListener('keydown', handleKeyDown);
@@ -540,8 +565,7 @@ const timeScale = delta * 60;
 const now = Date.now();
 const currentTarget = targets[currentTargetIndex];
 const moveDir = getCameraRelativeInput();
-const spaceHeld = keys.current[' '];
-const hasMoveInput = !!moveDir;
+// Removed spaceHeld variable
 
 const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
 
@@ -579,10 +603,10 @@ if (dashBurstTimer.current > 0) {
             jumpBuffer.current = false;
             
             // If key is NOT held anymore, force a short hop
-            if (!keys.current[' ']) {
+            if (!keys.current['l']) {
                 forcedAscentFrames.current = GLOBAL_CONFIG.JUMP_SHORT_HOP_FRAMES;
             }
-            // If key IS held, physics loop below will catch 'spaceHeld' naturally
+            // If key IS held, physics loop below will catch 'isAscentInput' naturally
         }
     }
 }
@@ -603,6 +627,60 @@ let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' |
 // ==========================================
 // 1. STATE & PHYSICS CALCULATION
 // ==========================================
+
+// DETERMINE INPUT STATES
+const isLHeld = keys.current['l'];
+const lHeldDuration = isLHeld ? (now - lPressStartTime.current) : 0;
+
+// FIX: Ascent Logic Correction
+// We only block ascent if the key press was explicitly used for a DASH.
+// If it was used for a previous frame of Ascent (lConsumedByAction=true), we SHOULD continue.
+const isAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
+
+// --- SHORT HOP LOGIC (Tap detection) ---
+// If key is released, was not consumed, and enough time has passed since release that double tap is impossible
+if (!isLHeld && lastLReleaseTime.current > 0 && !lConsumedByAction.current) {
+    // Wait for double tap window to close BEFORE deciding whether to discard or hop
+    if (now - lastLReleaseTime.current > GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
+        
+        if (isDashing.current) {
+            // FIX: If we are dashing, a short press (that failed to become a double tap) 
+            // should be ignored to prevent unintended vertical movement.
+            lConsumedByAction.current = true;
+            lastLReleaseTime.current = 0;
+        } else {
+            // Trigger Short Hop
+            if (!isStunned && !isOverheated && landingFrames.current <= 0 && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP) {
+                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP)) {
+                    velocity.current.y = GLOBAL_CONFIG.JUMP_SHORT_HOP_SPEED;
+                    isGrounded.current = false;
+                    // Mark as consumed so it doesn't trigger again
+                    lConsumedByAction.current = true;
+                    lastLReleaseTime.current = 0;
+                    // Optional: Force a brief ascent visual state
+                    forcedAscentFrames.current = 10;
+                }
+            } else {
+                // Even if failed (no boost/stunned), mark as consumed to stop check loop
+                lConsumedByAction.current = true;
+                lastLReleaseTime.current = 0;
+            }
+        }
+    }
+}
+
+// JUMP CANCEL LOGIC (Updated for L-Key)
+// If we are dashing, and we hold L long enough, trigger jump cancel logic
+if (isDashing.current && isAscentInput) {
+     if (dashBurstTimer.current > 0) {
+         jumpBuffer.current = true; // Buffer input if in burst
+     } else {
+         // Grace period check
+         if (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD) {
+             isDashing.current = false; // Cancel Dash -> Next frame loop will catch Ascent
+         }
+     }
+}
 
 if (stunned) {
     isDashing.current = false;
@@ -627,11 +705,14 @@ if (stunned) {
         velocity.current.z = evadeDirection.current.z * GLOBAL_CONFIG.EVADE_SPEED;
         velocity.current.y = 0; 
 
-        if (spaceHeld) {
+        // EVADE CANCEL -> ASCENT
+        if (isAscentInput) {
             if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
                 isEvading.current = false; 
                 nextVisualState = 'ASCEND';
-                velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED; 
+                velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
+                // Mark input as consumed by ascent
+                lConsumedByAction.current = true;
             }
         }
 
@@ -677,15 +758,16 @@ if (stunned) {
             }
             
             // CHECK INPUT RELEASE
-            if (dashReleaseTime.current === null && !hasMoveInput) {
+            // For L-key dash, "release" essentially means we aren't holding input or L-key logic dictates
+            // But specifically for dash, we care about movement input for coasting or the L-key itself?
+            // Actually, usually in these games, holding dash extends it, releasing it coasts.
+            // Since we established Double Tap = Dash, we assume the user might hold the second tap.
+            if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
                  dashReleaseTime.current = now;
             }
 
-            // Regular Jump Cancel check (Only if NOT bursting)
-            if (spaceHeld && dashBurstTimer.current <= 0 && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
-                isDashing.current = false;
-            }
-            
+            // Note: Jump Cancel Logic moved up to ensure it runs before physics application
+
             // --- COASTING EXPIRY CHECK ---
             // This must run regardless of boost state if we are coasting.
             if (dashReleaseTime.current !== null) {
@@ -697,17 +779,15 @@ if (stunned) {
 
         // --- APPLY PHYSICS BASED ON STATE ---
 
-        // Determine if we are trying to Ascend (Key Held OR Forced Short Hop)
-        const effectiveSpace = (spaceHeld || forcedAscentFrames.current > 0);
+        // Determine if we are trying to Ascend (Key Held only)
+        // FIX: Do NOT include forcedAscentFrames in the physical calculation, only visual.
+        const effectiveAscent = isAscentInput; 
         const isDashBursting = dashBurstTimer.current > 0;
 
         if (isDashing.current) {
              const isCoasting = dashReleaseTime.current !== null;
              // If coasting, we don't consume boost, so "canSustain" is true.
              // If NOT coasting, we try to consume boost.
-             // 修改这里：
-                 // 如果已经在滑行 (isCoasting)，则 canSustain 为 true。
-                 // 如果没在滑行，尝试扣气。如果扣气失败（返回 false），再检查是不是因为“刚扣完变 0 了”导致的。
                  let canSustain = isCoasting;
                  
                  if (!isCoasting) {
@@ -742,15 +822,23 @@ if (stunned) {
                 velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
                 velocity.current.y *= 0.85; // Flatten flight
             } else {
-                // This else block catches if consumeBoost failed (returned false) AND we failed to catch it in the "Force Coast" logic above.
-                // It acts as a fail-safe to stop the dash.
-                // But with the fix above, we should already be coasting, so canSustain would be true.
-                // This handles any edge case where we aren't coasting but boost is gone.
                 isDashing.current = false;
             }
         }
-        else if (effectiveSpace && !isOverheated && !isDashBursting) {
-            if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
+        else if (effectiveAscent && !isOverheated && !isDashBursting) {
+            // ASCENT LOGIC
+            // If checking real input (not forced), pay the cost
+            let canAscend = true;
+            if (isAscentInput) {
+                canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
+                if (canAscend) {
+                    // Mark as consumed so when we release, it doesn't trigger short hop or double tap
+                    lConsumedByAction.current = true;
+                    // NOTE: We do NOT set lConsumedByDash here.
+                }
+            }
+
+            if (canAscend) {
                 nextVisualState = 'ASCEND';
                 velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                 
@@ -814,6 +902,12 @@ if (stunned) {
 
         const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
         const frictionFactor = Math.pow(friction, timeScale);
+        
+        // --- APPLY VISUAL OVERRIDE FOR SHORT HOP ---
+        // FIX: Removed redundant check for EVADE state which was causing a TS error because nextVisualState cannot be EVADE in this scope
+        if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') {
+            nextVisualState = 'ASCEND';
+        }
         
         if (nextVisualState !== 'ASCEND') {
              velocity.current.x *= frictionFactor;
@@ -1375,4 +1469,4 @@ return (
   </group>
 </group>
 );
-};
+}

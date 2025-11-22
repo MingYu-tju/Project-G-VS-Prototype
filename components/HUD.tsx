@@ -90,8 +90,8 @@ export const HUD: React.FC = () => {
       <div className="hidden md:block absolute bottom-8 left-8 text-white/50 font-mono text-xs bg-black/40 p-4 rounded border-l-2 border-white/20">
          <p className="mb-1"><span className="text-white font-bold">WASD</span> : MOVE</p>
          <p className="mb-1"><span className="text-white font-bold">DOUBLE TAP (WASD)</span> : STEP</p>
-         <p className="mb-1"><span className="text-white font-bold">SPACE (HOLD)</span> : JUMP</p>
-         <p className="mb-1"><span className="text-white font-bold">L</span> : BOOST DASH</p>
+         <p className="mb-1"><span className="text-white font-bold">L (HOLD)</span> : JUMP / ASCEND</p>
+         <p className="mb-1"><span className="text-white font-bold">L (DOUBLE TAP)</span> : BOOST DASH</p>
          <p className="mb-1"><span className="text-white font-bold">J</span> : SHOOT</p>
          <p><span className="text-white font-bold">E</span> : SWITCH TARGET</p>
       </div>
