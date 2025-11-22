@@ -39,6 +39,11 @@ export const GamepadControls: React.FC = () => {
     const [mapping, setMapping] = useState<Record<number, ActionType>>(DEFAULT_MAPPING);
     const [listeningFor, setListeningFor] = useState<ActionType | null>(null);
     
+    // Active Gamepad Selection
+    const [activeGamepadIndex, setActiveGamepadIndex] = useState<number>(0);
+    const [availableGamepads, setAvailableGamepads] = useState<{index: number, id: string}[]>([]);
+    const [currentGamepadId, setCurrentGamepadId] = useState<string>("");
+
     // Track previous frame button states to detect "Just Pressed" for rebinding
     const prevButtons = useRef<boolean[]>([]);
     
@@ -51,7 +56,6 @@ export const GamepadControls: React.FC = () => {
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                // Convert string keys back to numbers if JSON stringified them
                 const numKeyed: Record<number, ActionType> = {};
                 for (const k in parsed) numKeyed[parseInt(k)] = parsed[k];
                 setMapping(numKeyed);
@@ -71,7 +75,38 @@ export const GamepadControls: React.FC = () => {
         const gamepads = navigator.getGamepads();
         if (!gamepads) return;
 
-        const gp = gamepads[0]; // Primary controller
+        // 1. Scan for available gamepads (for UI)
+        // We do this less frequently or just on every frame if lightweight
+        const currentAvailable: {index: number, id: string}[] = [];
+        for (let i = 0; i < gamepads.length; i++) {
+            if (gamepads[i]) {
+                currentAvailable.push({ index: i, id: gamepads[i]!.id });
+            }
+        }
+        
+        // Check if the currently selected index is still valid
+        let gp = gamepads[activeGamepadIndex];
+        
+        // If selected gamepad is disconnected, try to fallback to the first available one
+        if (!gp && currentAvailable.length > 0) {
+            // Auto-switch only if we effectively lost connection
+            // (We handle this state update outside render loop usually, but let's just use the first one for logic this frame)
+            gp = gamepads[currentAvailable[0].index];
+            // Note: We can't call setActiveGamepadIndex here inside the loop easily without causing render loop issues if not careful.
+            // But for the input handling strictly, we can temporarily use a fallback.
+        }
+
+        // --- UI STATE SYNC (Only periodically or if menu is open to save perf) ---
+        if (isOpen) {
+             // Hacky shallow comparison to update UI list
+             if (JSON.stringify(currentAvailable) !== JSON.stringify(availableGamepads)) {
+                 setAvailableGamepads(currentAvailable);
+             }
+             if (gp && gp.id !== currentGamepadId) {
+                 setCurrentGamepadId(gp.id);
+             }
+        }
+
         if (!gp) {
             requestRef.current = requestAnimationFrame(update);
             return;
@@ -79,34 +114,26 @@ export const GamepadControls: React.FC = () => {
 
         // --- REBINDING MODE ---
         if (listeningFor) {
-            // Check for any button press to bind
             gp.buttons.forEach((btn, index) => {
                 if (btn.pressed && !prevButtons.current[index]) {
                     const newMapping = { ...mapping };
-                    
-                    // Clear old bindings for this action to ensure 1:1 mapping preference
-                    // (Optional, but cleaner for UI)
                     Object.keys(newMapping).forEach(key => {
                          if (newMapping[parseInt(key)] === listeningFor) {
                              delete newMapping[parseInt(key)];
                          }
                     });
-                    
                     newMapping[index] = listeningFor;
                     setMapping(newMapping);
-                    setListeningFor(null); // Exit listening mode
+                    setListeningFor(null); 
                 }
             });
-            
-            // Update prev buttons
             gp.buttons.forEach((b, i) => prevButtons.current[i] = b.pressed);
             requestRef.current = requestAnimationFrame(update);
-            return; // SKIP GAMEPLAY LOGIC WHILE REBINDING
+            return;
         }
 
         // --- SETTINGS MENU OPEN? ---
         if (isOpen) {
-            // Update button state history to prevent immediate triggers on resume
              gp.buttons.forEach((b, i) => prevButtons.current[i] = b.pressed);
             requestRef.current = requestAnimationFrame(update);
             return;
@@ -114,10 +141,9 @@ export const GamepadControls: React.FC = () => {
 
         // --- GAMEPLAY LOGIC ---
 
-        // 1. AXES (Left Stick) - Hardcoded for movement
         const THRESHOLD = 0.5;
-        const axisX = gp.axes[0];
-        const axisY = gp.axes[1];
+        const axisX = gp.axes[0] || 0;
+        const axisY = gp.axes[1] || 0;
 
         const axisKeys: { [key: string]: boolean } = {
             'd': axisX > THRESHOLD,
@@ -126,7 +152,6 @@ export const GamepadControls: React.FC = () => {
             'w': axisY < -THRESHOLD,
         };
 
-        // 2. BUTTONS (Based on Mapping)
         const buttonKeys: { [key: string]: boolean } = {
             ' ': false, 'l': false, 'j': false, 'e': false
         };
@@ -141,10 +166,8 @@ export const GamepadControls: React.FC = () => {
             }
         });
 
-        // Merge
         const allKeys = { ...axisKeys, ...buttonKeys };
 
-        // 3. DISPATCH EVENTS
         for (const key in allKeys) {
             const isPressed = allKeys[key];
             const wasPressed = keyState.current[key];
@@ -158,7 +181,6 @@ export const GamepadControls: React.FC = () => {
             }
         }
         
-        // Update prev buttons
         gp.buttons.forEach((b, i) => prevButtons.current[i] = b.pressed);
 
         requestRef.current = requestAnimationFrame(update);
@@ -167,17 +189,29 @@ export const GamepadControls: React.FC = () => {
     useEffect(() => {
         requestRef.current = requestAnimationFrame(update);
         return () => cancelAnimationFrame(requestRef.current);
-    }, [isOpen, listeningFor, mapping]);
+    }, [isOpen, listeningFor, mapping, activeGamepadIndex, availableGamepads]); 
+    // Added availableGamepads dep to ensure update loop sees fresh state if we update it
 
-    // --- UI HELPERS ---
+    // --- UI HANDLERS ---
     const getButtonForAction = (action: ActionType) => {
         const idx = Object.keys(mapping).find(key => mapping[parseInt(key)] === action);
         return idx !== undefined ? `BTN ${idx}` : 'UNBOUND';
     };
 
+    const cycleGamepad = (direction: 'next' | 'prev') => {
+        if (availableGamepads.length <= 1) return;
+        
+        const currentIndexInList = availableGamepads.findIndex(g => g.index === activeGamepadIndex);
+        let nextIndexInList = direction === 'next' ? currentIndexInList + 1 : currentIndexInList - 1;
+        
+        if (nextIndexInList >= availableGamepads.length) nextIndexInList = 0;
+        if (nextIndexInList < 0) nextIndexInList = availableGamepads.length - 1;
+        
+        setActiveGamepadIndex(availableGamepads[nextIndexInList].index);
+    };
+
     return (
         <>
-            {/* TOGGLE BUTTON (Top Left) */}
             <div className="absolute top-4 left-4 z-50">
                 <button 
                     onClick={() => setIsOpen(true)}
@@ -187,14 +221,48 @@ export const GamepadControls: React.FC = () => {
                 </button>
             </div>
 
-            {/* SETTINGS OVERLAY */}
             {isOpen && (
                 <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
                     <div className="w-full max-w-md bg-gray-900/90 border border-gray-700 p-8 rounded-lg shadow-[0_0_50px_rgba(0,0,0,0.8)] relative">
                         
-                        <h2 className="text-2xl text-white font-mono font-bold tracking-widest mb-8 text-center border-b border-gray-700 pb-4">
+                        <h2 className="text-2xl text-white font-mono font-bold tracking-widest mb-4 text-center border-b border-gray-700 pb-4">
                             CONTROLS CONFIG
                         </h2>
+                        
+                        {/* Controller Selection */}
+                        <div className="mb-6 bg-black/30 p-3 rounded border border-gray-700">
+                             <div className="text-[10px] text-gray-500 font-mono text-center mb-1">ACTIVE CONTROLLER</div>
+                             
+                             <div className="flex items-center justify-between">
+                                 <button 
+                                    onClick={() => cycleGamepad('prev')}
+                                    className="text-cyan-500 hover:text-white px-2 font-bold disabled:opacity-30"
+                                    disabled={availableGamepads.length <= 1}
+                                 >
+                                     &lt;
+                                 </button>
+                                 
+                                 <div className="text-xs text-cyan-300 font-mono truncate px-2 text-center flex-1">
+                                     {availableGamepads.length > 0 
+                                        ? `[${activeGamepadIndex}] ${currentGamepadId.substring(0, 20)}...` 
+                                        : "NO GAMEPAD DETECTED"}
+                                 </div>
+                                 
+                                 <button 
+                                    onClick={() => cycleGamepad('next')}
+                                    className="text-cyan-500 hover:text-white px-2 font-bold disabled:opacity-30"
+                                    disabled={availableGamepads.length <= 1}
+                                 >
+                                     &gt;
+                                 </button>
+                             </div>
+                             
+                             <div className="text-center mt-1">
+                                 <span className="text-[9px] text-gray-600 font-mono">
+                                     {availableGamepads.length} DEVICE(S) FOUND
+                                 </span>
+                             </div>
+                        </div>
 
                         <div className="space-y-4">
                             {(['DASH', 'JUMP', 'SHOOT', 'SWITCH TARGET'] as ActionType[]).map((action) => (
@@ -228,7 +296,7 @@ export const GamepadControls: React.FC = () => {
                         </div>
 
                         <div className="absolute bottom-4 left-0 w-full text-center text-gray-600 text-[10px] font-mono">
-                            CLICK TO BIND • PRESS BUTTON ON GAMEPAD
+                            SELECT DEVICE • CLICK TO BIND
                         </div>
 
                     </div>
