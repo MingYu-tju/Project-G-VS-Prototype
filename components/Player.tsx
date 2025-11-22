@@ -279,6 +279,8 @@ const lConsumedByAction = useRef(false);
 // lConsumedByDash: SPECIFICALLY tracks if the current press was used to trigger a DASH.
 // If true, holding the key will NOT trigger an ascent (prevents Jump Cancel during dash hold).
 const lConsumedByDash = useRef(false);
+// NEW: Special flag to allow double-tap even if the first tap was consumed (e.g. Evade Cancel)
+const preserveDoubleTapOnRelease = useRef(false);
 
 // Action State
 const isDashing = useRef(false);
@@ -518,15 +520,15 @@ const handleKeyUp = (e: KeyboardEvent) => {
     keys.current[key] = false;
     
     if (key === 'l') {
-        if (lConsumedByAction.current) {
-            // CRITICAL FIX: If this press was already used for Ascent or Dash, 
-            // we invalidate the release time by setting it to 0. 
-            // This prevents this release from acting as the "First Tap" for a subsequent Double Tap.
+        // If consumed by action, usually we invalidate double tap.
+        // UNLESS preserveDoubleTapOnRelease is true (e.g. Evade Cancel Ascent).
+        if (lConsumedByAction.current && !preserveDoubleTapOnRelease.current) {
             lastLReleaseTime.current = 0;
         } else {
             lastLReleaseTime.current = Date.now();
         }
-        // We DON'T reset lConsumedByAction here, we reset it on next KeyDown.
+        // Reset flag for next press
+        preserveDoubleTapOnRelease.current = false;
     }
 };
 
@@ -635,7 +637,10 @@ const lHeldDuration = isLHeld ? (now - lPressStartTime.current) : 0;
 // FIX: Ascent Logic Correction
 // We only block ascent if the key press was explicitly used for a DASH.
 // If it was used for a previous frame of Ascent (lConsumedByAction=true), we SHOULD continue.
-const isAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
+// NEW: If Evading, allow instant ascent (ignore hold threshold)
+const isEvadeCancelInput = isEvading.current && isLHeld && !lConsumedByDash.current;
+const isNormalAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
+const isAscentInput = isEvadeCancelInput || isNormalAscentInput;
 
 // --- SHORT HOP LOGIC (Tap detection) ---
 // If key is released, was not consumed, and enough time has passed since release that double tap is impossible
@@ -711,8 +716,11 @@ if (stunned) {
                 isEvading.current = false; 
                 nextVisualState = 'ASCEND';
                 velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
+                
                 // Mark input as consumed by ascent
                 lConsumedByAction.current = true;
+                // NEW: Special Case - Allow this specific press to be the "first tap" for a dash double tap
+                preserveDoubleTapOnRelease.current = true;
             }
         }
 

@@ -104,8 +104,8 @@ export const GLOBAL_CONFIG = {
     JUMP_SHORT_HOP_SPEED: 0.28, // Velocity for a single-tap short hop
 
     // Evade (Step)
-    EVADE_SPEED: 0.5,          // Faster than dash burst
-    EVADE_DURATION: 24,         // Frames (approx 0.3s)
+    EVADE_SPEED: 0.45,          // Faster than dash burst
+    EVADE_DURATION: 28,         // Frames (approx 0.3s)
     EVADE_BOOST_COST: 10,       // Costly maneuver
     DOUBLE_TAP_WINDOW: 250,     // ms
 
