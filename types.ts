@@ -1,5 +1,32 @@
 import { Vector3 } from 'three';
 
+// --- FIX: Add missing JSX Intrinsic Elements for React Three Fiber ---
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      group: any;
+      mesh: any;
+      boxGeometry: any;
+      sphereGeometry: any;
+      cylinderGeometry: any;
+      planeGeometry: any;
+      circleGeometry: any;
+      ringGeometry: any;
+      icosahedronGeometry: any;
+      meshBasicMaterial: any;
+      meshStandardMaterial: any;
+      meshToonMaterial: any;
+      ambientLight: any;
+      directionalLight: any;
+      pointLight: any;
+      hemisphereLight: any;
+      color: any;
+      fog: any;
+      [elemName: string]: any;
+    }
+  }
+}
+
 export enum Team {
   BLUE = 'BLUE',
   RED = 'RED'
@@ -41,9 +68,9 @@ export const GLOBAL_CONFIG = {
     // Movement
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.25,
-    GROUND_TURN_SPEED: 0.1, // New: Ground steering speed (radians per frame)
+    GROUND_TURN_SPEED: 0.13, // New: Ground steering speed (radians per frame)
     ASCENT_SPEED: 0.38,
-    ASCENT_TURN_SPEED: 0.05, // New: Air steering speed (radians per frame)
+    ASCENT_TURN_SPEED: 0.08, // New: Air steering speed (radians per frame)
     
     // Dash
     DASH_BURST_SPEED: 0.7,

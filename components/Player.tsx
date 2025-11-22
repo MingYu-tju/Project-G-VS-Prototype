@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, Quaternion } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, Quaternion, Matrix4 } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
@@ -313,10 +313,14 @@ export const Player: React.FC = () => {
               if (inputDir) {
                   dashDirection.current.copy(inputDir);
               } else {
-                  const camDir = new Vector3();
-                  camera.getWorldDirection(camDir);
-                  camDir.y = 0;
-                  dashDirection.current.copy(camDir.normalize());
+                  // If no input, dash in current model direction
+                  if (meshRef.current) {
+                      const currentDir = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                      currentDir.y = 0;
+                      if (currentDir.lengthSq() > 0) {
+                          dashDirection.current.copy(currentDir.normalize());
+                      }
+                  }
               }
               
               velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
@@ -517,37 +521,11 @@ export const Player: React.FC = () => {
                     nextVisualState = 'ASCEND';
                     velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                     
-                    const currentPlanarSpeed = Math.sqrt(velocity.current.x**2 + velocity.current.z**2);
-                    
-                    if (moveDir) {
-                         const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                         if (currentPlanarSpeed > 0.01) {
-                             const angle = moveDir.angleTo(currentVel);
-                             let axis = new Vector3().crossVectors(currentVel, moveDir).normalize();
-                             if (axis.lengthSq() < 0.01) {
-                                if (angle > 1.0) axis = new Vector3(0, 1, 0);
-                             }
-                             if (axis.lengthSq() > 0.01) {
-                                 const rotateAmount = Math.min(angle, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
-                                 currentVel.applyAxisAngle(axis, rotateAmount);
-                             }
-                         } else {
-                             currentVel.copy(moveDir).multiplyScalar(0.01);
-                         }
-
-                         if (currentPlanarSpeed > GLOBAL_CONFIG.WALK_SPEED * 1.1) {
-                             velocity.current.x = currentVel.x * Math.pow(0.995, timeScale);
-                             velocity.current.z = currentVel.z * Math.pow(0.995, timeScale);
-                         } else {
-                             const newDir = currentVel.normalize();
-                             const newSpeed = MathUtils.lerp(currentPlanarSpeed, GLOBAL_CONFIG.WALK_SPEED, 0.2 * timeScale);
-                             velocity.current.x = newDir.x * newSpeed;
-                             velocity.current.z = newDir.z * newSpeed;
-                         }
-                    } else {
-                        velocity.current.x *= Math.pow(0.9, timeScale);
-                        velocity.current.z *= Math.pow(0.9, timeScale);
-                    }
+                    // PURE INERTIA LOGIC: 
+                    // Do NOT apply horizontal velocity from inputs during ascent.
+                    // Just decay existing momentum very slowly to simulate gliding/flying with inertia.
+                    velocity.current.x *= Math.pow(0.995, timeScale);
+                    velocity.current.z *= Math.pow(0.995, timeScale);
                 }
             }
             else {
@@ -672,7 +650,22 @@ export const Player: React.FC = () => {
             const lookPos = position.current.clone().add(dashDirection.current);
             meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
         }
-        else {
+        else if (nextVisualState === 'ASCEND') {
+            // ASCEND VISUALS: WASD controls Body Rotation (Facing)
+            if (moveDir) {
+                const targetLookAt = position.current.clone().sub(moveDir);
+                const m = new Matrix4();
+                m.lookAt(position.current, targetLookAt, new Vector3(0,1,0));
+                const targetQuat = new Quaternion();
+                targetQuat.setFromRotationMatrix(m);
+                
+                // Smooth rotation towards input direction
+                meshRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
+            } else {
+                // If no input, just maintain current rotation (do nothing)
+            }
+        }
+        else if (nextVisualState === 'WALK'){
             const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
             if (horizVel.lengthSq() > 0.001) { 
                 const lookPos = position.current.clone().add(horizVel);
