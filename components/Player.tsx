@@ -249,6 +249,10 @@ export const Player: React.FC = () => {
   const meshRef = useRef<Mesh>(null);
   const headRef = useRef<Group>(null);
   const legsRef = useRef<Group>(null);
+  // NEW: Individual leg refs for splaying animation
+  const rightLegRef = useRef<Group>(null);
+  const leftLegRef = useRef<Group>(null);
+  
   const gunArmRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   const { camera } = useThree();
@@ -298,6 +302,9 @@ export const Player: React.FC = () => {
   const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
   const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
   
+  // Animation Variables
+  const currentLegSpread = useRef(0);
+
   // Evade State
   const isEvading = useRef(false);
   const evadeTimer = useRef(0);
@@ -703,7 +710,6 @@ export const Player: React.FC = () => {
                     isDashing.current = false;
                 }
                 // Regular Jump Cancel check (Only if NOT bursting)
-                // Note: KeyDown handler manages the buffer, but we double check here
                 else if (spaceHeld && dashBurstTimer.current <= 0 && (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD)) {
                     isDashing.current = false;
                 }
@@ -877,11 +883,6 @@ export const Player: React.FC = () => {
         if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
             meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
         }
-        else if (isEvading.current) {
-             if (currentTarget) {
-                meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
-             }
-        }
         else if (isDashing.current) {
             const lookPos = position.current.clone().add(dashDirection.current);
             meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
@@ -962,7 +963,7 @@ export const Player: React.FC = () => {
              }
         }
 
-        // 4. Leg Inertia Sway
+        // 4. Leg Inertia Sway & Splaying
         if (legsRef.current) {
              const invRot = meshRef.current.quaternion.clone().invert();
              const localVel = velocity.current.clone().applyQuaternion(invRot);
@@ -970,6 +971,17 @@ export const Player: React.FC = () => {
              const targetRoll = -localVel.x * 1.5;
              legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
              legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
+
+             // Splay legs on dash
+             const targetSpread = isDashing.current ? 0.35 : 0;
+             currentLegSpread.current = MathUtils.lerp(currentLegSpread.current, targetSpread, 0.1 * timeScale);
+             
+             if (rightLegRef.current) {
+                 rightLegRef.current.rotation.z = 0.05 + currentLegSpread.current;
+             }
+             if (leftLegRef.current) {
+                 leftLegRef.current.rotation.z = -0.05 - currentLegSpread.current;
+             }
         }
     }
 
@@ -1165,23 +1177,23 @@ export const Player: React.FC = () => {
                                 <Edges threshold={15} color="black" />
                         </mesh>
                         <group position={[0, -0.06, 0.235]}>
-                            <group position={[0, 0.025, 0]}>
-                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                            <group position={[0, 0.015, 0]}>
+                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                        <boxGeometry args={[0.05, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
-                            <group position={[0, -0.025, 0]}>
-                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                            <group position={[0, -0.015, 0]}>
+                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
@@ -1230,7 +1242,7 @@ export const Player: React.FC = () => {
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
+                                    <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
                                         <mesh position={[0, 0.2, 0]}>
                                             <boxGeometry args={[0.1, 1.4, 0.6]} />
                                             <meshToonMaterial color={armorColor} />
@@ -1238,7 +1250,7 @@ export const Player: React.FC = () => {
                                         </mesh>
                                         <mesh position={[0.06, 0.2, 0]}>
                                             <boxGeometry args={[0.05, 1.2, 0.4]} />
-                                            <meshToonMaterial color="#ffaa00" />
+                                            <meshToonMaterial color="#ff0000" />
                                         </mesh>
                                     </group>
                             </group>
@@ -1331,7 +1343,7 @@ export const Player: React.FC = () => {
 
             {/* LEGS GROUP */}
             <group ref={legsRef}>
-                <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
+                <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
@@ -1358,7 +1370,7 @@ export const Player: React.FC = () => {
                         </group>
                 </group>
 
-                <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
+                <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />

@@ -79,6 +79,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
   const legsRef = useRef<Group>(null);
+  // NEW: Individual leg refs for splaying
+  const rightLegRef = useRef<Group>(null);
+  const leftLegRef = useRef<Group>(null);
+  
   const gunArmRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   
@@ -111,6 +115,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const [isAscendingState, setIsAscendingState] = useState(false); 
   const [isStunned, setIsStunned] = useState(false);
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
+  
+  // Animation
+  const currentLegSpread = useRef(0);
 
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
   const clockRef = useRef(0);
@@ -493,7 +500,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          }
     }
 
-    // 3. Leg Inertia Sway
+    // 3. Leg Inertia Sway & Splaying
     if (legsRef.current && !stunned) {
          const invRot = rotateGroupRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
@@ -503,6 +510,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
+
+         // Splay Legs Logic
+         const isDashing = aiState.current === 'DASHING';
+         const targetSpread = isDashing ? 0.35 : 0;
+         currentLegSpread.current = MathUtils.lerp(currentLegSpread.current, targetSpread, 0.1);
+
+         if (rightLegRef.current) rightLegRef.current.rotation.z = 0.05 + currentLegSpread.current;
+         if (leftLegRef.current) leftLegRef.current.rotation.z = -0.05 - currentLegSpread.current;
     }
 
   });
@@ -662,7 +677,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                     </mesh>
-                                    <group position={[0.2, 0, 0.1]} rotation={[0, 0, 0]}>
+                                    <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
                                         <mesh position={[0, 0.2, 0]}>
                                             <boxGeometry args={[0.1, 1.4, 0.6]} />
                                             <meshToonMaterial color={armorColor} />
@@ -670,7 +685,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                         </mesh>
                                         <mesh position={[0.06, 0.2, 0]}>
                                             <boxGeometry args={[0.05, 1.2, 0.4]} />
-                                            <meshToonMaterial color="#ffaa00" />
+                                            <meshToonMaterial color="#ff0000" />
                                         </mesh>
                                     </group>
                             </group>
@@ -760,7 +775,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
             {/* LEGS GROUP */}
             <group ref={legsRef}>
-                <group position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
+                <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
@@ -787,7 +802,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </group>
                 </group>
 
-                <group position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
+                <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />

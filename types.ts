@@ -102,8 +102,8 @@ export const GLOBAL_CONFIG = {
     JUMP_SHORT_HOP_FRAMES: 20, // Frames to ascend if jump buffer was triggered but key released
 
     // Evade (Step)
-    EVADE_SPEED: 0.4,          // Faster than dash burst
-    EVADE_DURATION: 20,         // Frames (approx 0.3s)
+    EVADE_SPEED: 0.5,          // Faster than dash burst
+    EVADE_DURATION: 24,         // Frames (approx 0.3s)
     EVADE_BOOST_COST: 10,       // Costly maneuver
     DOUBLE_TAP_WINDOW: 250,     // ms
 
