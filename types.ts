@@ -84,11 +84,13 @@ export const GLOBAL_CONFIG = {
     GROUND_TURN_SPEED: 0.13, // New: Ground steering speed (radians per frame)
     ASCENT_SPEED: 0.38,
     ASCENT_TURN_SPEED: 0.08, // New: Air steering speed (radians per frame)
-    
+    ASCENT_HORIZONTAL_ACCEL: 0.01, // New: Horizontal acceleration during ascent (Drift control)
+    ASCENT_MAX_HORIZONTAL_SPEED: 0.2, // New: Cap for horizontal speed gained via input during ascent
+
     // Dash
     DASH_BURST_SPEED: 0.75,
     DASH_SUSTAIN_SPEED: 0.5,
-    DASH_DECAY_FACTOR: 0.05,
+    DASH_DECAY_FACTOR: 0.058,
     DASH_TURN_SPEED: 0.06,
     DASH_GRACE_PERIOD: 80, // (Deprecated/Secondary check)
     DASH_BURST_DURATION: 25, // Frames where Jump Cancel is locked (Speed decays during this)

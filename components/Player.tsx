@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4 } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
@@ -394,7 +394,10 @@ export const Player: React.FC = () => {
           setDashTriggerTime(now);
           playBoostSound();
 
-          if (isGrounded.current) {
+          // FIX: Check proximity to ground (e.g., < 1.5 units) to trigger Ground Hop
+          // This prevents the physics engine from snapping the player to ground and cancelling dash immediately
+          // if they dash just before landing.
+          if (isGrounded.current || position.current.y < 1.5) {
               velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
               isGrounded.current = false;
           }
@@ -547,6 +550,18 @@ export const Player: React.FC = () => {
         );
     }
   };
+
+  // --- MECHA EYE SHAPE ---
+  const eyeShape = useMemo(() => {
+      const s = new Shape();
+      // Drawing Right Eye (X > 0)
+      s.moveTo(0.025, -0.01); // Inner Bottom
+      s.lineTo(0.11, 0.01);   // Outer Bottom
+      s.lineTo(0.11, 0.06);   // Outer Top
+      s.lineTo(0.025, 0.03);  // Inner Top (Lower than outer = Angry)
+      s.autoClose = true;
+      return s;
+  }, []);
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
@@ -744,6 +759,19 @@ export const Player: React.FC = () => {
                     // PURE INERTIA LOGIC for Ascent
                     velocity.current.x *= Math.pow(0.995, timeScale);
                     velocity.current.z *= Math.pow(0.995, timeScale);
+
+                    // NEW: Horizontal Acceleration during Ascent with Speed Limit
+                    if (moveDir) {
+                        const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                        // Check how much we are already moving in the desired direction
+                        const projectedSpeed = currentHVel.dot(moveDir);
+                        
+                        // Only accelerate if we haven't reached the max speed in that direction
+                        if (projectedSpeed < GLOBAL_CONFIG.ASCENT_MAX_HORIZONTAL_SPEED) {
+                            velocity.current.x += moveDir.x * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                            velocity.current.z += moveDir.z * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                        }
+                    }
                 }
             }
             else {
@@ -919,7 +947,7 @@ export const Player: React.FC = () => {
              if (t) {
                  const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
                  const dirToT = t.position.clone().sub(position.current).normalize();
-                 if (fwd.dot(dirToT) > 0.2) { 
+                 if (fwd.dot(dirToT) > -0.1) { 
                      shouldLook = true;
                     const startQuat = headRef.current.quaternion.clone();
                     headRef.current.lookAt(t.position);
@@ -1158,10 +1186,28 @@ export const Player: React.FC = () => {
                                 </mesh>
                             </group>
                         </group>
-                        <mesh position={[0, 0.05, 0.226]}>
-                            <planeGeometry args={[0.25, 0.08]} />
-                            <meshBasicMaterial color="#00ff00" toneMapped={false} />
-                        </mesh>
+                        
+                        {/* EYES (Shape Geometry) */}
+                        <group position={[0, 0.015, 0.228]}>
+                            {/* Black Visor Background */}
+                            <mesh position={[0, 0.02, -0.001]}>
+                                <planeGeometry args={[0.24, 0.08]} />
+                                <meshBasicMaterial color="#111" />
+                            </mesh>
+                            
+                            {/* Right Eye */}
+                            <mesh>
+                                <shapeGeometry args={[eyeShape]} />
+                                <meshBasicMaterial color="#00ff00" toneMapped={false} />
+                            </mesh>
+                            
+                            {/* Left Eye (Mirrored) */}
+                            <mesh scale={[-1, 1, 1]}>
+                                <shapeGeometry args={[eyeShape]} />
+                                <meshBasicMaterial color="#00ff00" toneMapped={false} />
+                            </mesh>
+                        </group>
+
                     </group>
 
                     {/* ARMS */}

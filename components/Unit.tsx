@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape } from 'three';
 import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
@@ -511,6 +511,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const chestColor = isStunned ? '#ffffff' : (team === Team.RED ? '#880000' : '#2244aa');
   const feetColor = team === Team.RED ? '#333333' : '#aa2222';
 
+  // --- MECHA EYE SHAPE ---
+  const eyeShape = useMemo(() => {
+      const s = new Shape();
+      // Drawing Right Eye (X > 0)
+      s.moveTo(0.025, -0.01); // Inner Bottom
+      s.lineTo(0.11, 0.01);   // Outer Bottom
+      s.lineTo(0.11, 0.06);   // Outer Top
+      s.lineTo(0.025, 0.03);  // Inner Top (Lower than outer = Angry)
+      s.autoClose = true;
+      return s;
+  }, []);
+
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
@@ -606,10 +618,28 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 </mesh>
                             </group>
                         </group>
-                        <mesh position={[0, 0.05, 0.226]}>
-                            <planeGeometry args={[0.25, 0.08]} />
-                            <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
-                        </mesh>
+                        
+                        {/* EYES (Shape Geometry) */}
+                        <group position={[0, 0.015, 0.228]}>
+                            {/* Black Visor Background */}
+                            <mesh position={[0, 0.02, -0.001]}>
+                                <planeGeometry args={[0.24, 0.08]} />
+                                <meshBasicMaterial color="#111" />
+                            </mesh>
+                            
+                            {/* Right Eye */}
+                            <mesh>
+                                <shapeGeometry args={[eyeShape]} />
+                                <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
+                            </mesh>
+                            
+                            {/* Left Eye (Mirrored) */}
+                            <mesh scale={[-1, 1, 1]}>
+                                <shapeGeometry args={[eyeShape]} />
+                                <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
+                            </mesh>
+                        </group>
+
                     </group>
 
                     {/* ARMS */}
