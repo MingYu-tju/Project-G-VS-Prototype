@@ -108,7 +108,7 @@ export const GLOBAL_CONFIG = {
     FALL_KNEE_BEND_RIGHT: 2.6,   // Right knee bends deeply
     FALL_KNEE_BEND_LEFT: 1.6,    // Left knee bends slightly
     
-    FALL_LEG_SPREAD: 0.05,       // Legs splay outward (Z axis)
+    FALL_LEG_SPREAD: 0.2,       // Legs splay outward (Z axis)
     FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
 
     // Evade (Step)
