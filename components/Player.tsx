@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -31,6 +32,62 @@ const getAudioContext = () => {
     return globalAudioCtx;
 };
 
+// --- PROCEDURAL AUDIO GENERATORS (Fallback for missing/empty files) ---
+
+// Generates a Sci-Fi "Swish" noise burst
+const generateProceduralDash = (ctx: AudioContext): AudioBuffer => {
+    const duration = 0.6;
+    const sampleRate = ctx.sampleRate;
+    const frameCount = sampleRate * duration;
+    const buffer = ctx.createBuffer(1, frameCount, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < frameCount; i++) {
+        // 1. Base White Noise
+        const noise = Math.random() * 2 - 1;
+        
+        // 2. Amplitude Envelope (Fast attack, long tail)
+        const t = i / frameCount;
+        let envelope = 0;
+        if (t < 0.1) envelope = t / 0.1; // Attack
+        else envelope = 1 - ((t - 0.1) / 0.9); // Decay
+        envelope = Math.pow(envelope, 2); // Quadratic curve for smoother fade
+
+        // 3. Simple Lowpass Filter Simulation (Moving Average - crude but fast)
+        // Ideally we use BiquadFilterNode at runtime, but for a baked buffer:
+        // We just let the noise be "hissy" which fits a steam thruster.
+        
+        data[i] = noise * envelope * 0.5; // Scale volume
+    }
+    return buffer;
+};
+
+// Generates a Retro "Pew" Laser
+const generateProceduralShoot = (ctx: AudioContext): AudioBuffer => {
+    const duration = 0.3;
+    const sampleRate = ctx.sampleRate;
+    const frameCount = sampleRate * duration;
+    const buffer = ctx.createBuffer(1, frameCount, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < frameCount; i++) {
+        const t = i / sampleRate;
+        const progress = i / frameCount;
+
+        // Frequency Sweep: 1200Hz -> 200Hz
+        const frequency = 1200 - (1000 * Math.pow(progress, 0.5));
+        
+        // Waveform: Square-ish (using sine with sign)
+        const val = Math.sign(Math.sin(2 * Math.PI * frequency * t));
+
+        // Envelope
+        const envelope = 1 - progress;
+
+        data[i] = val * envelope * 0.3;
+    }
+    return buffer;
+};
+
 // EXPORTED HELPER for App.tsx to resume audio on Start Click
 export const resumeAudioContext = async () => {
     const ctx = getAudioContext();
@@ -41,14 +98,10 @@ export const resumeAudioContext = async () => {
                 console.log("AudioContext resumed successfully.");
             }
             
-            // Retry loading if buffers are missing (e.g. first load failed silently)
-            if (!boostAudioBuffer && !isBoostLoading) {
-                console.log("Retrying Boost Sound Load...");
-                loadCustomBoostSound();
-            }
-            if (!shootAudioBuffer && !isShootLoading) {
-                 loadCustomShootSound();
-            }
+            // Force load/generate buffers if missing
+            if (!boostAudioBuffer && !isBoostLoading) loadCustomBoostSound();
+            if (!shootAudioBuffer && !isShootLoading) loadCustomShootSound();
+            
         } catch (e) {
             console.error("Failed to resume audio context:", e);
         }
@@ -57,24 +110,34 @@ export const resumeAudioContext = async () => {
 
 // Preloader for Custom Boost Sound
 const loadCustomBoostSound = async () => {
-    if (!CUSTOM_BOOST_SFX_URL || boostAudioBuffer || isBoostLoading) return;
+    if (boostAudioBuffer || isBoostLoading) return;
     
     const ctx = getAudioContext();
     if (!ctx) return;
 
+    isBoostLoading = true;
     try {
-        isBoostLoading = true;
         console.log(`Attempting to load boost sound from: ${CUSTOM_BOOST_SFX_URL}`);
         const response = await fetch(CUSTOM_BOOST_SFX_URL);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        
+        // Strict check: 200 OK is not enough if content-length is 0
+        const contentLength = response.headers.get('Content-Length');
+        if (!response.ok || (contentLength && parseInt(contentLength) === 0)) {
+            throw new Error(`Invalid file response. Status: ${response.status}, Size: ${contentLength}`);
         }
+
         const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) {
+             throw new Error("File is empty (0 bytes)");
+        }
+
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
         boostAudioBuffer = decodedData;
-        console.log("Custom boost sound loaded and decoded successfully.");
+        console.log("Custom boost sound loaded.");
     } catch (error) {
-        console.error("Failed to load/decode custom boost sound. Falling back to synth.", error);
+        console.warn("Using procedural DASH sound due to load error:", error);
+        // FALLBACK: Generate procedural buffer
+        boostAudioBuffer = generateProceduralDash(ctx);
     } finally {
         isBoostLoading = false;
     }
@@ -82,21 +145,29 @@ const loadCustomBoostSound = async () => {
 
 // Preloader for Custom Shoot Sound
 const loadCustomShootSound = async () => {
-    if (!CUSTOM_SHOOT_SFX_URL || shootAudioBuffer || isShootLoading) return;
+    if (shootAudioBuffer || isShootLoading) return;
     
     const ctx = getAudioContext();
     if (!ctx) return;
 
+    isShootLoading = true;
     try {
-        isShootLoading = true;
         const response = await fetch(CUSTOM_SHOOT_SFX_URL);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const contentLength = response.headers.get('Content-Length');
+        if (!response.ok || (contentLength && parseInt(contentLength) === 0)) {
+             throw new Error("Invalid file");
+        }
+        
         const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) throw new Error("File is empty");
+
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
         shootAudioBuffer = decodedData;
-        console.log("Custom shoot sound loaded successfully.");
+        console.log("Custom shoot sound loaded.");
     } catch (error) {
-        // console.warn("Failed to load custom shoot sound:", error);
+        console.warn("Using procedural SHOOT sound due to load error:", error);
+        // FALLBACK: Generate procedural buffer
+        shootAudioBuffer = generateProceduralShoot(ctx);
     } finally {
         isShootLoading = false;
     }
@@ -105,24 +176,22 @@ const loadCustomShootSound = async () => {
 const playShootSound = () => {
     const ctx = getAudioContext();
     if (!ctx) return;
-    // ctx.resume() is handled globally on start, but safe to call here just in case
     if (ctx.state === 'suspended') ctx.resume();
 
-    // 1. Try Custom Buffer (Low Latency)
+    // 1. Prefer Buffer (Loaded or Procedural)
     if (shootAudioBuffer) {
         const source = ctx.createBufferSource();
         source.buffer = shootAudioBuffer;
         const gain = ctx.createGain();
-        gain.gain.value = 0.4; // Adjust volume for shoot sound
+        gain.gain.value = 0.3; 
         source.connect(gain);
         gain.connect(ctx.destination);
-        // Randomize pitch slightly for variety
-        source.playbackRate.value = 0.95 + Math.random() * 0.1;
+        source.playbackRate.value = 0.9 + Math.random() * 0.2; // Pitch variation
         source.start(0);
         return;
     }
-
-    // 2. Fallback: Beam Rifle Synthesis
+    
+    // 2. Ultimate Fallback (Oscillator) if even buffer generation failed
     playBeamRifleSynth(ctx);
 };
 
@@ -132,14 +201,10 @@ const playBeamRifleSynth = (ctx: AudioContext) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     
-    // Square wave gives that "retro laser" 8-bit feeling
     osc.type = 'square';
-    
-    // Pitch drop: Start high (1500Hz) and drop quickly to (300Hz)
     osc.frequency.setValueAtTime(1500, t);
     osc.frequency.exponentialRampToValueAtTime(300, t + 0.15);
     
-    // Volume envelope: Sharp attack, quick decay
     gain.gain.setValueAtTime(0.1, t);
     gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
     
@@ -155,34 +220,39 @@ const playBoostSound = () => {
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume();
 
-    // 1. Try Custom Sound
+    // 1. Prefer Buffer (Loaded or Procedural)
     if (boostAudioBuffer) {
         const source = ctx.createBufferSource();
         source.buffer = boostAudioBuffer;
         const gain = ctx.createGain();
-        gain.gain.value = 0.25; // Adjust volume for custom sound here
-        source.connect(gain);
+        gain.gain.value = 0.25; 
+        
+        // Add a lowpass filter to make the white noise sound more like an engine
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+
+        source.connect(filter);
+        filter.connect(gain);
         gain.connect(ctx.destination);
+        
         source.start(0);
         return;
     }
 
-    // 2. Fallback to Synth (Engine Roar) if no custom sound loaded
+    // 2. Ultimate Fallback (Oscillator)
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
-    // Low frequency saw/square for engine roar
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(150, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.4);
 
-    // Lowpass filter to muffle the harshness
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(800, ctx.currentTime);
     filter.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.4);
 
-    // Envelope: Fast attack, medium decay
     gain.gain.setValueAtTime(0.0, ctx.currentTime);
     gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.05);
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
@@ -451,8 +521,9 @@ const ammoRegenTimer = useRef(0);
 
 // Try loading custom sounds on mount
 useEffect(() => {
-    if (CUSTOM_BOOST_SFX_URL) loadCustomBoostSound();
-    if (CUSTOM_SHOOT_SFX_URL) loadCustomShootSound();
+    // Attempt load, but the Play functions will handle fallback if this fails or is 0 bytes
+    loadCustomBoostSound();
+    loadCustomShootSound();
 }, []);
 
 const getDirectionFromKey = (key: string) => {
@@ -1638,3 +1709,4 @@ return (
 </group>
 );
 }
+    
