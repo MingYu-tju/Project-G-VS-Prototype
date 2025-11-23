@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape } from 'three';
@@ -78,10 +79,16 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
+  const upperBodyRef = useRef<Group>(null); // NEW: Upper body ref
   const legsRef = useRef<Group>(null);
-  // NEW: Individual leg refs for splaying
+  
+  // NEW: Individual leg/joint refs
   const rightLegRef = useRef<Group>(null);
   const leftLegRef = useRef<Group>(null);
+  const rightLowerLegRef = useRef<Group>(null);
+  const leftLowerLegRef = useRef<Group>(null);
+  const rightFootRef = useRef<Group>(null);
+  const leftFootRef = useRef<Group>(null);
   
   const gunArmRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
@@ -92,6 +99,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const isGrounded = useRef(true);
   const landingFrames = useRef(0);
   const boost = useRef(100);
+
+  // Animation State
+  const visualLandingFrames = useRef(0);
+  const wasFallingRef = useRef(false);
+  const currentFallTime = useRef(0);
+  const totalPredictedFallFrames = useRef(0);
+  const currentUpperBodyTilt = useRef(0);
 
   // AI State
   const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING'>('IDLE');
@@ -116,9 +130,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const [isStunned, setIsStunned] = useState(false);
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
   
-  // Animation
-  const currentLegSpread = useRef(0);
-
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
   const clockRef = useRef(0);
 
@@ -126,8 +137,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (!groupRef.current || !rotateGroupRef.current) return;
 
     clockRef.current += delta;
-    if (clockRef.current < FRAME_DURATION) return;
-    clockRef.current = 0;
+    // Note: Unit updates run every frame regardless of accumulated time to ensure smooth animation, 
+    // but AI decisions can be throttled if needed. For now we run smooth.
+    // if (clockRef.current < FRAME_DURATION) return; 
+    // clockRef.current = 0;
+
+    const timeScale = delta * 60;
 
     const currentlyAscending = aiState.current === 'ASCENDING';
     if (currentlyAscending !== isAscendingState) {
@@ -138,14 +153,19 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     const stunned = now - lastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
     setIsStunned(stunned);
 
+    // --- INTERRUPT ANIMATION ---
+    if (aiState.current === 'DASHING' || aiState.current === 'SHOOTING' || stunned) {
+        visualLandingFrames.current = 0;
+    }
+
     if (stunned) {
         setIsThrusting(false);
         velocity.current.set(0, 0, 0);
         if (knockbackDir) {
-             position.current.add(knockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED));
+             position.current.add(knockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
         }
-        velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
-        position.current.y += velocity.current.y;
+        velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
+        position.current.y += velocity.current.y * timeScale;
         if (position.current.y <= 0) {
             position.current.y = 0;
             velocity.current.y = 0;
@@ -167,7 +187,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     const freshTargets = freshState.targets;
     const freshPlayerPos = freshState.playerPos;
 
-    targetSwitchTimer.current -= FRAME_DURATION; 
+    targetSwitchTimer.current -= delta; 
     if (targetSwitchTimer.current <= 0) {
         targetSwitchTimer.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_TARGET_SWITCH_MIN, GLOBAL_CONFIG.AI_TARGET_SWITCH_MAX); 
         
@@ -191,7 +211,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return t ? t.position.clone() : null;
     };
 
-    shootCooldown.current -= FRAME_DURATION;
+    shootCooldown.current -= delta;
     
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
         if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
@@ -224,7 +244,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
-    aiTimer.current -= FRAME_DURATION * 1000; 
+    aiTimer.current -= delta * 1000; 
 
     if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
         aiState.current = 'IDLE';
@@ -269,12 +289,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     if (isGrounded.current && landingFrames.current <= 0) {
-        boost.current = Math.min(100, boost.current + 1);
+        boost.current = Math.min(100, boost.current + 1 * timeScale);
+    }
+
+    // VISUAL LANDING FRAMES DECAY
+    if (visualLandingFrames.current > 0) {
+        visualLandingFrames.current -= 1 * timeScale;
+        if (visualLandingFrames.current < 0) visualLandingFrames.current = 0;
     }
 
     if (landingFrames.current > 0) {
         velocity.current.set(0,0,0);
-        landingFrames.current -= 1; 
+        landingFrames.current -= 1 * timeScale; 
         setIsThrusting(false);
     } else {
         if (aiState.current === 'SHOOTING') {
@@ -284,9 +310,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  velocity.current.set(0,0,0);
             } else {
                  const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-                 velocity.current.x *= friction;
-                 velocity.current.z *= friction;
-                 velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
+                 const frictionFactor = Math.pow(friction, timeScale);
+                 velocity.current.x *= frictionFactor;
+                 velocity.current.z *= frictionFactor;
+                 velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
             }
             
             const currentRecovery = shootMode.current === 'STOP' 
@@ -346,39 +373,40 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
         else if (aiState.current === 'DASHING') {
             setIsThrusting(true);
-            boost.current -= 0.1;
-            currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR);
+            boost.current -= 0.1 * timeScale;
+            currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
             velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
             velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-            if (position.current.y < 3.0) velocity.current.y = -0.05;
+            if (position.current.y < 3.0) velocity.current.y = -0.05 * timeScale; // Gentle push down if near ground
             else velocity.current.y = 0;
 
         } else if (aiState.current === 'ASCENDING') {
             setIsThrusting(true);
-            boost.current -= 0.3;
+            boost.current -= 0.3 * timeScale;
             velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
-            velocity.current.x += moveInput.current.x * 0.005;
-            velocity.current.z += moveInput.current.z * 0.005;
+            velocity.current.x += moveInput.current.x * 0.005 * timeScale;
+            velocity.current.z += moveInput.current.z * 0.005 * timeScale;
 
         } else {
             setIsThrusting(false);
             if (!isGrounded.current) {
-                 velocity.current.x += moveInput.current.x * 0.001;
-                 velocity.current.z += moveInput.current.z * 0.001;
+                 velocity.current.x += moveInput.current.x * 0.001 * timeScale;
+                 velocity.current.z += moveInput.current.z * 0.001 * timeScale;
             }
         }
 
         if (aiState.current !== 'SHOOTING') {
              const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-             velocity.current.x *= friction;
-             velocity.current.z *= friction;
+             const frictionFactor = Math.pow(friction, timeScale);
+             velocity.current.x *= frictionFactor;
+             velocity.current.z *= frictionFactor;
              
              if (aiState.current !== 'DASHING') {
-                 velocity.current.y -= GLOBAL_CONFIG.GRAVITY;
+                 velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
              }
         }
 
-        position.current.add(velocity.current);
+        position.current.add(velocity.current.clone().multiplyScalar(timeScale));
         
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0; 
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
@@ -394,6 +422,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             if (!isGrounded.current) {
                 isGrounded.current = true;
                 landingFrames.current = Math.floor(GLOBAL_CONFIG.LANDING_LAG_MIN + (1 - boost.current/100) * (GLOBAL_CONFIG.LANDING_LAG_MAX - GLOBAL_CONFIG.LANDING_LAG_MIN));
+                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual landing
                 aiState.current = 'IDLE';
             }
             if (velocity.current.y < 0) velocity.current.y = 0;
@@ -500,24 +529,150 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          }
     }
 
-    // 3. Leg Inertia Sway & Splaying
+    // 3. Leg Inertia Sway & Animation Logic (Advanced)
     if (legsRef.current && !stunned) {
+         // Determine if falling
+         const isFalling = !isGrounded.current && aiState.current !== 'DASHING' && aiState.current !== 'ASCENDING';
+         
+         // --- PREDICTIVE FALL ANIMATION LOGIC ---
+         if (isFalling && !wasFallingRef.current) {
+             const vy = velocity.current.y;
+             const h = position.current.y;
+             const g = GLOBAL_CONFIG.GRAVITY;
+             const discriminant = vy * vy + 2 * g * h;
+             if (discriminant >= 0 && g > 0) {
+                 totalPredictedFallFrames.current = (vy + Math.sqrt(discriminant)) / g;
+             } else {
+                 totalPredictedFallFrames.current = 60; 
+             }
+             currentFallTime.current = 0;
+         }
+         wasFallingRef.current = isFalling;
+
+         // Calculate Animation Weight (0 to 1)
+         let animWeight = 0;
+         if (isFalling) {
+             currentFallTime.current += timeScale;
+             const total = Math.max(totalPredictedFallFrames.current, 1);
+             const progress = Math.min(currentFallTime.current / total, 1.0);
+             const ratio = GLOBAL_CONFIG.FALL_ANIM_RATIO;
+             
+             if (progress < ratio) {
+                 animWeight = progress / ratio;
+             } else {
+                 animWeight = 1 - ((progress - ratio) / (1 - ratio));
+             }
+         } else {
+             animWeight = 0;
+             currentFallTime.current = 0;
+         }
+
          const invRot = rotateGroupRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
-         
-         const targetPitch = localVel.z * 1.5; 
-         const targetRoll = -localVel.x * 1.5;
-
+         const targetPitch = isFalling ? 0 : localVel.z * 1.5; 
+         const targetRoll = isFalling ? 0 : -localVel.x * 1.5;
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
-         // Splay Legs Logic
-         const isDashing = aiState.current === 'DASHING';
-         const targetSpread = isDashing ? 0.35 : 0;
-         currentLegSpread.current = MathUtils.lerp(currentLegSpread.current, targetSpread, 0.1);
+         // Animation Logic
+         let targetRightThighX = 0;
+         let targetLeftThighX = 0;
+         let targetRightKneeX = 0.2; // Idle default
+         let targetLeftKneeX = 0.2;  // Idle default
+         
+         let targetRightFootX = aiState.current === 'DASHING' ? 0.8 : -0.2; // Dashing override vs Idle
+         let targetLeftFootX = -0.2; // Idle
+         
+         let targetSpread = 0;
+         let targetBodyTilt = 0;
+         let lerpSpeed = 0.2 * timeScale; 
 
-         if (rightLegRef.current) rightLegRef.current.rotation.z = 0.05 + currentLegSpread.current;
-         if (leftLegRef.current) leftLegRef.current.rotation.z = -0.05 - currentLegSpread.current;
+         if (aiState.current === 'DASHING') {
+             targetRightThighX = -2; // Lift Right Leg
+             targetRightKneeX = 2.5; // Bend Right Knee (Kick)
+             targetLeftThighX = 0.45; // Drag Left Leg
+             targetLeftFootX = 0.8; // Left Foot Backward
+             targetSpread = 0.35;
+             targetBodyTilt = 0.75; // Forward Lean
+             lerpSpeed = 0.15 * timeScale;
+         } else if (isFalling) {
+             // Falling Poses
+             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
+             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
+             
+             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
+             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
+             
+             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
+             targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
+             
+             lerpSpeed = 0.25 * timeScale;
+         } else if (visualLandingFrames.current > 0) {
+             // --- LANDING ANIMATION ---
+             const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
+             const current = visualLandingFrames.current; 
+             const progress = 1 - (current / total); 
+             
+             let w = 0;
+             const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
+             if (progress < r) {
+                 w = progress / r;
+             } else {
+                 w = 1 - ((progress - r) / (1 - r));
+             }
+             
+             targetRightThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
+             targetLeftThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
+             
+             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
+             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
+             
+             // Ankle Pitch Animation
+             targetRightFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
+             targetLeftFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
+             
+             targetSpread = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
+             
+             // VISUAL HEIGHT ADJUSTMENT (Hip Dip)
+             // Move the entire model visual group down, not the physics groupRef
+             rotateGroupRef.current.position.y = - (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
+             
+             lerpSpeed = 0.25 * timeScale;
+         } else {
+             // Idle / Recovery
+             lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
+             // Reset Hip Dip
+             rotateGroupRef.current.position.y = MathUtils.lerp(rotateGroupRef.current.position.y, 0, lerpSpeed);
+         }
+         
+         // Apply Rotations
+         if (rightLegRef.current) {
+             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, lerpSpeed);
+             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, 0.05 + targetSpread, lerpSpeed);
+         }
+         if (leftLegRef.current) {
+             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, lerpSpeed);
+             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, -0.05 - targetSpread, lerpSpeed);
+         }
+         if (rightLowerLegRef.current) {
+             rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
+         }
+         if (leftLowerLegRef.current) {
+             leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
+         }
+         if (rightFootRef.current) {
+             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightFootX, lerpSpeed);
+         }
+         if (leftFootRef.current) {
+             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
+         }
+
+         // Upper Body Tilt
+         currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
+         if (upperBodyRef.current) {
+            upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+         }
     }
 
   });
@@ -551,7 +706,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             </mesh>
 
             {/* CHEST */}
-            <group position={[0, 0.65, 0]}>
+            <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                     <mesh>
                         <boxGeometry args={[0.9, 0.7, 0.7]} />
                         <meshToonMaterial color={chestColor} /> 
@@ -781,7 +936,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        <group position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                        <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
                             <mesh position={[0, -0.4, 0]}>
                                 <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
@@ -792,7 +947,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </mesh>
-                            <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                            <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
                                 <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
                                     <meshToonMaterial color={feetColor} />
@@ -808,7 +963,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        <group position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                        <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
                             <mesh position={[0, -0.4, 0]}>
                                 <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
@@ -819,7 +974,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </mesh>
-                            <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                            <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
                                 <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
                                     <meshToonMaterial color={feetColor} />
