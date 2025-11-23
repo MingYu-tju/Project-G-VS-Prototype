@@ -225,7 +225,6 @@ const playBoostSound = () => {
         const source = ctx.createBufferSource();
         source.buffer = boostAudioBuffer;
         const gain = ctx.createGain();
-        gain.gain.value = 0.4; 
         
         // Add a lowpass filter to make the white noise sound more like an engine
         const filter = ctx.createBiquadFilter();
@@ -446,6 +445,8 @@ const legsRef = useRef<Group>(null);
 const rightLegRef = useRef<Group>(null);
 const leftLegRef = useRef<Group>(null);
 const rightLowerLegRef = useRef<Group>(null); // NEW: Ref for Right Shin (Shield Side - Knee Kick)
+const leftLowerLegRef = useRef<Group>(null); // NEW: Ref for Left Shin
+const rightFootRef = useRef<Group>(null); // NEW: Ref for Right Foot Ankle
 
 const gunArmRef = useRef<Group>(null);
 const muzzleRef = useRef<Group>(null);
@@ -530,7 +531,7 @@ useEffect(() => {
 }, []);
 
 const getDirectionFromKey = (key: string) => {
-const input = new Vector3(0,0,0);
+const input = new Vector3(0,0,1);
 if (key === 'w') input.z -= 1;
 if (key === 's') input.z += 1;
 if (key === 'a') input.x -= 1;
@@ -1257,7 +1258,10 @@ if (!stunned) {
                  gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
             }
         } else {
-            gunArmRef.current.quaternion.identity();
+                // 修改这里！参数对应 (X轴角度, Y轴角度, Z轴角度)
+                // 例如：rotation.set(0.2, 0, -0.1) 
+                // X=0.2 (向前抬起), Z=-0.1 (向外张开)
+                gunArmRef.current.rotation.set(0.35, -0.3, 0);
         }
     }
 
@@ -1283,7 +1287,7 @@ if (!stunned) {
          }
     }
 
-    // 4. Leg Inertia Sway & Splaying
+    // 4. Leg Inertia Sway & Animation Logic
     if (legsRef.current) {
          const invRot = meshRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
@@ -1292,31 +1296,65 @@ if (!stunned) {
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
-         // Dash Leg Pose Logic (Knee Kick on RIGHT (Shield Side), Drag on LEFT)
-         const targetRightThighX = isDashing.current ? -2 : 0; // Lift Right Leg
-         const targetRightKneeX = isDashing.current ? 2.5 : 0.2; // Bend Right Knee (Kick)
-         const targetLeftThighX = isDashing.current ? 0.45 : 0; // Drag Left Leg
+         // Animation Logic: Falling vs Dashing vs Idle
+         const isFalling = !isGrounded.current && velocity.current.y < -0.05 && !isDashing.current && !isAscending;
+         
+         let targetRightThighX = 0;
+         let targetLeftThighX = 0;
+         let targetRightKneeX = 0.2; // Idle default
+         let targetLeftKneeX = 0.2;  // Idle default
+         let targetSpread = 0;
+         let targetBodyTilt = 0;
+         let lerpSpeed = 0.15 * timeScale;
 
-         if (rightLegRef.current) {
-             // Apply Dash Pose rotation
-             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, 0.15 * timeScale);
+         if (isDashing.current) {
+             targetRightThighX = -2; // Lift Right Leg
+             targetRightKneeX = 2.5; // Bend Right Knee (Kick)
+             targetLeftThighX = 0.45; // Drag Left Leg
+             targetSpread = 0.35;
+             targetBodyTilt = 0.75; // Forward Lean
+             lerpSpeed = 0.15 * timeScale;
+         } else if (isFalling) {
+             // NEW: Falling Animation Logic
+             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH; // Legs pitch forward
+             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH;
+             targetRightKneeX = GLOBAL_CONFIG.FALL_KNEE_BEND; // Knees bend back
+             targetLeftKneeX = GLOBAL_CONFIG.FALL_KNEE_BEND;
+             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD; // Legs splay
+             targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT; // Body tilt forward
+             lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_ENTRY_SPEED * timeScale;
+         } else {
+             // Idle / Recovery
+             lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
          }
-         if (rightLowerLegRef.current) {
-             // Apply Knee Bend
-             rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, 0.15 * timeScale);
+         
+         // Apply Rotations
+         if (rightLegRef.current) {
+             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, lerpSpeed);
+             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, 0.05 + targetSpread, lerpSpeed);
          }
          if (leftLegRef.current) {
-             // Apply Dash Pose rotation
-             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, 0.15 * timeScale);
+             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, lerpSpeed);
+             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, -0.05 - targetSpread, lerpSpeed);
          }
-    }
-    
-    // 5. Upper Body Dash Tilt (Forward Lean)
-    if (upperBodyRef.current) {
-        // Target tilt: Forward (positive X) when dashing
-        const targetTilt = isDashing.current ? 0.75 : 0;
-        currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetTilt, 0.15 * timeScale);
-        upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+         if (rightLowerLegRef.current) {
+             rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
+         }
+         if (leftLowerLegRef.current) {
+             leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
+         }
+         
+         // Right Foot Ankle (Dashing override vs Idle)
+         const targetRightFootX = isDashing.current ? 0.8 : -0.2; 
+         if (rightFootRef.current) {
+             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightFootX, lerpSpeed);
+         }
+
+         // Upper Body Tilt
+         currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
+         if (upperBodyRef.current) {
+            upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+         }
     }
 }
 
@@ -1545,13 +1583,13 @@ return (
 
                 {/* ARMS */}
                 {/* Right Shoulder & Arm (Holding SHIELD) */}
-                <group position={[0.65, 0.1, 0]}>
+                <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]}>
                     <mesh>
                         <boxGeometry args={[0.5, 0.5, 0.5]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.4, 0]}>
+                    <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
                         <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
@@ -1579,13 +1617,13 @@ return (
                 </group>
 
                 {/* Left Shoulder & Arm (Holding GUN) */}
-                <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
+                <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
                     <mesh>
                         <boxGeometry args={[0.5, 0.5, 0.5]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.4, 0]}>
+                    <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
                         <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
@@ -1681,7 +1719,7 @@ return (
                                 <Edges threshold={15} color="black" />
                             </mesh>
                         </mesh>
-                        <group position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                        <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
                             <mesh position={[0, -0.1, 0.1]}>
                                 <boxGeometry args={[0.32, 0.2, 0.7]} />
                                 <meshToonMaterial color={feetColor} />
@@ -1697,7 +1735,7 @@ return (
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                    <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.8, 0.45]} />
                             <meshToonMaterial color={armorColor} />
