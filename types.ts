@@ -97,11 +97,11 @@ export const GLOBAL_CONFIG = {
     JUMP_SHORT_HOP_FRAMES: 5, // Frames to ascend if jump buffer was triggered but key released
     JUMP_SHORT_HOP_SPEED: 0.28, // Velocity for a single-tap short hop
 
-    // Falling Animation (New)
+    // Falling Animation
     FALL_ANIM_RATIO: 0.2,       // Ratio: 0.25 means the animation tries to complete in the first 25% of the predicted fall duration.
     FALL_ANIM_EXIT_SPEED: 0.1,   // How fast to recover to idle (Lerp factor)
     
-    // Separate Left/Right Config for Asymmetrical Poses
+    // Separate Left/Right Config for Asymmetrical Poses (Falling)
     FALL_LEG_PITCH_RIGHT: -1.4,  // Right leg rotates forward (negative X)
     FALL_LEG_PITCH_LEFT: -0.8,   // Left leg rotates forward more (negative X)
     
@@ -110,6 +110,25 @@ export const GLOBAL_CONFIG = {
     
     FALL_LEG_SPREAD: 0.2,       // Legs splay outward (Z axis)
     FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
+
+    // Landing Animation (New: Fixed Duration Visuals)
+    LANDING_VISUAL_DURATION: 40, // Total frames for the landing animation (independent of stun)
+    LANDING_ANIM_RATIO: 0.06,     // 25% of time going down (impact), 75% recovering
+    
+    LANDING_BODY_TILT: 0.7,      // Upper body tilts forward heavily
+    LANDING_LEG_SPLAY: 0.3,      // Legs splay out wider
+    
+    // Separate Left/Right Config for Asymmetrical Poses (Landing)
+    LANDING_LEG_PITCH_RIGHT: -1.2, // Thighs pitch forward (negative X)
+    LANDING_LEG_PITCH_LEFT: -0.5,
+    
+    LANDING_KNEE_BEND_RIGHT: 2.5,  // Knees bend back (crouch)
+    LANDING_KNEE_BEND_LEFT: 2,
+    
+    LANDING_ANKLE_PITCH_RIGHT: -1, // New: Right ankle pitches forward
+    LANDING_ANKLE_PITCH_LEFT: -1.3,  // New: Left ankle pitches forward
+    
+    LANDING_HIP_DIP: 0.5, // New: Visual vertical drop distance when landing (Crouch height)
 
     // Evade (Step)
     EVADE_SPEED: 0.45,          // Faster than dash burst
@@ -153,7 +172,7 @@ export const GLOBAL_CONFIG = {
     KNOCKBACK_DURATION: 350, // ms
     KNOCKBACK_SPEED: 0.2,
     
-    // Landing Lag (Frames)
+    // Landing Lag (Frames - Gameplay Impact)
     LANDING_LAG_MIN: 12,
     LANDING_LAG_MAX: 25,
     LANDING_LAG_OVERHEAT: 38,
@@ -161,7 +180,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.04, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.0, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds

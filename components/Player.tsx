@@ -1,6 +1,14 @@
 
 
 
+
+
+
+
+
+
+
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -449,6 +457,7 @@ const leftLegRef = useRef<Group>(null);
 const rightLowerLegRef = useRef<Group>(null); // NEW: Ref for Right Shin (Shield Side - Knee Kick)
 const leftLowerLegRef = useRef<Group>(null); // NEW: Ref for Left Shin
 const rightFootRef = useRef<Group>(null); // NEW: Ref for Right Foot Ankle
+const leftFootRef = useRef<Group>(null); // NEW: Ref for Left Foot Ankle
 
 const gunArmRef = useRef<Group>(null);
 const muzzleRef = useRef<Group>(null);
@@ -477,6 +486,8 @@ const velocity = useRef(new Vector3(0, 0, 0));
 const position = useRef(new Vector3(0, 0, 0));
 const isGrounded = useRef(true);
 const landingFrames = useRef(0);
+// NEW: Track VISUAL animation frames for landing, independent of gameplay lag
+const visualLandingFrames = useRef(0);
 const wasStunnedRef = useRef(false);
 // Input State
 const keys = useRef<{ [key: string]: boolean }>({});
@@ -594,6 +605,9 @@ const state = useGameStore.getState();
           shootTimer.current = 0;
       }
       isDashing.current = true;
+      // INTERRUPT: Dash immediately cancels visual landing animation
+      visualLandingFrames.current = 0;
+      
       dashStartTime.current = now;
       dashReleaseTime.current = null; 
       currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
@@ -658,6 +672,8 @@ if (!keys.current[key]) {
                      isDashing.current = false;
                      isShooting.current = false;
                      shootTimer.current = 0;
+                     // INTERRUPT: Evade also cancels landing animation
+                     visualLandingFrames.current = 0;
                  }
              }
           }
@@ -672,6 +688,9 @@ if (!keys.current[key]) {
                const hasAmmo = consumeAmmo();
                if (hasAmmo) {
                    isShooting.current = true;
+                   // INTERRUPT: Shooting immediately cancels visual landing animation
+                   visualLandingFrames.current = 0;
+                   
                    shootTimer.current = 0;
                    hasFired.current = false;
                    
@@ -803,6 +822,7 @@ const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
 if (wasStunnedRef.current && !stunned) {
     if (isGrounded.current) {
         landingFrames.current = getLandingLag();
+        visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual anim
         velocity.current.set(0, 0, 0);
     }
 }
@@ -871,6 +891,9 @@ const isEvadeCancelInput = isEvading.current && isLHeld && !lConsumedByDash.curr
 const isNormalAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
 const isAscentInput = isEvadeCancelInput || isNormalAscentInput;
 
+// NEW: VISUAL LOCK CHECK (Prevents WASD/Ascent if Landing Animation is playing, unless interrupted by Dash/Shoot)
+const isVisualLock = visualLandingFrames.current > 0;
+
 // --- SHORT HOP LOGIC (Tap detection) ---
 // If key is released, was not consumed, and enough time has passed since release that double tap is impossible
 if (!isLHeld && lastLReleaseTime.current > 0 && !lConsumedByAction.current) {
@@ -884,7 +907,7 @@ if (!isLHeld && lastLReleaseTime.current > 0 && !lConsumedByAction.current) {
             lastLReleaseTime.current = 0;
         } else {
             // Trigger Short Hop
-            if (!isStunned && !isOverheated && landingFrames.current <= 0 && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP) {
+            if (!isStunned && !isOverheated && landingFrames.current <= 0 && !isVisualLock && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP) {
                 if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP)) {
                     velocity.current.y = GLOBAL_CONFIG.JUMP_SHORT_HOP_SPEED;
                     isGrounded.current = false;
@@ -924,7 +947,8 @@ if (stunned) {
     jumpBuffer.current = false; // Clear Buffers
     forcedAscentFrames.current = 0;
     shootTimer.current = 0;
-    landingFrames.current = 0; 
+    landingFrames.current = 0;
+    visualLandingFrames.current = 0; 
 
     velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY * timeScale, 0);
     position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
@@ -958,6 +982,7 @@ if (stunned) {
             velocity.current.set(0, 0, 0);
             if (isGrounded.current) {
                 landingFrames.current = getLandingLag();
+                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual
             }
         }
     }
@@ -967,9 +992,12 @@ if (stunned) {
         velocity.current.set(0, 0, 0);
     }
     else if (landingFrames.current > 0) {
+        // --- GAMEPLAY LANDING LAG ---
         velocity.current.set(0, 0, 0);
         landingFrames.current -= 1 * timeScale; 
-        nextVisualState = 'LANDING';
+        
+        // Note: nextVisualState will be 'LANDING' if visualLandingFrames > 0 below
+        
         if (landingFrames.current <= 0) { 
              landingFrames.current = 0;
              refillBoost();
@@ -995,15 +1023,9 @@ if (stunned) {
             }
             
             // CHECK INPUT RELEASE
-            // For L-key dash, "release" essentially means we aren't holding input or L-key logic dictates
-            // But specifically for dash, we care about movement input for coasting or the L-key itself?
-            // Actually, usually in these games, holding dash extends it, releasing it coasts.
-            // Since we established Double Tap = Dash, we assume the user might hold the second tap.
             if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
                  dashReleaseTime.current = now;
             }
-
-            // Note: Jump Cancel Logic moved up to ensure it runs before physics application
 
             // --- COASTING EXPIRY CHECK ---
             // This must run regardless of boost state if we are coasting.
@@ -1017,8 +1039,8 @@ if (stunned) {
         // --- APPLY PHYSICS BASED ON STATE ---
 
         // Determine if we are trying to Ascend (Key Held only)
-        // FIX: Do NOT include forcedAscentFrames in the physical calculation, only visual.
-        const effectiveAscent = isAscentInput; 
+        // CHECK: Cannot ascend if landing animation is playing (unless dashed out)
+        const effectiveAscent = isAscentInput && !isVisualLock; 
         const isDashBursting = dashBurstTimer.current > 0;
 
         if (isDashing.current) {
@@ -1097,7 +1119,8 @@ if (stunned) {
         else {
             // GROUND MOVEMENT (WALK)
             if (isGrounded.current) {
-                if (moveDir) {
+                // MOVEMENT LOCK: If Visual Animation is playing, cannot walk
+                if (moveDir && !isVisualLock) {
                     nextVisualState = 'WALK';
                     const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
                     const speed = currentVel.length();
@@ -1177,7 +1200,8 @@ if (position.current.y <= 0) {
     if (!isGrounded.current) {
         isGrounded.current = true;
         if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
-             landingFrames.current = getLandingLag(); 
+             landingFrames.current = getLandingLag(); // Gameplay lockout
+             visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual anim
         }
         if (isDashing.current) isDashing.current = false; 
         if (isEvading.current) isEvading.current = false;
@@ -1190,6 +1214,15 @@ if (position.current.y <= 0) {
 // ==========================================
 // 3. VISUAL & ORIENTATION
 // ==========================================
+
+// Process Visual Landing State (Decoupled from Gameplay Landing Lag)
+if (visualLandingFrames.current > 0) {
+    visualLandingFrames.current -= 1 * timeScale;
+    if (nextVisualState !== 'DASH' && nextVisualState !== 'EVADE' && nextVisualState !== 'ASCEND') {
+         nextVisualState = 'LANDING';
+    }
+    if (visualLandingFrames.current <= 0) visualLandingFrames.current = 0;
+}
 
 setVisualState(nextVisualState);
 setPlayerPos(position.current.clone());
@@ -1347,12 +1380,16 @@ if (!stunned) {
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
-         // Animation Logic: Falling vs Dashing vs Idle
+         // Animation Logic: Falling vs Dashing vs Idle vs Landing
          
          let targetRightThighX = 0;
          let targetLeftThighX = 0;
          let targetRightKneeX = 0.2; // Idle default
          let targetLeftKneeX = 0.2;  // Idle default
+         
+         let targetRightFootX = isDashing.current ? 0.8 : -0.2; // Dashing override vs Idle
+         let targetLeftFootX = -0.2; // Idle
+         
          let targetSpread = 0;
          let targetBodyTilt = 0;
          let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
@@ -1378,6 +1415,44 @@ if (!stunned) {
              
              // We want the mesh to follow the weight curve closely, but with slight smoothing
              lerpSpeed = 0.25 * timeScale;
+         } else if (visualState === 'LANDING') {
+             // --- LANDING ANIMATION (Decoupled Visuals) ---
+             // Calculate 0.0 -> 1.0 progress based on fixed visual duration
+             const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
+             const current = visualLandingFrames.current; // counts down
+             
+             // progress: 0 (start) -> 1 (end)
+             const progress = 1 - (current / total); 
+             
+             let w = 0;
+             const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
+             if (progress < r) {
+                 // Entry Phase (Impact/Crouch): 0 -> 1
+                 w = progress / r;
+             } else {
+                 // Recovery Phase (Stand up): 1 -> 0
+                 w = 1 - ((progress - r) / (1 - r));
+             }
+             
+             // Apply pose based on landing weight (w) with independent Left/Right control
+             targetRightThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
+             targetLeftThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
+             
+             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
+             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
+             
+             // NEW: Ankle Pitch Animation
+             targetRightFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
+             targetLeftFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
+             
+             targetSpread = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
+             
+             // VISUAL HEIGHT ADJUSTMENT (Hip Dip)
+             // Lowers the entire mesh visual without affecting physics position
+             meshRef.current.position.y -= (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
+             
+             lerpSpeed = 0.25 * timeScale;
          } else {
              // Idle / Recovery
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
@@ -1399,10 +1474,12 @@ if (!stunned) {
              leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
          }
          
-         // Right Foot Ankle (Dashing override vs Idle)
-         const targetRightFootX = isDashing.current ? 0.8 : -0.2; 
+         // Ankle Animation
          if (rightFootRef.current) {
              rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightFootX, lerpSpeed);
+         }
+         if (leftFootRef.current) {
+             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
          }
 
          // Upper Body Tilt
@@ -1470,6 +1547,7 @@ if (!stunned && isShooting.current) {
         shootTimer.current = 0;
         if (isGrounded.current && shootMode.current === 'STOP') {
             landingFrames.current = getLandingLag();
+            visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual
         }
     }
 }
@@ -1801,7 +1879,7 @@ return (
                                 <Edges threshold={15} color="black" />
                             </mesh>
                         </mesh>
-                        <group position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                        <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
                             <mesh position={[0, -0.1, 0.1]}>
                                 <boxGeometry args={[0.32, 0.2, 0.7]} />
                                 <meshToonMaterial color={feetColor} />
