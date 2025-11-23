@@ -3,6 +3,10 @@ import { Vector3, MathUtils } from 'three';
 import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG } from './types';
 
 interface GameState {
+  // Game Lifecycle
+  isGameStarted: boolean;
+  startGame: () => void;
+
   // Entities
   playerPos: Vector3;
   targets: GameEntity[];
@@ -54,6 +58,9 @@ const initialTargets: GameEntity[] = [
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
+  isGameStarted: false,
+  startGame: () => set({ isGameStarted: true }),
+
   playerPos: new Vector3(0, 0, 0),
   targets: initialTargets,
   

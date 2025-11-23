@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -7,10 +6,10 @@ import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
 
 // --- AUDIO SYSTEM CONFIGURATION ---
-// [USER INSTRUCTION]: Paste your URL or Base64 string inside the quotes below to replace the boost sound.
-const CUSTOM_BOOST_SFX_URL = "/dash.mp3"; 
-// [USER INSTRUCTION]: To use a custom shoot sound, place file in 'public' folder and use "/filename.wav"
-const CUSTOM_SHOOT_SFX_URL = "/shot.wav"; 
+// [USER INSTRUCTION]: Changed to relative path "./" to ensure compatibility with GitHub Pages subdirectories
+const CUSTOM_BOOST_SFX_URL = "./dash.mp3"; 
+// [USER INSTRUCTION]: To use a custom shoot sound, place file in 'public' folder and use "./filename.wav"
+const CUSTOM_SHOOT_SFX_URL = "./shot.wav"; 
 
 const FRAME_DURATION = 1 / 60;
 
@@ -32,6 +31,30 @@ const getAudioContext = () => {
     return globalAudioCtx;
 };
 
+// EXPORTED HELPER for App.tsx to resume audio on Start Click
+export const resumeAudioContext = async () => {
+    const ctx = getAudioContext();
+    if (ctx) {
+        try {
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+                console.log("AudioContext resumed successfully.");
+            }
+            
+            // Retry loading if buffers are missing (e.g. first load failed silently)
+            if (!boostAudioBuffer && !isBoostLoading) {
+                console.log("Retrying Boost Sound Load...");
+                loadCustomBoostSound();
+            }
+            if (!shootAudioBuffer && !isShootLoading) {
+                 loadCustomShootSound();
+            }
+        } catch (e) {
+            console.error("Failed to resume audio context:", e);
+        }
+    }
+};
+
 // Preloader for Custom Boost Sound
 const loadCustomBoostSound = async () => {
     if (!CUSTOM_BOOST_SFX_URL || boostAudioBuffer || isBoostLoading) return;
@@ -41,13 +64,17 @@ const loadCustomBoostSound = async () => {
 
     try {
         isBoostLoading = true;
+        console.log(`Attempting to load boost sound from: ${CUSTOM_BOOST_SFX_URL}`);
         const response = await fetch(CUSTOM_BOOST_SFX_URL);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const arrayBuffer = await response.arrayBuffer();
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
         boostAudioBuffer = decodedData;
-        console.log("Custom boost sound loaded successfully.");
+        console.log("Custom boost sound loaded and decoded successfully.");
     } catch (error) {
-        // Silent fail
+        console.error("Failed to load/decode custom boost sound. Falling back to synth.", error);
     } finally {
         isBoostLoading = false;
     }
@@ -63,12 +90,13 @@ const loadCustomShootSound = async () => {
     try {
         isShootLoading = true;
         const response = await fetch(CUSTOM_SHOOT_SFX_URL);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
         shootAudioBuffer = decodedData;
         console.log("Custom shoot sound loaded successfully.");
     } catch (error) {
-        console.warn("Failed to load custom shoot sound:", error);
+        // console.warn("Failed to load custom shoot sound:", error);
     } finally {
         isShootLoading = false;
     }
@@ -77,6 +105,7 @@ const loadCustomShootSound = async () => {
 const playShootSound = () => {
     const ctx = getAudioContext();
     if (!ctx) return;
+    // ctx.resume() is handled globally on start, but safe to call here just in case
     if (ctx.state === 'suspended') ctx.resume();
 
     // 1. Try Custom Buffer (Low Latency)
@@ -364,7 +393,8 @@ spawnProjectile,
 recoverAmmo,
 playerLastHitTime,
 playerKnockbackDir,
-cutTracking
+cutTracking,
+isGameStarted // Import this to disable inputs if not started
 } = useGameStore();
 // Physics State
 const velocity = useRef(new Vector3(0, 0, 0));
@@ -525,6 +555,9 @@ const state = useGameStore.getState();
 // Setup Inputs
 useEffect(() => {
 const handleKeyDown = (e: KeyboardEvent) => {
+// Block input if game not started
+if (!useGameStore.getState().isGameStarted) return;
+
 const key = e.key.toLowerCase();
 const now = Date.now();
 if (!keys.current[key]) {
