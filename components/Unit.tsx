@@ -1,7 +1,8 @@
 
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4 } from 'three';
 import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
@@ -154,6 +155,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const leftFootRef = useRef<Group>(null);
   
   const gunArmRef = useRef<Group>(null);
+  const rightArmRef = useRef<Group>(null); // Added Right Arm Ref for animation sync
   const muzzleRef = useRef<Group>(null);
   
   // Physics State
@@ -170,6 +172,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const totalPredictedFallFrames = useRef(0);
   const currentUpperBodyTilt = useRef(0);
   const [dashTriggerTime, setDashTriggerTime] = useState(0); // For BoostBurst
+
+  // Walking Animation
+  const walkCycle = useRef(0);
 
   // AI State
   const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING'>('IDLE');
@@ -513,6 +518,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     rotateGroupRef.current.updateMatrixWorld(true);
 
     // --- PROCEDURAL ANIMATION ---
+
+    // 0. Walk Cycle (NPC)
+    if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+        const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
+        walkCycle.current += delta * 8 * (speed / GLOBAL_CONFIG.WALK_SPEED);
+    }
+
     
     // 1. Head Tracking
     if (headRef.current && !stunned) {
@@ -554,6 +566,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
                  
                  const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+                 const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
                  const recovery = shootMode.current === 'STOP' 
                     ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
                     : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -566,18 +579,43 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const identity = new Quaternion();
 
                  if (elapsedFrames < startup) {
-                     const t = elapsedFrames / startup;
-                     const smoothT = t * t * (3 - 2 * t);
-                     gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                     // PHASE 1: Raise Gun
+                     if (elapsedFrames < aiming) {
+                         const t = elapsedFrames / aiming;
+                         const smoothT = 1 - Math.pow(1 - t, 3);
+                         gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                     } 
+                     // PHASE 2: Hold Gun
+                     else {
+                         gunArmRef.current.quaternion.copy(targetQuat);
+                     }
                  } else {
+                     // PHASE 3: Recoil / Recovery
                      const t = (elapsedFrames - startup) / recovery;
                      gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
                  }
              }
          } else {
-             // Idle arm pose similar to Player
-             gunArmRef.current.rotation.set(0.35, -0.3, 0);
+             // Idle or Walking
+             if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING') {
+                 const t = walkCycle.current;
+                 const sin = Math.sin(t + Math.PI);
+                 gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
+             } else {
+                 gunArmRef.current.rotation.set(0.35, -0.3, 0);
+             }
          }
+    }
+    
+    // Right Arm Swing
+    if (rightArmRef.current && !stunned) {
+        if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+             const t = walkCycle.current;
+             const sin = Math.sin(t);
+             rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
+        } else {
+             rightArmRef.current.rotation.set(0.35, 0.3, 0);
+        }
     }
 
     // 3. Leg Inertia Sway & Animation Logic
@@ -634,7 +672,28 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          let targetBodyTilt = 0;
          let lerpSpeed = 0.2 * timeScale; 
 
-         if (aiState.current === 'DASHING') {
+         if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+            // Walking
+            const t = walkCycle.current;
+            const sin = Math.sin(t);
+            const cos = Math.cos(t);
+
+            targetRightThighX = -sin * 0.5;
+            targetLeftThighX = sin * 0.5;
+            targetRightKneeX = Math.max(0, sin) * 0.8 + 0.1;
+            targetLeftKneeX = Math.max(0, -sin) * 0.8 + 0.1;
+            targetRightFootX = -0.2 + sin * 0.2;
+            targetLeftFootX = -0.2 - sin * 0.2;
+            
+            targetBodyTilt = 0.1;
+
+            if (upperBodyRef.current) {
+                upperBodyRef.current.position.y = 0.65 + Math.sin(t * 2) * 0.02;
+                upperBodyRef.current.rotation.y = sin * 0.1;
+                upperBodyRef.current.rotation.z = cos * 0.02;
+            }
+         }
+         else if (aiState.current === 'DASHING') {
              targetRightThighX = -2; // Lift Right Leg
              targetRightKneeX = 2.5; // Bend Right Knee (Kick)
              targetLeftThighX = 0.45; // Drag Left Leg
@@ -675,6 +734,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          } else {
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
              rotateGroupRef.current.position.y = MathUtils.lerp(rotateGroupRef.current.position.y, 0, lerpSpeed);
+             
+             // Reset Torso Bob/Sway from walking
+             if (upperBodyRef.current) {
+                upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
+                upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.1);
+                upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.1);
+            }
          }
          
          if (rightLegRef.current) {
@@ -842,7 +908,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                     {/* ARMS */}
                     {/* Right Shoulder & Arm (Holding SHIELD) */}
-                    <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]}>
+                    <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
                             <meshToonMaterial color={armorColor} />

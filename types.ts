@@ -75,7 +75,7 @@ export interface Projectile {
 export const GLOBAL_CONFIG = {
     // Movement
     BOUNDARY_LIMIT: 80,
-    WALK_SPEED: 0.25,
+    WALK_SPEED: 0.2,
     GROUND_TURN_SPEED: 0.10, // New: Ground steering speed (radians per frame)
     ASCENT_SPEED: 0.38,
     ASCENT_TURN_SPEED: 0.04, // New: Air steering speed (radians per frame)
@@ -164,7 +164,11 @@ export const GLOBAL_CONFIG = {
     
     // Shooting Animation (Frames @ 60fps)
     // Total time = Startup + Recovery
-    SHOT_STARTUP_FRAMES: 12,
+    // NOTE: STARTUP MUST BE > AIM_DURATION
+    SHOT_STARTUP_FRAMES: 20, // Total frames before firing (Raise Gun + Hold)
+    SHOT_AIM_DURATION: 8,    // Frames to visually reach the aiming pose (Raise Gun)
+                             // Remaining (15-8 = 7) frames are held steady before firing
+    
     SHOT_RECOVERY_FRAMES: 60,       // Normal Recovery (Move Shot)
     SHOT_RECOVERY_FRAMES_STOP: 25,  // NEW: Recovery for Stop Shot (Usually faster or distinct)
     
@@ -180,7 +184,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.0, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds

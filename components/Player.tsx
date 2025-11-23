@@ -1,3 +1,5 @@
+
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -512,6 +514,10 @@ const currentUpperBodyTilt = useRef(0); // NEW: Track upper body forward tilt an
 const wasFallingRef = useRef(false); // NEW: Track falling state change
 const currentFallTime = useRef(0); // NEW: Track duration of current fall
 const totalPredictedFallFrames = useRef(0); // NEW: Calculated total frames for fall
+
+// Walking Animation Refs
+const walkCycle = useRef(0);
+const rightArmRef = useRef<Group>(null); // For walking animation (right arm swing)
 
 // Evade State
 const isEvading = useRef(false);
@@ -1218,6 +1224,21 @@ setPlayerPos(position.current.clone());
 meshRef.current.position.copy(position.current);
 
 // --- ANIMATION LOGIC (Procedural) ---
+
+// 0. Update Walk Cycle (Engine)
+if (isGrounded.current && nextVisualState === 'WALK') {
+    const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
+    if (speed > 0.05) {
+        walkCycle.current += delta * 8; // Speed multiplier
+    } else {
+        // Decay to closest integer multiple of PI to return to neutral-ish stance smoothly? 
+        // Or just stop. For now, stop.
+    }
+} else {
+    // Reset or decay? Let's just reset for snapiness or let it hang.
+    // walkCycle.current = 0; // Uncomment for reset
+}
+
 if (!stunned) {
     // 1. Orientation (Body)
     if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
@@ -1271,6 +1292,7 @@ if (!stunned) {
             const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
             
             const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+            const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
             const recovery = shootMode.current === 'STOP' 
                 ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
                 : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -1278,18 +1300,50 @@ if (!stunned) {
             const identity = new Quaternion();
 
             if (shootTimer.current < startup) {
-                const t = shootTimer.current / startup;
-                const smoothT = t * t * (3 - 2 * t);
-                gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                // PHASE 1: Raise Gun
+                if (shootTimer.current < aiming) {
+                    const t = shootTimer.current / aiming;
+                    // Ease out cubic
+                    const smoothT = 1 - Math.pow(1 - t, 3);
+                    gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                } 
+                // PHASE 2: Hold Gun (Locked on Target)
+                else {
+                    gunArmRef.current.quaternion.copy(targetQuat);
+                }
             } else {
+                 // PHASE 3: Recoil / Recovery
                  const t = (shootTimer.current - startup) / recovery;
                  gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
             }
         } else {
+             if (nextVisualState === 'WALK') {
+                 // Walking Arm Swing (Left Arm)
+                 const t = walkCycle.current;
+                 const sin = Math.sin(t + Math.PI); // Opposite to right leg (Right leg is sin(t))
+                 // Base rotation + swing
+                 // Default arm pose: rotation.set(0.35, -0.3, 0)
+                 gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
+             } else {
+                // Idle
                 // 修改这里！参数对应 (X轴角度, Y轴角度, Z轴角度)
                 // 例如：rotation.set(0.2, 0, -0.1) 
                 // X=0.2 (向前抬起), Z=-0.1 (向外张开)
                 gunArmRef.current.rotation.set(0.35, -0.3, 0);
+             }
+        }
+    }
+    
+    // Right Arm Swing (Shield Arm)
+    if (rightArmRef.current) {
+        if (nextVisualState === 'WALK') {
+            const t = walkCycle.current;
+            const sin = Math.sin(t); // Opposite to left leg
+            // Base rotation: 0.35, 0.3, 0
+            rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
+        } else {
+            // Idle
+            rightArmRef.current.rotation.set(0.35, 0.3, 0);
         }
     }
 
@@ -1383,7 +1437,42 @@ if (!stunned) {
          let targetBodyTilt = 0;
          let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
 
-         if (isDashing.current) {
+         if (nextVisualState === 'WALK') {
+             // --- WALKING ANIMATION ---
+             const t = walkCycle.current;
+             const sin = Math.sin(t);
+             const cos = Math.cos(t);
+
+             // Thighs (Anti-phase)
+             // Right leg forward when sin > 0
+             targetRightThighX = -sin * 0.7;
+             targetLeftThighX = sin * 0.7;
+
+             // Knees (Bend when moving forward/up)
+             // Simplified: Bend when thigh is moving forward (negative rotation in this rig? or positive?)
+             // Let's rely on phase. 
+             // Right knee bends when right leg is lifting (sin goes positive to negative?)
+             // Let's use a clipped sine for knees.
+             targetRightKneeX = Math.max(0, sin) * 1.2 + 0.1;
+             targetLeftKneeX = Math.max(0, -sin) * 1.2 + 0.1;
+
+             // Feet (Ankle compensation)
+             targetRightFootX = -0.4 - sin * 0.4;
+             targetLeftFootX = -0.4 + sin * 0.4;
+
+             // Bobbing & Sway
+             targetBodyTilt = 0.3; // Slight forward lean
+             
+             // Apply body bob/sway directly to groups
+             if (upperBodyRef.current) {
+                 upperBodyRef.current.position.y = 0.65 + Math.sin(t * 2) * 0.05; // Bob
+                 upperBodyRef.current.rotation.y = sin * 0.3; // Twist
+                 upperBodyRef.current.rotation.z = cos * 0.07; // Sway
+             }
+             
+             lerpSpeed = 0.2 * timeScale; // Snappier for walking
+         }
+         else if (isDashing.current) {
              targetRightThighX = -2; // Lift Right Leg
              targetRightKneeX = 2.5; // Bend Right Knee (Kick)
              targetLeftThighX = 0.45; // Drag Left Leg
@@ -1391,6 +1480,8 @@ if (!stunned) {
              targetSpread = 0.35;
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
+             upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
+             upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
          } else if (isFalling) {
              // Apply weight to falling pose constants with individual control
              targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
@@ -1446,6 +1537,13 @@ if (!stunned) {
          } else {
              // Idle / Recovery
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
+
+             // Reset Torso Bob/Sway from walking
+             if (upperBodyRef.current) {
+                 upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
+                 upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.1);
+                 upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.1);
+             }
          }
          
          // Apply Rotations
@@ -1706,7 +1804,7 @@ return (
 
                 {/* ARMS */}
                 {/* Right Shoulder & Arm (Holding SHIELD) */}
-                <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]}>
+                <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                     <mesh>
                         <boxGeometry args={[0.5, 0.5, 0.5]} />
                         <meshToonMaterial color={armorColor} />
