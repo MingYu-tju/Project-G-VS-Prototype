@@ -832,9 +832,19 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             
          </group>
       </group>
-      <Html position={[0, 4.2, 0]} center style={{ pointerEvents: 'none' }}>
+      <Html 
+        position={[0, 4.0, 0]} 
+        center 
+        distanceFactor={30} 
+        zIndexRange={[100, 0]}
+        style={{ 
+            pointerEvents: 'none', 
+            transition: 'all 0.2s',
+            opacity: isTargeted ? 1 : 0.6
+        }}
+      >
         {/* SCALED NAME TAG FOR MOBILE: smaller text and padding */}
-        <div className={`text-[10px] md:text-xs font-bold px-1 md:px-2 py-0.5 rounded border whitespace-nowrap ${
+        <div className={`text-xs md:text-sm font-bold px-1.5 md:px-3 py-0.5 rounded border whitespace-nowrap ${
               isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
             }`}>
               {name}

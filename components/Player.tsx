@@ -191,7 +191,7 @@ return (
 // Speed Lines for Evade (Restored)
 const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
 const groupRef = useRef<Group>(null);
-const LINE_COUNT = 6;
+const LINE_COUNT = 12;
 const TRAIL_LENGTH = 3; // How far back they go
 const LINE_GEOM_LENGTH = 3; // The visual length of the mesh
 
@@ -225,7 +225,7 @@ return (
                 rotation={[Math.PI/2, 0, 0]}
             >
                  <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
-                 <meshBasicMaterial color="#ccffff" transparent opacity={0.6} depthWrite={false} />
+                 <meshBasicMaterial color="#ffd700" transparent opacity={1} depthWrite={false} />
              </mesh>
         ))}
     </group>
@@ -970,7 +970,16 @@ meshRef.current.position.copy(position.current);
 if (!stunned) {
     // 1. Orientation (Body)
     if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
-        meshRef.current.lookAt(currentTarget.position.x, meshRef.current.position.y, currentTarget.position.z);
+        // Smooth Turn Logic
+        const dirToTarget = currentTarget.position.clone().sub(meshRef.current.position);
+        dirToTarget.y = 0; // Keep rotation flat on Y axis
+        dirToTarget.normalize();
+
+        if (dirToTarget.lengthSq() > 0.001) {
+            const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), dirToTarget);
+            // Factor 0.25 * timeScale gives a snappy but smooth turn (approx 3-4 frames to align 90 deg)
+            meshRef.current.quaternion.slerp(targetQuat, 0.25 * timeScale);
+        }
     }
     else if (isDashing.current) {
         const lookPos = position.current.clone().add(dashDirection.current);

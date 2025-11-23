@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+
+import React, { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars } from '@react-three/drei';
-import { DoubleSide, AdditiveBlending } from 'three';
+import { Grid, Stars, Sparkles, Float } from '@react-three/drei';
+import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3 } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
 import { Projectile } from './Projectile';
@@ -22,126 +23,176 @@ const SceneManager: React.FC = () => {
 
 // --- VISUALS ---
 
-const BoundaryWall: React.FC = () => {
-    const meshRef = useRef<any>(null);
-    const meshRef2 = useRef<any>(null);
+const SimulationWall: React.FC = () => {
+    const outerRef = useRef<any>(null);
+    const innerRef = useRef<any>(null);
+    const ringRef = useRef<any>(null);
     const radius = GLOBAL_CONFIG.BOUNDARY_LIMIT;
-    
+    const height = 60;
+
     useFrame((state) => {
-        // Animation Logic running at native refresh rate
         const t = state.clock.getElapsedTime();
-        if (meshRef.current) {
-            meshRef.current.material.opacity = 0.2 + Math.sin(t * 2) * 0.1;
-            meshRef.current.rotation.y = t * 0.05;
+        
+        // Rotate walls in opposite directions
+        if (outerRef.current) {
+            outerRef.current.rotation.y = t * 0.02;
+            outerRef.current.material.opacity = 0.15 + Math.sin(t * 1.5) * 0.05;
         }
-        if (meshRef2.current) {
-            meshRef2.current.rotation.y = -t * 0.02;
+        if (innerRef.current) {
+            innerRef.current.rotation.y = -t * 0.05;
+            // Pulse effect
+            const scale = 1 + Math.sin(t * 3) * 0.002;
+            innerRef.current.scale.set(scale, 1, scale);
+        }
+        // Move scan ring up and down
+        if (ringRef.current) {
+            ringRef.current.position.y = (Math.sin(t * 0.5) * 0.5 + 0.5) * (height * 0.8);
         }
     });
 
     return (
-        <group>
-            {/* Outer Slow Rotating Wall */}
-            <mesh ref={meshRef} position={[0, 15, 0]}>
-                <cylinderGeometry args={[radius, radius, 30, 64, 1, true]} /> 
+        <group position={[0, 0, 0]}>
+            {/* 1. Hexagon/Wireframe Outer Structure */}
+            <mesh ref={outerRef} position={[0, height/2, 0]}>
+                <cylinderGeometry args={[radius, radius, height, 24, 5, true]} /> 
                 <meshBasicMaterial 
-                    color="#00ffff" 
+                    color="#00aaff" 
+                    wireframe
                     transparent 
-                    opacity={0.3} 
+                    opacity={0.2} 
                     side={DoubleSide} 
                     blending={AdditiveBlending}
                     depthWrite={false}
                 />
             </mesh>
             
-            {/* Inner Fast Wireframe Wall */}
-            <mesh ref={meshRef2} position={[0, 15, 0]}>
-                <cylinderGeometry args={[radius - 0.5, radius - 0.5, 30, 32, 10, true]} />
+            {/* 2. Inner High-Speed Data Wall */}
+            <mesh ref={innerRef} position={[0, height/2, 0]}>
+                <cylinderGeometry args={[radius - 1, radius - 1, height, 64, 1, true]} />
                 <meshBasicMaterial 
-                    color="#aa00ff" 
+                    color="#0044ff" 
                     transparent 
-                    opacity={0.15} 
-                    wireframe 
+                    opacity={0.1} 
                     side={DoubleSide}
                     blending={AdditiveBlending}
+                    depthWrite={false}
                 />
             </mesh>
 
-            {/* Floor Ring Glow */}
-            <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.1, 0]}>
+            {/* 3. Scanning Ring */}
+            <mesh ref={ringRef} rotation={[Math.PI/2, 0, 0]}>
+                <torusGeometry args={[radius - 0.5, 0.5, 16, 100]} />
+                <meshBasicMaterial color="#ffffff" transparent opacity={0.3} blending={AdditiveBlending} />
+            </mesh>
+
+            {/* 4. Floor Warning Ring */}
+            <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.2, 0]}>
                 <ringGeometry args={[radius - 2, radius, 64]} />
-                <meshBasicMaterial color="#00ffff" transparent opacity={0.6} side={DoubleSide} blending={AdditiveBlending} />
+                <meshBasicMaterial color="#ff0055" transparent opacity={0.4} side={DoubleSide} blending={AdditiveBlending} />
             </mesh>
         </group>
     );
 };
 
-const ArenaFloor: React.FC = () => {
+const DigitalFloor: React.FC = () => {
     return (
         <group position={[0, -0.05, 0]}>
-            {/* Dark Reflective-ish Floor Plane */}
+            {/* Base Floor Plane - Matte Industrial Grey (No Flickering Reflections) */}
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
                <planeGeometry args={[1000, 1000]} />
                <meshStandardMaterial 
-                    color="#080810" 
-                    roughness={0.4} 
-                    metalness={0.6} 
+                    color="#1a1d26" // Dark Slate Grey (Lighter than pitch black)
+                    roughness={0.8} // Matte finish
+                    metalness={0.2} 
                />
             </mesh>
 
-            {/* Grid - Neon Blue/Cyan for Sci-Fi look */}
+            {/* Single Unified Grid (No Z-Fighting) */}
             <Grid 
-              position={[0, 0, 0]}
+              position={[0, 0.01, 0]}
               args={[300, 300]} 
-              cellSize={5} 
-              cellThickness={1} 
-              cellColor="#1a55ff"      // Darker blue for small cells
-              sectionSize={25} 
-              sectionThickness={1.5} 
-              sectionColor="#00ccff"   // Bright cyan for sections
-              fadeDistance={100} 
+              cellSize={10} 
+              cellThickness={0.8} 
+              cellColor="#2f3b4c" // Low contrast subtle grey-blue
+              sectionSize={50} 
+              sectionThickness={1.2} 
+              sectionColor="#0066cc" // Professional Tech Blue (Not Neon Cyan)
+              fadeDistance={150} 
               infiniteGrid 
             />
         </group>
     );
 }
 
+const FloatingDataDebris: React.FC = () => {
+    // Create instanced mesh of floating geometric cubes
+    // Enhanced visual feedback with dual-layer particles
+    
+    return (
+        <group>
+            {/* Layer 1: Ambient Binary Dust (Dense, Slow, Background) */}
+            <Sparkles 
+                count={400} 
+                scale={[150, 80, 150]} 
+                size={8} 
+                speed={0.8} 
+                opacity={0.4} 
+                color="#0088ff" 
+                position={[0, 30, 0]}
+            />
+
+            {/* Layer 2: High Speed Data Packets (Sparse, Fast, Bright, Upward) */}
+            <Sparkles 
+                count={80} 
+                scale={[100, 100, 100]} 
+                size={25} 
+                speed={3.5} // Much faster
+                opacity={0.9} 
+                color="#ccffff" 
+                position={[0, 40, 0]}
+                noise={20} // More erratic movement
+            />
+        </group>
+    )
+}
+
 export const GameScene: React.FC = () => {
   const { targets, currentTargetIndex, projectiles } = useGameStore();
 
   return (
-    <Canvas shadows camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true }}>
+    <Canvas shadows camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true, toneMappingExposure: 1.2 }}>
       
-      {/* 1. Dark Background for Stars */}
-      <color attach="background" args={['#050510']} />
-      <fog attach="fog" args={['#050510', 30, 150]} />
+      {/* 1. Atmosphere */}
+      <color attach="background" args={['#05070a']} />
+      {/* Dark blue fog for depth */}
+      <fog attach="fog" args={['#05070a', 40, 180]} />
       
       <SceneManager />
 
       {/* --- LIGHTING --- */}
-      <ambientLight intensity={0.5} color="#aaddff" />
+      <ambientLight intensity={0.4} color="#002244" />
       
-      {/* Fill Light - Cool tone */}
-      <hemisphereLight args={['#4444ff', '#000000', 0.6]} />
+      {/* Neon Rim Lights */}
+      <pointLight position={[-100, 50, -100]} intensity={2000} color="#0088ff" distance={300} />
+      <pointLight position={[100, 50, 100]} intensity={2000} color="#ff00aa" distance={300} />
 
-      {/* Main Shadows */}
+      {/* Main Sun (Simulated) */}
       <directionalLight 
-        position={[50, 100, 50]} 
-        intensity={2.5} 
-        color="#ffffff"
+        position={[50, 80, 30]} 
+        intensity={3} 
+        color="#ddeeff"
         castShadow 
+        shadow-bias={-0.0005}
         shadow-mapSize={[2048, 2048]} 
       />
-      
-      {/* Rim Light for edge definition */}
-      <pointLight position={[-50, 20, -50]} intensity={200} color="#00ffff" distance={100} />
 
-      {/* 2. Stars */}
-      <Stars radius={150} depth={50} count={6000} factor={5} saturation={0} fade speed={0.5} />
+      {/* 2. Background Stars */}
+      <Stars radius={200} depth={50} count={8000} factor={6} saturation={0} fade speed={0.2} />
 
-      {/* --- WORLD --- */}
-      <ArenaFloor />
-      <BoundaryWall />
+      {/* --- WORLD GEOMETRY --- */}
+      <DigitalFloor />
+      <SimulationWall />
+      <FloatingDataDebris />
 
       {/* Entities */}
       <Player />
