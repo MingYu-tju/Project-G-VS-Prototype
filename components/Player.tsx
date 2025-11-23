@@ -445,6 +445,8 @@ const legsRef = useRef<Group>(null);
 // NEW: Individual leg refs for splaying animation
 const rightLegRef = useRef<Group>(null);
 const leftLegRef = useRef<Group>(null);
+const rightLowerLegRef = useRef<Group>(null); // NEW: Ref for Right Shin (Shield Side - Knee Kick)
+
 const gunArmRef = useRef<Group>(null);
 const muzzleRef = useRef<Group>(null);
 const { camera } = useThree();
@@ -503,7 +505,6 @@ const dashBurstTimer = useRef(0); // Counts down during burst phase
 const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
 const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
 // Animation Variables
-const currentLegSpread = useRef(0);
 const currentUpperBodyTilt = useRef(0); // NEW: Track upper body forward tilt angle
 // Evade State
 const isEvading = useRef(false);
@@ -1291,21 +1292,29 @@ if (!stunned) {
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
-         const targetSpread = isDashing.current ? 0.35 : 0;
-         currentLegSpread.current = MathUtils.lerp(currentLegSpread.current, targetSpread, 0.1 * timeScale);
-         
+         // Dash Leg Pose Logic (Knee Kick on RIGHT (Shield Side), Drag on LEFT)
+         const targetRightThighX = isDashing.current ? -2 : 0; // Lift Right Leg
+         const targetRightKneeX = isDashing.current ? 2.5 : 0.2; // Bend Right Knee (Kick)
+         const targetLeftThighX = isDashing.current ? 0.45 : 0; // Drag Left Leg
+
          if (rightLegRef.current) {
-             rightLegRef.current.rotation.z = 0.05 + currentLegSpread.current;
+             // Apply Dash Pose rotation
+             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, 0.15 * timeScale);
+         }
+         if (rightLowerLegRef.current) {
+             // Apply Knee Bend
+             rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, 0.15 * timeScale);
          }
          if (leftLegRef.current) {
-             leftLegRef.current.rotation.z = -0.05 - currentLegSpread.current;
+             // Apply Dash Pose rotation
+             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, 0.15 * timeScale);
          }
     }
     
     // 5. Upper Body Dash Tilt (Forward Lean)
     if (upperBodyRef.current) {
         // Target tilt: Forward (positive X) when dashing
-        const targetTilt = isDashing.current ? 0.55 : 0;
+        const targetTilt = isDashing.current ? 0.75 : 0;
         currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetTilt, 0.15 * timeScale);
         upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
     }
@@ -1661,7 +1670,7 @@ return (
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                    <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
                         <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.8, 0.45]} />
                             <meshToonMaterial color={armorColor} />
