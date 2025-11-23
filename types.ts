@@ -96,12 +96,12 @@ export const GLOBAL_CONFIG = {
     JUMP_SHORT_HOP_SPEED: 0.28, // Velocity for a single-tap short hop
 
     // Falling Animation (New)
-    FALL_ANIM_ENTRY_SPEED: 0.1, // How fast to enter the falling pose (Lerp factor)
+    FALL_ANIM_ENTRY_SPEED: 0.15, // How fast to enter the falling pose (Lerp factor)
     FALL_ANIM_EXIT_SPEED: 0.1,   // How fast to recover to idle (Lerp factor)
-    FALL_LEG_PITCH: -1.6,        // Legs rotate forward (negative X)
-    FALL_LEG_SPREAD: 0.2,       // Legs splay outward (Z axis)
-    FALL_KNEE_BEND: 1.4,         // Knees bend backward (positive X)
-    FALL_BODY_TILT: 0.2,         // Upper body tilts forward (positive X)
+    FALL_LEG_PITCH: -0.2,        // Legs rotate forward (negative X)
+    FALL_LEG_SPREAD: 0.25,       // Legs splay outward (Z axis)
+    FALL_KNEE_BEND: 1.2,         // Knees bend backward (positive X)
+    FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
 
     // Evade (Step)
     EVADE_SPEED: 0.45,          // Faster than dash burst

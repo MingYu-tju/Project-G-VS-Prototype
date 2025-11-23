@@ -1289,17 +1289,17 @@ if (!stunned) {
 
     // 4. Leg Inertia Sway & Animation Logic
     if (legsRef.current) {
+         const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
          const invRot = meshRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
-         const targetPitch = localVel.z * 1.5; 
-         const targetRoll = -localVel.x * 1.5;
+         const targetPitch = isFalling ? 0 : localVel.z * 1.5; 
+         const targetRoll = isFalling ? 0 : -localVel.x * 1.5;
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
          // Animation Logic: Falling vs Dashing vs Idle
          // User Request: Trigger falling anim immediately when airborne (no velocity check), excluding Dash/Ascend/Evade
-         const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
-         
+
          let targetRightThighX = 0;
          let targetLeftThighX = 0;
          let targetRightKneeX = 0.2; // Idle default
