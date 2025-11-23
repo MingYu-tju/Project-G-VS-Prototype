@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -548,7 +537,7 @@ useEffect(() => {
 }, []);
 
 const getDirectionFromKey = (key: string) => {
-const input = new Vector3(0,0,1);
+const input = new Vector3(0,0,0);
 if (key === 'w') input.z -= 1;
 if (key === 's') input.z += 1;
 if (key === 'a') input.x -= 1;
@@ -1398,7 +1387,7 @@ if (!stunned) {
              targetRightThighX = -2; // Lift Right Leg
              targetRightKneeX = 2.5; // Bend Right Knee (Kick)
              targetLeftThighX = 0.45; // Drag Left Leg
-             targetLeftFootX = 0.6; 
+             targetLeftFootX = 0.8; // Left Foot Backward
              targetSpread = 0.35;
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
