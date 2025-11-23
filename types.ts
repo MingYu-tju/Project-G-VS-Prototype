@@ -1,4 +1,3 @@
-
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -29,13 +28,6 @@ interface ThreeElements {
 
 // Augment global JSX namespace (for legacy or global-based setups)
 declare global {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
-  }
-}
-
-// Augment React module JSX namespace (required for React 18+ / newer TypeScript configurations)
-declare module 'react' {
   namespace JSX {
     interface IntrinsicElements extends ThreeElements {}
   }
