@@ -507,6 +507,10 @@ const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
 const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
 // Animation Variables
 const currentUpperBodyTilt = useRef(0); // NEW: Track upper body forward tilt angle
+const wasFallingRef = useRef(false); // NEW: Track falling state change
+const currentFallTime = useRef(0); // NEW: Track duration of current fall
+const totalPredictedFallFrames = useRef(0); // NEW: Calculated total frames for fall
+
 // Evade State
 const isEvading = useRef(false);
 const evadeTimer = useRef(0);
@@ -1289,7 +1293,51 @@ if (!stunned) {
 
     // 4. Leg Inertia Sway & Animation Logic
     if (legsRef.current) {
+         // Determine if falling
          const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
+         
+         // --- PREDICTIVE FALL ANIMATION LOGIC ---
+         if (isFalling && !wasFallingRef.current) {
+             // Just entered fall state: Calculate predicted time to impact
+             const vy = velocity.current.y; // likely negative or 0
+             const h = position.current.y;
+             const g = GLOBAL_CONFIG.GRAVITY;
+             
+             // Solve quadratic: 0 = h + vy*t - 0.5*g*t^2
+             // 0.5gt^2 - vy*t - h = 0
+             // t = (vy + sqrt(vy^2 + 2gh)) / g
+             const discriminant = vy * vy + 2 * g * h;
+             if (discriminant >= 0 && g > 0) {
+                 totalPredictedFallFrames.current = (vy + Math.sqrt(discriminant)) / g;
+             } else {
+                 totalPredictedFallFrames.current = 60; // Fallback
+             }
+             currentFallTime.current = 0;
+         }
+         wasFallingRef.current = isFalling;
+
+         // Calculate Animation Weight (0 to 1)
+         let animWeight = 0;
+         if (isFalling) {
+             currentFallTime.current += timeScale;
+             // Protect against zero division or extreme values
+             const total = Math.max(totalPredictedFallFrames.current, 1);
+             const progress = Math.min(currentFallTime.current / total, 1.0);
+             const ratio = GLOBAL_CONFIG.FALL_ANIM_RATIO;
+             
+             if (progress < ratio) {
+                 // Entry Phase: 0 -> 1
+                 animWeight = progress / ratio;
+             } else {
+                 // Exit Phase: 1 -> 0
+                 // Normalized progress in exit phase: (progress - ratio) / (1 - ratio)
+                 animWeight = 1 - ((progress - ratio) / (1 - ratio));
+             }
+         } else {
+             animWeight = 0;
+             currentFallTime.current = 0;
+         }
+
          const invRot = meshRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
          const targetPitch = isFalling ? 0 : localVel.z * 1.5; 
@@ -1298,15 +1346,14 @@ if (!stunned) {
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
          // Animation Logic: Falling vs Dashing vs Idle
-         // User Request: Trigger falling anim immediately when airborne (no velocity check), excluding Dash/Ascend/Evade
-
+         
          let targetRightThighX = 0;
          let targetLeftThighX = 0;
          let targetRightKneeX = 0.2; // Idle default
          let targetLeftKneeX = 0.2;  // Idle default
          let targetSpread = 0;
          let targetBodyTilt = 0;
-         let lerpSpeed = 0.15 * timeScale;
+         let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
 
          if (isDashing.current) {
              targetRightThighX = -2; // Lift Right Leg
@@ -1316,14 +1363,16 @@ if (!stunned) {
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
          } else if (isFalling) {
-             // NEW: Falling Animation Logic
-             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH; // Legs pitch forward
-             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH;
-             targetRightKneeX = GLOBAL_CONFIG.FALL_KNEE_BEND; // Knees bend back
-             targetLeftKneeX = GLOBAL_CONFIG.FALL_KNEE_BEND;
-             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD; // Legs splay
-             targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT; // Body tilt forward
-             lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_ENTRY_SPEED * timeScale;
+             // Apply weight to falling pose constants
+             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH * animWeight; 
+             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH * animWeight;
+             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND - 0.2) * animWeight; // Interpolate from idle knee (0.2)
+             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND - 0.2) * animWeight;
+             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
+             targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
+             
+             // We want the mesh to follow the weight curve closely, but with slight smoothing
+             lerpSpeed = 0.25 * timeScale;
          } else {
              // Idle / Recovery
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
