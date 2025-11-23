@@ -34,6 +34,13 @@ declare global {
   }
 }
 
+// Augment React module JSX namespace (required for React 18+ / newer TypeScript configurations)
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
+  }
+}
+
 export enum Team {
   BLUE = 'BLUE',
   RED = 'RED'
