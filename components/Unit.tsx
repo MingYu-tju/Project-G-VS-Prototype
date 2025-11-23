@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending } from 'three';
 import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
@@ -9,6 +9,70 @@ import { useGameStore } from '../store';
 const FRAME_DURATION = 1 / 60;
 
 // --- VISUALS ---
+
+// Copied from Player.tsx for consistency
+const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
+    const groupRef = useRef<Group>(null);
+    const DURATION = 0.4; 
+    const CONE_LENGTH = 1.6;
+    const CONE_WIDTH = 0.08;
+    const TILT_ANGLE = -35;
+    const BURST_COLOR = "#00ffff"; 
+
+    useFrame(() => {
+        if (!groupRef.current) return;
+        
+        const now = Date.now();
+        const elapsed = (now - triggerTime) / 1000;
+
+        if (elapsed > DURATION) {
+            groupRef.current.visible = false;
+            return;
+        }
+
+        groupRef.current.visible = true;
+
+        const scaleProgress = elapsed / DURATION;
+        const scale = MathUtils.lerp(0.5, 2.5, Math.pow(scaleProgress, 0.3));
+        groupRef.current.scale.setScalar(scale);
+
+        let opacity = 0;
+        if (elapsed < 0.1) {
+            opacity = elapsed / 0.1;
+        } else {
+            const fadeOutProgress = (elapsed - 0.1) / (DURATION - 0.1);
+            opacity = 1 - fadeOutProgress;
+        }
+        
+        groupRef.current.children.forEach((angleGroup: any) => {
+            if (angleGroup.children && angleGroup.children[0] && angleGroup.children[0].children[0]) {
+                const mesh = angleGroup.children[0].children[0];
+                if (mesh.material) mesh.material.opacity = opacity;
+            }
+        });
+    });
+
+    return (
+        <group ref={groupRef} visible={false} position={[0, -0.2, -0.3]} rotation={[0, 0, 0]}>
+            {[45, 135, 225, 315].map((angle, i) => (
+                <group key={i} rotation={[0, 0, MathUtils.degToRad(angle)]}>
+                    <group rotation={[MathUtils.degToRad(TILT_ANGLE), 0, 0]}>
+                        <mesh position={[0, CONE_LENGTH / 2, 0]}> 
+                            <cylinderGeometry args={[0, CONE_WIDTH, CONE_LENGTH, 8, 1]} /> 
+                            <meshBasicMaterial 
+                                color={BURST_COLOR} 
+                                transparent 
+                                depthWrite={false} 
+                                blending={AdditiveBlending} 
+                            />
+                        </mesh>
+                    </group>
+                </group>
+            ))}
+        </group>
+    );
+};
+
 const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
   const groupRef = useRef<Group>(null);
   useFrame(() => {
@@ -23,13 +87,13 @@ const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number
   });
 
   return (
-    <group ref={groupRef} position={offset}> 
-       <group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
-            <mesh position={[0, 0, 0.8]}>
+    <group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}> 
+       <group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}>
+            <mesh position={[0, -0.3, 0.8]}>
                 <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
                 <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
             </mesh>
-             <mesh position={[0, 0, 0.5]}>
+             <mesh position={[0, -0.3, 0.5]}>
                 <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
                 <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
             </mesh>
@@ -79,10 +143,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
-  const upperBodyRef = useRef<Group>(null); // NEW: Upper body ref
+  const upperBodyRef = useRef<Group>(null); 
   const legsRef = useRef<Group>(null);
   
-  // NEW: Individual leg/joint refs
   const rightLegRef = useRef<Group>(null);
   const leftLegRef = useRef<Group>(null);
   const rightLowerLegRef = useRef<Group>(null);
@@ -106,18 +169,17 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const currentFallTime = useRef(0);
   const totalPredictedFallFrames = useRef(0);
   const currentUpperBodyTilt = useRef(0);
+  const [dashTriggerTime, setDashTriggerTime] = useState(0); // For BoostBurst
 
   // AI State
   const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING'>('IDLE');
   const aiTimer = useRef(0);
   const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
   
-  // Target & Shoot AI
   const targetSwitchTimer = useRef(0);
   const localTargetId = useRef<string | null>(null);
   const shootCooldown = useRef(0);
   const shootSequence = useRef(0); 
-  // const aimAngleRef = useRef(0); // No longer needed for 3D aiming
 
   // Movement Vars
   const dashDirection = useRef(new Vector3(0, 0, 1));
@@ -137,11 +199,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (!groupRef.current || !rotateGroupRef.current) return;
 
     clockRef.current += delta;
-    // Note: Unit updates run every frame regardless of accumulated time to ensure smooth animation, 
-    // but AI decisions can be throttled if needed. For now we run smooth.
-    // if (clockRef.current < FRAME_DURATION) return; 
-    // clockRef.current = 0;
-
     const timeScale = delta * 60;
 
     const currentlyAscending = aiState.current === 'ASCENDING';
@@ -233,7 +290,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              aiState.current = 'SHOOTING';
              shootSequence.current = 0;
              
-             // --- CHANGED: Dynamic Total Frames calculation for AI ---
              const currentRecovery = shootMode.current === 'STOP' 
                 ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
                 : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -267,6 +323,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
       } else {
           if (boost.current > 20) {
               aiState.current = 'DASHING';
+              setDashTriggerTime(Date.now()); // TRIGGER BOOST FX
+              
               const biasCenter = new Vector3(0,0,0).sub(position.current).normalize().multiplyScalar(0.5);
               const randDir = new Vector3((Math.random()-0.5), 0, (Math.random()-0.5)).normalize();
               const dir = randDir.add(biasCenter).normalize();
@@ -377,7 +435,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
             velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
             velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-            if (position.current.y < 3.0) velocity.current.y = -0.05 * timeScale; // Gentle push down if near ground
+            if (position.current.y < 3.0) velocity.current.y = -0.05 * timeScale; 
             else velocity.current.y = 0;
 
         } else if (aiState.current === 'ASCENDING') {
@@ -422,7 +480,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             if (!isGrounded.current) {
                 isGrounded.current = true;
                 landingFrames.current = Math.floor(GLOBAL_CONFIG.LANDING_LAG_MIN + (1 - boost.current/100) * (GLOBAL_CONFIG.LANDING_LAG_MAX - GLOBAL_CONFIG.LANDING_LAG_MIN));
-                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual landing
+                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; 
                 aiState.current = 'IDLE';
             }
             if (velocity.current.y < 0) velocity.current.y = 0;
@@ -467,17 +525,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              
              if (fwd.dot(dirToT) > 0.2) {
                  shouldLook = true;
-                 // 1. 记录当前角度
                  const startQuat = headRef.current.quaternion.clone();
-
-                 // 2. 瞬间看向目标（计算目标角度）
                  headRef.current.lookAt(tPos);
                  const targetQuat = headRef.current.quaternion.clone();
-
-                 // 3. 恢复当前角度
                  headRef.current.quaternion.copy(startQuat);
-
-                 // 4. 平滑过渡到目标角度 (0.1 是速度，越小越慢)
                  headRef.current.quaternion.slerp(targetQuat, 0.1);
              }
         }
@@ -487,7 +538,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
-    // 2. Gun Arm Aiming (360 Degree Slerp)
+    // 2. Gun Arm Aiming
     if (gunArmRef.current && !stunned) {
          if (aiState.current === 'SHOOTING') {
              const tPos = getTargetPos();
@@ -502,7 +553,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const defaultForward = new Vector3(0, -1, 0.2).normalize();
                  const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
                  
-                 // --- CHANGED: Dynamic Recovery for AI Aiming ---
                  const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
                  const recovery = shootMode.current === 'STOP' 
                     ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
@@ -525,16 +575,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  }
              }
          } else {
-             gunArmRef.current.quaternion.identity();
+             // Idle arm pose similar to Player
+             gunArmRef.current.rotation.set(0.35, -0.3, 0);
          }
     }
 
-    // 3. Leg Inertia Sway & Animation Logic (Advanced)
+    // 3. Leg Inertia Sway & Animation Logic
     if (legsRef.current && !stunned) {
-         // Determine if falling
          const isFalling = !isGrounded.current && aiState.current !== 'DASHING' && aiState.current !== 'ASCENDING';
          
-         // --- PREDICTIVE FALL ANIMATION LOGIC ---
          if (isFalling && !wasFallingRef.current) {
              const vy = velocity.current.y;
              const h = position.current.y;
@@ -549,7 +598,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          }
          wasFallingRef.current = isFalling;
 
-         // Calculate Animation Weight (0 to 1)
          let animWeight = 0;
          if (isFalling) {
              currentFallTime.current += timeScale;
@@ -574,14 +622,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
-         // Animation Logic
          let targetRightThighX = 0;
          let targetLeftThighX = 0;
-         let targetRightKneeX = 0.2; // Idle default
-         let targetLeftKneeX = 0.2;  // Idle default
+         let targetRightKneeX = 0.2; 
+         let targetLeftKneeX = 0.2;  
          
-         let targetRightFootX = aiState.current === 'DASHING' ? 0.8 : -0.2; // Dashing override vs Idle
-         let targetLeftFootX = -0.2; // Idle
+         let targetRightFootX = aiState.current === 'DASHING' ? 0.8 : -0.2; 
+         let targetLeftFootX = -0.2; 
          
          let targetSpread = 0;
          let targetBodyTilt = 0;
@@ -596,23 +643,17 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
          } else if (isFalling) {
-             // Falling Poses
              targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
              targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
-             
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
-             
              targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
              targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
-             
              lerpSpeed = 0.25 * timeScale;
          } else if (visualLandingFrames.current > 0) {
-             // --- LANDING ANIMATION ---
              const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
              const current = visualLandingFrames.current; 
              const progress = 1 - (current / total); 
-             
              let w = 0;
              const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
              if (progress < r) {
@@ -623,30 +664,19 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              
              targetRightThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
              targetLeftThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
-             
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
-             
-             // Ankle Pitch Animation
              targetRightFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
              targetLeftFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
-             
              targetSpread = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
              targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
-             
-             // VISUAL HEIGHT ADJUSTMENT (Hip Dip)
-             // Move the entire model visual group down, not the physics groupRef
              rotateGroupRef.current.position.y = - (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
-             
              lerpSpeed = 0.25 * timeScale;
          } else {
-             // Idle / Recovery
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
-             // Reset Hip Dip
              rotateGroupRef.current.position.y = MathUtils.lerp(rotateGroupRef.current.position.y, 0, lerpSpeed);
          }
          
-         // Apply Rotations
          if (rightLegRef.current) {
              rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, lerpSpeed);
              rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, 0.05 + targetSpread, lerpSpeed);
@@ -668,7 +698,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
          }
 
-         // Upper Body Tilt
          currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
          if (upperBodyRef.current) {
             upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
@@ -680,15 +709,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const armorColor = isStunned ? '#ffffff' : (team === Team.RED ? '#ff8888' : '#eeeeee');
   const chestColor = isStunned ? '#ffffff' : (team === Team.RED ? '#880000' : '#2244aa');
   const feetColor = team === Team.RED ? '#333333' : '#aa2222';
+  const eyeColor = team === Team.RED ? "#ff0088" : "#00ff00";
 
-  // --- MECHA EYE SHAPE ---
   const eyeShape = useMemo(() => {
       const s = new Shape();
-      // Drawing Right Eye (X > 0)
-      s.moveTo(0.025, -0.01); // Inner Bottom
-      s.lineTo(0.11, 0.01);   // Outer Bottom
-      s.lineTo(0.11, 0.06);   // Outer Top
-      s.lineTo(0.025, 0.03);  // Inner Top (Lower than outer = Angry)
+      s.moveTo(0.025, -0.01); 
+      s.lineTo(0.11, 0.01);   
+      s.lineTo(0.11, 0.06);   
+      s.lineTo(0.025, 0.03);  
       s.autoClose = true;
       return s;
   }, []);
@@ -696,12 +724,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
-         <group position={[0, 2.0, 0]}> {/* Waist Center */}
+         <group position={[0, 2.0, 0]}>
             
             {/* WAIST */}
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[0.6, 0.5, 0.5]} />
-                <meshToonMaterial color={armorColor} />
+                <meshToonMaterial color={armorColor} /> // RED WAIST
                 <Edges threshold={15} color="black" />
             </mesh>
 
@@ -767,23 +795,23 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <Edges threshold={15} color="black" />
                         </mesh>
                         <group position={[0, -0.06, 0.235]}>
-                            <group position={[0, 0.025, 0]}>
-                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                            <group position={[0, 0.015, 0]}>
+                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                        <boxGeometry args={[0.05, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
-                            <group position={[0, -0.025, 0]}>
-                                <mesh position={[-0.025, -0.015, 0]} rotation={[0, 0, 0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                            <group position={[0, -0.015, 0]}>
+                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
-                                <mesh position={[0.025, -0.015, 0]} rotation={[0, 0, -0.8]}>
-                                        <boxGeometry args={[0.07, 0.015, 0.01]} />
+                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
                                         <meshBasicMaterial color="#111" />
                                 </mesh>
                             </group>
@@ -800,13 +828,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             {/* Right Eye */}
                             <mesh>
                                 <shapeGeometry args={[eyeShape]} />
-                                <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
+                                <meshBasicMaterial color={eyeColor} toneMapped={false} />
                             </mesh>
                             
                             {/* Left Eye (Mirrored) */}
                             <mesh scale={[-1, 1, 1]}>
                                 <shapeGeometry args={[eyeShape]} />
-                                <meshBasicMaterial color={team === Team.RED ? "#ff0088" : "#00ff00"} toneMapped={false} />
+                                <meshBasicMaterial color={eyeColor} toneMapped={false} />
                             </mesh>
                         </group>
 
@@ -814,13 +842,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                     {/* ARMS */}
                     {/* Right Shoulder & Arm (Holding SHIELD) */}
-                    <group position={[0.65, 0.1, 0]}>
+                    <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]}>
                         <mesh>
                             <boxGeometry args={[0.5, 0.5, 0.5]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        <group position={[0, -0.4, 0]}>
+                        <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
                             <mesh>
                                 <boxGeometry args={[0.25, 0.6, 0.3]} />
                                 <meshToonMaterial color="#444" />
@@ -854,7 +882,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        <group position={[0, -0.4, 0]}>
+                        <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
                             <mesh>
                                 <boxGeometry args={[0.25, 0.6, 0.3]} />
                                 <meshToonMaterial color="#444" />
@@ -914,16 +942,19 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <Edges threshold={15} color="black" />
                         </mesh>
                         
-                        <group position={[0.25, -0.8, -0.45]}>
+                        <group position={[0.25, -0.9, -0.4]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
                                 <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                         </group>
-                        <group position={[-0.25, -0.8, -0.45]}>
+                        <group position={[-0.25, -0.9, -0.4]}>
                                 <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                 <meshToonMaterial color="#222" />
                                 <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                         </group>
+                        
+                        {/* BOOST BURST EFFECT - Synced with Dash */}
+                        <BoostBurst triggerTime={dashTriggerTime} />
 
                     </group>
             </group>
@@ -998,7 +1029,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             opacity: isTargeted ? 1 : 0.6
         }}
       >
-        {/* SCALED NAME TAG FOR MOBILE: smaller text and padding */}
         <div className={`text-xs md:text-sm font-bold px-1.5 md:px-3 py-0.5 rounded border whitespace-nowrap ${
               isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
             }`}>
