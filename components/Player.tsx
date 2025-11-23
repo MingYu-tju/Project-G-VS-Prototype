@@ -1297,7 +1297,8 @@ if (!stunned) {
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
          // Animation Logic: Falling vs Dashing vs Idle
-         const isFalling = !isGrounded.current && velocity.current.y < -0.05 && !isDashing.current && !isAscending;
+         // User Request: Trigger falling anim immediately when airborne (no velocity check), excluding Dash/Ascend/Evade
+         const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
          
          let targetRightThighX = 0;
          let targetLeftThighX = 0;
