@@ -1,4 +1,6 @@
 
+
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
@@ -1363,11 +1365,14 @@ if (!stunned) {
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
          } else if (isFalling) {
-             // Apply weight to falling pose constants
-             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH * animWeight; 
-             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH * animWeight;
-             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND - 0.2) * animWeight; // Interpolate from idle knee (0.2)
-             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND - 0.2) * animWeight;
+             // Apply weight to falling pose constants with individual control
+             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
+             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
+             
+             // Interpolate from idle knee (0.2) to specific target
+             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
+             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
+             
              targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
              targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
              

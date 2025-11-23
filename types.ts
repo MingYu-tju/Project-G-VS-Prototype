@@ -100,9 +100,15 @@ export const GLOBAL_CONFIG = {
     // Falling Animation (New)
     FALL_ANIM_RATIO: 0.2,       // Ratio: 0.25 means the animation tries to complete in the first 25% of the predicted fall duration.
     FALL_ANIM_EXIT_SPEED: 0.1,   // How fast to recover to idle (Lerp factor)
-    FALL_LEG_PITCH: -0.2,        // Legs rotate forward (negative X)
-    FALL_LEG_SPREAD: 0.25,       // Legs splay outward (Z axis)
-    FALL_KNEE_BEND: 1.2,         // Knees bend backward (positive X)
+    
+    // Separate Left/Right Config for Asymmetrical Poses
+    FALL_LEG_PITCH_RIGHT: -1.4,  // Right leg rotates forward (negative X)
+    FALL_LEG_PITCH_LEFT: -0.8,   // Left leg rotates forward more (negative X)
+    
+    FALL_KNEE_BEND_RIGHT: 2.6,   // Right knee bends deeply
+    FALL_KNEE_BEND_LEFT: 1.6,    // Left knee bends slightly
+    
+    FALL_LEG_SPREAD: 0.05,       // Legs splay outward (Z axis)
     FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
 
     // Evade (Step)
