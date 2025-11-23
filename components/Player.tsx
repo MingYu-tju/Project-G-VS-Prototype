@@ -5,12 +5,7 @@ import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaterni
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
-
-// --- AUDIO SYSTEM CONFIGURATION ---
-// [USER INSTRUCTION]: Changed to relative path "./" to ensure compatibility with GitHub Pages subdirectories
-const CUSTOM_BOOST_SFX_URL = "./dash.mp3"; 
-// [USER INSTRUCTION]: To use a custom shoot sound, place file in 'public' folder and use "./filename.wav"
-const CUSTOM_SHOOT_SFX_URL = "./shot.wav"; 
+import { DASH_SFX_BASE64, SHOOT_SFX_BASE64 } from '../assets';
 
 const FRAME_DURATION = 1 / 60;
 
@@ -115,20 +110,21 @@ const loadCustomBoostSound = async () => {
     const ctx = getAudioContext();
     if (!ctx) return;
 
+    // Check if Base64 string is populated (length > 50 assumes valid data uri header + content)
+    if (DASH_SFX_BASE64.length < 50) {
+        console.warn("DASH_SFX_BASE64 in assets.ts is empty. Using procedural fallback.");
+        boostAudioBuffer = generateProceduralDash(ctx);
+        return;
+    }
+
     isBoostLoading = true;
     try {
-        console.log(`Attempting to load boost sound from: ${CUSTOM_BOOST_SFX_URL}`);
-        const response = await fetch(CUSTOM_BOOST_SFX_URL);
-        
-        // Strict check: 200 OK is not enough if content-length is 0
-        const contentLength = response.headers.get('Content-Length');
-        if (!response.ok || (contentLength && parseInt(contentLength) === 0)) {
-            throw new Error(`Invalid file response. Status: ${response.status}, Size: ${contentLength}`);
-        }
-
+        console.log(`Attempting to load boost sound from Base64 asset...`);
+        const response = await fetch(DASH_SFX_BASE64);
         const arrayBuffer = await response.arrayBuffer();
+        
         if (arrayBuffer.byteLength === 0) {
-             throw new Error("File is empty (0 bytes)");
+             throw new Error("Buffer is empty");
         }
 
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
@@ -150,16 +146,20 @@ const loadCustomShootSound = async () => {
     const ctx = getAudioContext();
     if (!ctx) return;
 
+    // Check if Base64 string is populated
+    if (SHOOT_SFX_BASE64.length < 50) {
+        console.warn("SHOOT_SFX_BASE64 in assets.ts is empty. Using procedural fallback.");
+        shootAudioBuffer = generateProceduralShoot(ctx);
+        return;
+    }
+
     isShootLoading = true;
     try {
-        const response = await fetch(CUSTOM_SHOOT_SFX_URL);
-        const contentLength = response.headers.get('Content-Length');
-        if (!response.ok || (contentLength && parseInt(contentLength) === 0)) {
-             throw new Error("Invalid file");
-        }
-        
+        console.log(`Attempting to load shoot sound from Base64 asset...`);
+        const response = await fetch(SHOOT_SFX_BASE64);
         const arrayBuffer = await response.arrayBuffer();
-        if (arrayBuffer.byteLength === 0) throw new Error("File is empty");
+        
+        if (arrayBuffer.byteLength === 0) throw new Error("Buffer is empty");
 
         const decodedData = await ctx.decodeAudioData(arrayBuffer);
         shootAudioBuffer = decodedData;
@@ -183,7 +183,7 @@ const playShootSound = () => {
         const source = ctx.createBufferSource();
         source.buffer = shootAudioBuffer;
         const gain = ctx.createGain();
-        gain.gain.value = 0.3; 
+        gain.gain.value = 0.4; 
         source.connect(gain);
         gain.connect(ctx.destination);
         source.playbackRate.value = 0.9 + Math.random() * 0.2; // Pitch variation
@@ -225,7 +225,7 @@ const playBoostSound = () => {
         const source = ctx.createBufferSource();
         source.buffer = boostAudioBuffer;
         const gain = ctx.createGain();
-        gain.gain.value = 0.25; 
+        gain.gain.value = 0.4; 
         
         // Add a lowpass filter to make the white noise sound more like an engine
         const filter = ctx.createBiquadFilter();
@@ -355,13 +355,13 @@ groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale,
 groupRef.current.visible = groupRef.current.scale.z > 0.05;
 });
 return (
-<group ref={groupRef} position={offset}>
-<group rotation={[isAscending ? Math.PI + Math.PI/3 : -Math.PI/2, 0, 0]}>
-<mesh position={[0, 0, 0.8]}>
+<group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}>
+<group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}>
+<mesh position={[0, -0.3, 0.8]}>
 <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
 <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
 </mesh>
-<mesh position={[0, 0, 0.5]}>
+<mesh position={[0, -0.3, 0.5]}>
 <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
 <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
 </mesh>
@@ -440,6 +440,7 @@ return (
 export const Player: React.FC = () => {
 const meshRef = useRef<Mesh>(null);
 const headRef = useRef<Group>(null);
+const upperBodyRef = useRef<Group>(null); // NEW: Ref for chest/upper body animation
 const legsRef = useRef<Group>(null);
 // NEW: Individual leg refs for splaying animation
 const rightLegRef = useRef<Group>(null);
@@ -503,6 +504,7 @@ const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
 const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
 // Animation Variables
 const currentLegSpread = useRef(0);
+const currentUpperBodyTilt = useRef(0); // NEW: Track upper body forward tilt angle
 // Evade State
 const isEvading = useRef(false);
 const evadeTimer = useRef(0);
@@ -1299,6 +1301,14 @@ if (!stunned) {
              leftLegRef.current.rotation.z = -0.05 - currentLegSpread.current;
          }
     }
+    
+    // 5. Upper Body Dash Tilt (Forward Lean)
+    if (upperBodyRef.current) {
+        // Target tilt: Forward (positive X) when dashing
+        const targetTilt = isDashing.current ? 0.55 : 0;
+        currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetTilt, 0.15 * timeScale);
+        upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+    }
 }
 
 // Re-inserting Action Logic below to ensure full file integrity
@@ -1418,7 +1428,7 @@ return (
 <Edges threshold={15} color="black" />
 </mesh>
 {/* CHEST */}
-        <group position={[0, 0.65, 0]}>
+        <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                 <mesh>
                     <boxGeometry args={[0.9, 0.7, 0.7]} />
                     <meshToonMaterial color={chestColor} /> 
@@ -1626,12 +1636,12 @@ return (
                             <Edges threshold={15} color="black" />
                     </mesh>
                     
-                    <group position={[0.25, -0.8, -0.45]}>
+                    <group position={[0.25, -0.9, -0.4]}>
                             <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                             <meshToonMaterial color="#222" />
                             <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
                     </group>
-                    <group position={[-0.25, -0.8, -0.45]}>
+                    <group position={[-0.25, -0.9, -0.4]}>
                             <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                             <meshToonMaterial color="#222" />
                             <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
@@ -1709,4 +1719,3 @@ return (
 </group>
 );
 }
-    
