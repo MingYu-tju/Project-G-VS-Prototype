@@ -7,7 +7,7 @@ type ActionType = 'JUMP' | 'DASH' | 'SHOOT' | 'SWITCH TARGET';
 // Default standard mapping (Xbox/PS layout approximations)
 // 0: A/Cross, 1: B/Circle, 2: X/Square, 3: Y/Triangle, etc.
 const DEFAULT_MAPPING: Record<number, ActionType> = {
-    7: 'JUMP',   // A / Cross
+    7: 'JUMP',   // A / Cross (Note: JUMP is now technically L-Hold in logic, but we keep label)
     0: 'DASH',   // B / Circle
     2: 'SHOOT',  // X / Square
     1: 'SWITCH TARGET', // Y / Triangle
@@ -15,10 +15,10 @@ const DEFAULT_MAPPING: Record<number, ActionType> = {
 
 // Map Action to the actual Keyboard Key that Player.tsx listens for
 const ACTION_TO_KEY: Record<ActionType, string> = {
-    'JUMP': ' ',
+    'JUMP': 'l', // Remapped to L (Hold logic handles jump)
     'DASH': 'l',
     'SHOOT': 'j',
-    'SWITCH TARGET': 'e'
+    'SWITCH TARGET': ' ' // Changed from 'e' to Space
 };
 
 // Helper to dispatch keyboard events

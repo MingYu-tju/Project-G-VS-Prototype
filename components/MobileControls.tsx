@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 const simulateKey = (key: string, type: 'keydown' | 'keyup') => {
     const event = new KeyboardEvent(type, {
         key: key,
-        code: `Key${key.toUpperCase()}`,
+        code: key === ' ' ? 'Space' : `Key${key.toUpperCase()}`,
         bubbles: true,
         cancelable: true,
     });
@@ -219,10 +219,10 @@ export const MobileControls: React.FC = () => {
                 
                 {/* Layout: Triangle configuration */}
                 
-                {/* RIGHT: TARGET (E) - Moved from Top to Right (Previously Jump position) */}
+                {/* RIGHT: TARGET (SPACE) - Changed from 'e' */}
                 <ActionButton 
                     label="TGT" 
-                    kKey="e" 
+                    kKey=" " 
                     color="bg-yellow-600/60" 
                     posClass="top-1/2 right-0 -translate-y-1/2" 
                     sizeClass="w-14 h-14"

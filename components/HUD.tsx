@@ -53,7 +53,7 @@ export const HUD: React.FC = () => {
                </div>
            </div>
            <div className="mt-2 text-gray-400 text-xs font-mono bg-black/50 px-2 py-1 rounded">
-             [E] SWITCH TARGET
+             [SPACE] SWITCH TARGET
            </div>
         </div>
       )}
@@ -93,7 +93,7 @@ export const HUD: React.FC = () => {
          <p className="mb-1"><span className="text-white font-bold">L (HOLD)</span> : JUMP / ASCEND</p>
          <p className="mb-1"><span className="text-white font-bold">L (DOUBLE TAP)</span> : BOOST DASH</p>
          <p className="mb-1"><span className="text-white font-bold">J</span> : SHOOT</p>
-         <p><span className="text-white font-bold">E</span> : SWITCH TARGET</p>
+         <p><span className="text-white font-bold">SPACE</span> : SWITCH TARGET</p>
       </div>
 
     </div>

@@ -5,60 +5,167 @@ import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaterni
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
-// Muzzle Offset is now used only as a fallback or local offset reference.
-// Actual spawning uses World Position of the muzzle ref.
+
+// --- AUDIO SYSTEM CONFIGURATION ---
+// [USER INSTRUCTION]: Paste your URL or Base64 string inside the quotes below to replace the boost sound.
+const CUSTOM_BOOST_SFX_URL = "/dash.mp3"; 
+// [USER INSTRUCTION]: To use a custom shoot sound, place file in 'public' folder and use "/filename.wav"
+const CUSTOM_SHOOT_SFX_URL = "/shot.wav"; 
+
 const FRAME_DURATION = 1 / 60;
-// --- SOUND ---
+
+// --- AUDIO MANAGER ---
+// Lazy load AudioContext to comply with browser autoplay policies
+let globalAudioCtx: AudioContext | null = null;
+let boostAudioBuffer: AudioBuffer | null = null;
+let shootAudioBuffer: AudioBuffer | null = null;
+let isBoostLoading = false;
+let isShootLoading = false;
+
+const getAudioContext = () => {
+    if (!globalAudioCtx) {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContext) {
+            globalAudioCtx = new AudioContext();
+        }
+    }
+    return globalAudioCtx;
+};
+
+// Preloader for Custom Boost Sound
+const loadCustomBoostSound = async () => {
+    if (!CUSTOM_BOOST_SFX_URL || boostAudioBuffer || isBoostLoading) return;
+    
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    try {
+        isBoostLoading = true;
+        const response = await fetch(CUSTOM_BOOST_SFX_URL);
+        const arrayBuffer = await response.arrayBuffer();
+        const decodedData = await ctx.decodeAudioData(arrayBuffer);
+        boostAudioBuffer = decodedData;
+        console.log("Custom boost sound loaded successfully.");
+    } catch (error) {
+        // Silent fail
+    } finally {
+        isBoostLoading = false;
+    }
+};
+
+// Preloader for Custom Shoot Sound
+const loadCustomShootSound = async () => {
+    if (!CUSTOM_SHOOT_SFX_URL || shootAudioBuffer || isShootLoading) return;
+    
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    try {
+        isShootLoading = true;
+        const response = await fetch(CUSTOM_SHOOT_SFX_URL);
+        const arrayBuffer = await response.arrayBuffer();
+        const decodedData = await ctx.decodeAudioData(arrayBuffer);
+        shootAudioBuffer = decodedData;
+        console.log("Custom shoot sound loaded successfully.");
+    } catch (error) {
+        console.warn("Failed to load custom shoot sound:", error);
+    } finally {
+        isShootLoading = false;
+    }
+};
+
 const playShootSound = () => {
-const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-if (!AudioContext) return;
-const ctx = new AudioContext();
-const osc = ctx.createOscillator();
-const gain = ctx.createGain();
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
 
-osc.type = 'sawtooth';
-osc.frequency.setValueAtTime(800, ctx.currentTime);
-osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.15);
+    // 1. Try Custom Buffer (Low Latency)
+    if (shootAudioBuffer) {
+        const source = ctx.createBufferSource();
+        source.buffer = shootAudioBuffer;
+        const gain = ctx.createGain();
+        gain.gain.value = 0.4; // Adjust volume for shoot sound
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        // Randomize pitch slightly for variety
+        source.playbackRate.value = 0.95 + Math.random() * 0.1;
+        source.start(0);
+        return;
+    }
 
-gain.gain.setValueAtTime(0.1, ctx.currentTime);
-gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-
-osc.connect(gain);
-gain.connect(ctx.destination);
-
-osc.start();
-osc.stop(ctx.currentTime + 0.2);
+    // 2. Fallback: Beam Rifle Synthesis
+    playBeamRifleSynth(ctx);
 };
+
+// Procedural Beam Rifle Sound (Fallback)
+const playBeamRifleSynth = (ctx: AudioContext) => {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    // Square wave gives that "retro laser" 8-bit feeling
+    osc.type = 'square';
+    
+    // Pitch drop: Start high (1500Hz) and drop quickly to (300Hz)
+    osc.frequency.setValueAtTime(1500, t);
+    osc.frequency.exponentialRampToValueAtTime(300, t + 0.15);
+    
+    // Volume envelope: Sharp attack, quick decay
+    gain.gain.setValueAtTime(0.1, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start(t);
+    osc.stop(t + 0.2);
+};
+
 const playBoostSound = () => {
-const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-if (!AudioContext) return;
-const ctx = new AudioContext();
-const osc = ctx.createOscillator();
-const gain = ctx.createGain();
-const filter = ctx.createBiquadFilter();
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
 
-// Low frequency saw/square for engine roar
-osc.type = 'sawtooth';
-osc.frequency.setValueAtTime(150, ctx.currentTime);
-osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.4);
+    // 1. Try Custom Sound
+    if (boostAudioBuffer) {
+        const source = ctx.createBufferSource();
+        source.buffer = boostAudioBuffer;
+        const gain = ctx.createGain();
+        gain.gain.value = 0.25; // Adjust volume for custom sound here
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.start(0);
+        return;
+    }
 
-// Lowpass filter to muffle the harshness
-filter.type = 'lowpass';
-filter.frequency.setValueAtTime(800, ctx.currentTime);
-filter.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.4);
+    // 2. Fallback to Synth (Engine Roar) if no custom sound loaded
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
 
-// Envelope: Fast attack, medium decay
-gain.gain.setValueAtTime(0.0, ctx.currentTime);
-gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.05);
-gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    // Low frequency saw/square for engine roar
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.4);
 
-osc.connect(filter);
-filter.connect(gain);
-gain.connect(ctx.destination);
+    // Lowpass filter to muffle the harshness
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.4);
 
-osc.start();
-osc.stop(ctx.currentTime + 0.4);
+    // Envelope: Fast attack, medium decay
+    gain.gain.setValueAtTime(0.0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
 };
+
 // --- VISUAL EFFECTS ---
 const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
 const groupRef = useRef<Group>(null);
@@ -311,6 +418,13 @@ const [dashTriggerTime, setDashTriggerTime] = useState(0);
 const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE'>('IDLE');
 const [isStunned, setIsStunned] = useState(false);
 const ammoRegenTimer = useRef(0);
+
+// Try loading custom sounds on mount
+useEffect(() => {
+    if (CUSTOM_BOOST_SFX_URL) loadCustomBoostSound();
+    if (CUSTOM_SHOOT_SFX_URL) loadCustomShootSound();
+}, []);
+
 const getDirectionFromKey = (key: string) => {
 const input = new Vector3(0,0,0);
 if (key === 'w') input.z -= 1;
@@ -509,7 +623,8 @@ if (!keys.current[key]) {
         }
       }
       
-      if (key === 'e') {
+      // CHANGED: Switch Target key changed from 'e' to ' ' (Space)
+      if (key === ' ') {
         useGameStore.getState().cycleTarget();
       }
   }
@@ -970,14 +1085,17 @@ meshRef.current.position.copy(position.current);
 if (!stunned) {
     // 1. Orientation (Body)
     if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
-        // Smooth Turn Logic
+        // Smooth Turn Logic for Stop Shot
         const dirToTarget = currentTarget.position.clone().sub(meshRef.current.position);
-        dirToTarget.y = 0; // Keep rotation flat on Y axis
+        dirToTarget.y = 0; 
         dirToTarget.normalize();
 
         if (dirToTarget.lengthSq() > 0.001) {
             const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), dirToTarget);
-            // Factor 0.25 * timeScale gives a snappy but smooth turn (approx 3-4 frames to align 90 deg)
+            
+            // Slerp speed adjustment:
+            // 12 frames startup. We want to face target by the time we shoot.
+            // 0.25 per frame (60fps) is fast enough.
             meshRef.current.quaternion.slerp(targetQuat, 0.25 * timeScale);
         }
     }
