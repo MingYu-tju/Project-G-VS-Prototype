@@ -1398,6 +1398,7 @@ if (!stunned) {
              targetRightThighX = -2; // Lift Right Leg
              targetRightKneeX = 2.5; // Bend Right Knee (Kick)
              targetLeftThighX = 0.45; // Drag Left Leg
+             targetLeftFootX = 0.6; 
              targetSpread = 0.35;
              targetBodyTilt = 0.75; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
