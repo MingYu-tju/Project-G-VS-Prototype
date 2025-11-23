@@ -833,9 +833,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          </group>
       </group>
       <Html 
-        position={[0, 4.0, 0]} 
+        position={[0, 5.5, 0]} 
         center 
-        distanceFactor={30} 
+        distanceFactor={25} 
         zIndexRange={[100, 0]}
         style={{ 
             pointerEvents: 'none', 
