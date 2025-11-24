@@ -2,13 +2,50 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
 import { DASH_SFX_BASE64, SHOOT_SFX_BASE64 } from '../assets';
 
 const FRAME_DURATION = 1 / 60;
+
+// --- IDLE POSE CONFIGURATION ---
+// 站立待机姿势配置 (仅在地面且无输入时生效)
+const IDLE_POSE = {
+    // 身体核心 (Torso)
+    TORSO: { 
+        x: 0.25,  // 躯干前倾 (正值向前)
+        y: 0, // 躯干旋转 (正值向左, 负值向右) - 稍微侧身
+        z: 0.0    // 躯干侧倾 (正值向左)
+    },
+    // 头部 (Head)
+    HEAD: { 
+        x: 0.15, // 抬头/低头 (正值低头) - 下巴微收
+        y: 0.25  // 左右转头 (正值向左)
+    },
+    // 左臂 (持枪手 - Gun Arm)
+    LEFT_ARM: {
+        SHOULDER: { x: -0, y: -0.3, z: -0.25}, // 肩膀 (x:抬起, y:前后, z:开合)
+        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }  // 肘部 (x:弯曲 负值, y:旋转, z:扭转) - 举枪
+    },
+    // 右臂 (持盾手 - Shield Arm)
+    RIGHT_ARM: {
+        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, // 肩膀
+        ELBOW:    { x: -1, y: -0.4, z: 0.0 } // 肘部 - 自然下垂微曲
+    },
+    // 腿部 (Legs)
+    LEFT_LEG: {
+        THIGH: { x: -0.4, y: -0.1, z: -0.3 }, // 大腿 (x:前后, y:旋转, z:开合 负值向外)
+        KNEE:  { x: 0.6 },           // 膝盖 (正值弯曲)
+        ANKLE: { x: -0.2, y: 0.1, z: 0.1 } // 脚踝 (x:抵消膝盖弯曲, y:旋转, z:侧翻)
+    },
+    RIGHT_LEG: {
+        THIGH: { x: -0.5, y: 0.1, z: 0.3 }, // 大腿
+        KNEE:  { x: 0.6 },           // 膝盖
+        ANKLE: { x: -0.25, y: 0.1, z: -0.1 } // 脚踝
+    }
+};
 
 // --- AUDIO MANAGER ---
 // Lazy load AudioContext to comply with browser autoplay policies
@@ -452,6 +489,9 @@ const rightFootRef = useRef<Group>(null); // NEW: Ref for Right Foot Ankle
 const leftFootRef = useRef<Group>(null); // NEW: Ref for Left Foot Ankle
 
 const gunArmRef = useRef<Group>(null);
+const rightArmRef = useRef<Group>(null); // For walking animation (right arm swing)
+const leftForeArmRef = useRef<Group>(null); // NEW: Ref for Left Elbow/Forearm
+const rightForeArmRef = useRef<Group>(null); // NEW: Ref for Right Elbow/Forearm
 const muzzleRef = useRef<Group>(null);
 const { camera } = useThree();
 // State from Store
@@ -518,7 +558,6 @@ const totalPredictedFallFrames = useRef(0); // NEW: Calculated total frames for 
 
 // Walking Animation Refs
 const walkCycle = useRef(0);
-const rightArmRef = useRef<Group>(null); // For walking animation (right arm swing)
 
 // Evade State
 const isEvading = useRef(false);
@@ -978,7 +1017,7 @@ if (stunned) {
             velocity.current.set(0, 0, 0);
             if (isGrounded.current) {
                 landingFrames.current = getLandingLag();
-                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual
+                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_LAG_MAX + 10; // Trigger visual
             }
         }
     }
@@ -1230,7 +1269,7 @@ meshRef.current.position.copy(position.current);
 if (isGrounded.current && nextVisualState === 'WALK') {
     const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
     if (speed > 0.05) {
-        walkCycle.current += delta * 8; // Speed multiplier
+        walkCycle.current += delta * 10; // Speed multiplier
     } else {
         // Decay to closest integer multiple of PI to return to neutral-ish stance smoothly? 
         // Or just stop. For now, stop.
@@ -1239,6 +1278,13 @@ if (isGrounded.current && nextVisualState === 'WALK') {
     // Reset or decay? Let's just reset for snapiness or let it hang.
     // walkCycle.current = 0; // Uncomment for reset
 }
+
+// DETERMINE IF WE ARE IN THE SPECIAL IDLE POSE STATE
+const isIdlePose = isGrounded.current && 
+                   nextVisualState === 'IDLE' && 
+                   !isShooting.current && 
+                   !isStunned &&
+                   landingFrames.current <= 0;
 
 if (!stunned) {
     // 1. Orientation (Body)
@@ -1326,11 +1372,17 @@ if (!stunned) {
                  // Default arm pose: rotation.set(0.35, -0.3, 0)
                  gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
              } else {
-                // Idle
-                // 修改这里！参数对应 (X轴角度, Y轴角度, Z轴角度)
-                // 例如：rotation.set(0.2, 0, -0.1) 
-                // X=0.2 (向前抬起), Z=-0.1 (向外张开)
-                gunArmRef.current.rotation.set(0.35, -0.3, 0);
+                // Idle State - Apply Custom IDLE_POSE if grounded and no input
+                if (isIdlePose) {
+                    const target = IDLE_POSE.LEFT_ARM.SHOULDER;
+                    const lerpSpeed = 0.1 * timeScale;
+                    gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, target.x, lerpSpeed);
+                    gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, target.y, lerpSpeed);
+                    gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, target.z, lerpSpeed);
+                } else {
+                    // Standard fallback
+                    gunArmRef.current.rotation.set(0.35, -0.3, 0);
+                }
              }
         }
     }
@@ -1343,15 +1395,62 @@ if (!stunned) {
             // Base rotation: 0.35, 0.3, 0
             rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
         } else {
-            // Idle
-            rightArmRef.current.rotation.set(0.35, 0.3, 0);
+             // Idle State
+             if (isIdlePose) {
+                 const target = IDLE_POSE.RIGHT_ARM.SHOULDER;
+                 const lerpSpeed = 0.1 * timeScale;
+                 rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, target.x, lerpSpeed);
+                 rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, target.y, lerpSpeed);
+                 rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, target.z, lerpSpeed);
+             } else {
+                 // Standard fallback
+                 rightArmRef.current.rotation.set(0.35, 0.3, 0);
+             }
         }
     }
+
+    // Forearm Animation (New: Handled via refs now)
+    if (rightForeArmRef.current) {
+        let targetX = -0.65;
+        let targetY = -0.3;
+        let targetZ = 0;
+        
+        if (isIdlePose) {
+            targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
+            targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
+            targetZ = IDLE_POSE.RIGHT_ARM.ELBOW.z;
+        }
+
+        const lerpSpeed = 0.1 * timeScale;
+        rightForeArmRef.current.rotation.x = MathUtils.lerp(rightForeArmRef.current.rotation.x, targetX, lerpSpeed);
+        rightForeArmRef.current.rotation.y = MathUtils.lerp(rightForeArmRef.current.rotation.y, targetY, lerpSpeed);
+        rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+    
+    if (leftForeArmRef.current) {
+        let targetX = -0.65;
+        let targetY = 0.3;
+        let targetZ = 0;
+
+        if (isIdlePose) {
+             targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
+             targetY = IDLE_POSE.LEFT_ARM.ELBOW.y;
+             targetZ = IDLE_POSE.LEFT_ARM.ELBOW.z;
+        }
+
+        const lerpSpeed = 0.1 * timeScale;
+        leftForeArmRef.current.rotation.x = MathUtils.lerp(leftForeArmRef.current.rotation.x, targetX, lerpSpeed);
+        leftForeArmRef.current.rotation.y = MathUtils.lerp(leftForeArmRef.current.rotation.y, targetY, lerpSpeed);
+        leftForeArmRef.current.rotation.z = MathUtils.lerp(leftForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+
 
     // 3. Head Tracking
     if (headRef.current) {
          const t = targets[currentTargetIndex];
          let shouldLook = false;
+         
+         // Only track if target exists AND isn't just standing idle (optional stylistic choice, here we keep tracking if target exists)
          if (t) {
              const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
              const dirToT = t.position.clone().sub(position.current).normalize();
@@ -1364,9 +1463,27 @@ if (!stunned) {
                 headRef.current.quaternion.slerp(targetQuat, 0.1);
              }
          }
+         
          if (!shouldLook) {
-             const identity = new Quaternion();
-             headRef.current.quaternion.slerp(identity, 0.1);
+             // Revert to Idle pose or Neutral
+             let targetX = 0;
+             let targetY = 0;
+             if (isIdlePose) {
+                 targetX = IDLE_POSE.HEAD.x;
+                 targetY = IDLE_POSE.HEAD.y;
+             }
+             
+             // Manually lerp Euler if not tracking
+             const lerpSpeed = 0.1 * timeScale;
+             // Using rotation directly since we aren't using LookAt quaternion here
+             // Note: headRef might have residual quaternion from previous lookAt. 
+             // We reset quaternion to identity via slerp first, then apply Euler? 
+             // Or just use rotation. setFromEuler is safer if mixing.
+             
+             // Simplest way to blend back to Euler control:
+             // 1. Create target Quaternion from Euler
+             const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, 0));
+             headRef.current.quaternion.slerp(q, 0.1 * timeScale);
          }
     }
 
@@ -1431,16 +1548,20 @@ if (!stunned) {
 
          // Animation Logic: Falling vs Dashing vs Idle vs Landing
          
-         let targetRightThighX = 0;
-         let targetLeftThighX = 0;
+         // Initialize targets with default 0s
+         let targetRightThigh = { x: 0, y: 0, z: 0 };
+         let targetLeftThigh = { x: 0, y: 0, z: 0 };
+         
          let targetRightKneeX = 0.2; // Idle default
          let targetLeftKneeX = 0.2;  // Idle default
          
-         let targetRightFootX = isDashing.current ? 0.8 : -0.2; // Dashing override vs Idle
-         let targetLeftFootX = -0.2; // Idle
+         let targetRightAnkle = { x: -0.2, y: 0, z: 0 };
+         let targetLeftAnkle = { x: -0.2, y: 0, z: 0 };
          
-         let targetSpread = 0;
          let targetBodyTilt = 0;
+         let targetBodyTwist = 0; // New: Y rotation
+         let targetBodyRoll = 0; // New: Z rotation
+
          let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
 
          if (nextVisualState === 'WALK') {
@@ -1450,21 +1571,16 @@ if (!stunned) {
              const cos = Math.cos(t);
 
              // Thighs (Anti-phase)
-             // Right leg forward when sin > 0
-             targetRightThighX = -sin * 0.7;
-             targetLeftThighX = sin * 0.7;
+             targetRightThigh.x = -sin * 0.7;
+             targetLeftThigh.x = sin * 0.7;
 
-             // Knees (Bend when moving forward/up)
-             // Simplified: Bend when thigh is moving forward (negative rotation in this rig? or positive?)
-             // Let's rely on phase. 
-             // Right knee bends when right leg is lifting (sin goes positive to negative?)
-             // Let's use a clipped sine for knees.
+             // Knees
              targetRightKneeX = Math.max(0, sin) * 1.2 + 0.1;
              targetLeftKneeX = Math.max(0, -sin) * 1.2 + 0.1;
 
              // Feet (Ankle compensation)
-             targetRightFootX = -0.4 - sin * 0.4;
-             targetLeftFootX = -0.4 + sin * 0.4;
+             targetRightAnkle.x = -0.4 - sin * 0.4;
+             targetLeftAnkle.x = -0.4 + sin * 0.4;
 
              // Bobbing & Sway
              targetBodyTilt = 0.3; // Slight forward lean
@@ -1479,88 +1595,113 @@ if (!stunned) {
              lerpSpeed = 0.2 * timeScale; // Snappier for walking
          }
          else if (isDashing.current) {
-             targetRightThighX = -1; // Lift Right Leg
+             targetRightThigh.x = -1; // Lift Right Leg
              targetRightKneeX = 2.2; // Bend Right Knee (Kick)
-             targetLeftThighX = 1.1; // Drag Left Leg
-             targetLeftFootX = 0.85; // Left Foot Backward
+             targetLeftThigh.x = 1.1; // Drag Left Leg
+             targetLeftAnkle.x = 0.85; // Left Foot Backward
+             targetRightAnkle.x = 0.8; 
             
-             targetSpread = 0.0;
              targetBodyTilt = 0.65; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
              upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
              upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
          } else if (isFalling) {
-             // Apply weight to falling pose constants with individual control
-             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
-             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
+             // Falling
+             targetRightThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
+             targetLeftThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
              
-             // Interpolate from idle knee (0.2) to specific target
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
              
-             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
+             // Spread
+             targetRightThigh.z = 0.05 + GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+             targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+
              targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
-             
-             // We want the mesh to follow the weight curve closely, but with slight smoothing
              lerpSpeed = 0.25 * timeScale;
          } else if (visualState === 'LANDING') {
-             // --- LANDING ANIMATION (Decoupled Visuals) ---
-             // Calculate 0.0 -> 1.0 progress based on fixed visual duration
+             // --- LANDING ANIMATION ---
              const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
-             const current = visualLandingFrames.current; // counts down
-             
-             // progress: 0 (start) -> 1 (end)
+             const current = visualLandingFrames.current; 
              const progress = 1 - (current / total); 
-             
              let w = 0;
              const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
              if (progress < r) {
-                 // Entry Phase (Impact/Crouch): 0 -> 1
                  w = progress / r;
              } else {
-                 // Recovery Phase (Stand up): 1 -> 0
                  w = 1 - ((progress - r) / (1 - r));
              }
              
-             // Apply pose based on landing weight (w) with independent Left/Right control
-             targetRightThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
-             targetLeftThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
+             targetRightThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
+             targetLeftThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
              
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
              
-             // NEW: Ankle Pitch Animation
-             targetRightFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
-             targetLeftFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
+             targetRightAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
+             targetLeftAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
              
-             targetSpread = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             // Spread
+             targetRightThigh.z = 0.05 + GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+
              targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
-             
-             // VISUAL HEIGHT ADJUSTMENT (Hip Dip)
-             // Lowers the entire mesh visual without affecting physics position
              meshRef.current.position.y -= (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
-             
              lerpSpeed = 0.25 * timeScale;
          } else {
-             // Idle / Recovery
+             // --- IDLE / RECOVERY ---
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
 
-             // Reset Torso Bob/Sway from walking
+             if (isIdlePose) {
+                 // Use the custom IDLE_POSE values
+                 targetRightThigh.x = IDLE_POSE.RIGHT_LEG.THIGH.x;
+                 targetRightThigh.y = IDLE_POSE.RIGHT_LEG.THIGH.y;
+                 targetRightThigh.z = IDLE_POSE.RIGHT_LEG.THIGH.z;
+                 
+                 targetLeftThigh.x = IDLE_POSE.LEFT_LEG.THIGH.x;
+                 targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
+                 targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
+                 
+                 targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
+                 targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
+                 
+                 targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
+                 targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;
+                 targetRightAnkle.z = IDLE_POSE.RIGHT_LEG.ANKLE.z;
+                 
+                 targetLeftAnkle.x = IDLE_POSE.LEFT_LEG.ANKLE.x;
+                 targetLeftAnkle.y = IDLE_POSE.LEFT_LEG.ANKLE.y;
+                 targetLeftAnkle.z = IDLE_POSE.LEFT_LEG.ANKLE.z;
+                 
+                 targetBodyTilt = IDLE_POSE.TORSO.x;
+                 targetBodyTwist = IDLE_POSE.TORSO.y;
+                 targetBodyRoll = IDLE_POSE.TORSO.z;
+
+             } else {
+                 // Default standing defaults if not technically "Idle" but falling out of loop (shouldn't happen much)
+                 targetRightThigh.z = 0.05;
+                 targetLeftThigh.z = -0.05;
+             }
+
+             // Reset Torso Bob/Sway from walking to IDLE settings
              if (upperBodyRef.current) {
                  upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
-                 upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.1);
-                 upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.1);
+                 // We combine the IDLE_POSE twist/roll with the UpperBody ref
+                 upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetBodyTwist, 0.1);
+                 upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetBodyRoll, 0.1);
              }
          }
          
          // Apply Rotations
          if (rightLegRef.current) {
-             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, lerpSpeed);
-             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, 0.05 + targetSpread, lerpSpeed);
+             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThigh.x, lerpSpeed);
+             rightLegRef.current.rotation.y = MathUtils.lerp(rightLegRef.current.rotation.y, targetRightThigh.y, lerpSpeed);
+             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, targetRightThigh.z, lerpSpeed);
          }
          if (leftLegRef.current) {
-             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, lerpSpeed);
-             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, -0.05 - targetSpread, lerpSpeed);
+             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThigh.x, lerpSpeed);
+             leftLegRef.current.rotation.y = MathUtils.lerp(leftLegRef.current.rotation.y, targetLeftThigh.y, lerpSpeed);
+             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, targetLeftThigh.z, lerpSpeed);
          }
          if (rightLowerLegRef.current) {
              rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
@@ -1571,16 +1712,21 @@ if (!stunned) {
          
          // Ankle Animation
          if (rightFootRef.current) {
-             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightFootX, lerpSpeed);
+             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightAnkle.x, lerpSpeed);
+             rightFootRef.current.rotation.y = MathUtils.lerp(rightFootRef.current.rotation.y, targetRightAnkle.y, lerpSpeed);
+             rightFootRef.current.rotation.z = MathUtils.lerp(rightFootRef.current.rotation.z, targetRightAnkle.z, lerpSpeed);
          }
          if (leftFootRef.current) {
-             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
+             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftAnkle.x, lerpSpeed);
+             leftFootRef.current.rotation.y = MathUtils.lerp(leftFootRef.current.rotation.y, targetLeftAnkle.y, lerpSpeed);
+             leftFootRef.current.rotation.z = MathUtils.lerp(leftFootRef.current.rotation.z, targetLeftAnkle.z, lerpSpeed);
          }
 
          // Upper Body Tilt (Applied to Torso for Waist + Chest lean)
          currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
          if (torsoRef.current) {
             torsoRef.current.rotation.x = currentUpperBodyTilt.current;
+            // Note: y and z rotation are handled in upperBodyRef above for twist/sway
          }
     }
 }
@@ -1819,7 +1965,8 @@ return (
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
+                    {/* FOREARM */}
+                    <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
                         <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
@@ -1853,7 +2000,8 @@ return (
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
+                    {/* FOREARM */}
+                    <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
                         <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
