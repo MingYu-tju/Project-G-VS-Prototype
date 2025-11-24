@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler } from 'three';
@@ -1317,7 +1318,7 @@ if (isGrounded.current && nextVisualState === 'WALK') {
     // walkCycle.current = 0; // Uncomment for reset
 }
 
-// DETERMINE IF WE ARE IN THE SPECIAL IDLE POSE STATE
+// DETERMINE IF WE ARE IN THE SPECIAL IDLE POSE STATE (Body/Legs)
 const isIdlePose = isGrounded.current && 
                    nextVisualState === 'IDLE' && 
                    !isShooting.current && 
@@ -1366,6 +1367,30 @@ if (!stunned) {
 
     // 2. Gun Arm Aiming Logic
     if (gunArmRef.current) {
+        // --- DYNAMIC ARM REST POSE CALCULATION ---
+        // Determine where the arm should relax to (Idle vs Air/Move)
+        // This ensures that when shooting ends, we slerp to the correct "next" pose, preventing snaps.
+        
+        let targetArmEuler = new Euler(0.35, -0.3, 0); // Default Air/Move Pose
+
+        // Check if we should use the relaxed IDLE pose
+        // Valid if grounded and either truly IDLE or doing a standing SHOT
+        const useIdleArmPose = isGrounded.current && (
+            nextVisualState === 'IDLE' || 
+            (nextVisualState === 'SHOOT' && shootMode.current === 'STOP') ||
+            (nextVisualState === 'WALK' && velocity.current.lengthSq() < 0.01)
+        );
+
+        if (useIdleArmPose) {
+            targetArmEuler.set(
+                IDLE_POSE.LEFT_ARM.SHOULDER.x,
+                IDLE_POSE.LEFT_ARM.SHOULDER.y,
+                IDLE_POSE.LEFT_ARM.SHOULDER.z
+            );
+        }
+        
+        const targetArmQuat = new Quaternion().setFromEuler(targetArmEuler);
+
         if (isShooting.current && currentTarget) {
             const shoulderPos = new Vector3();
             gunArmRef.current.getWorldPosition(shoulderPos);
@@ -1399,29 +1424,25 @@ if (!stunned) {
             } else {
                  // PHASE 3: Recoil / Recovery
                  const t = (shootTimer.current - startup) / recovery;
-                 gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
+                 
+                 // FIX: Slerp back to the DYNAMIC targetArmQuat (Idle or Air), preventing snap
+                 gunArmRef.current.quaternion.slerpQuaternions(targetQuat, targetArmQuat, t);
             }
         } else {
              if (nextVisualState === 'WALK') {
-                 // Walking Arm Swing (Left Arm)
-                 const t = walkCycle.current;
-                 const sin = Math.sin(t + Math.PI); // Opposite to right leg (Right leg is sin(t))
-                 // Base rotation + swing
-                 // Default arm pose: rotation.set(0.35, -0.3, 0)
-                 //gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
-             } else {
-                // Idle State - Apply Custom IDLE_POSE if grounded and no input
-                if (isIdlePose) {
-                    const target = IDLE_POSE.LEFT_ARM.SHOULDER;
-                    const lerpSpeed = 0.1 * timeScale;
-                    gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, target.x, lerpSpeed);
-                    gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, target.y, lerpSpeed);
-                    gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, target.z, lerpSpeed);
-                } else {
-                    // Standard fallback
-                    gunArmRef.current.rotation.set(0.35, -0.3, 0);
-                }
-             }
+                 // Walking Arm Swing (Left Arm) - Optional, currently disabled
+                 // const t = walkCycle.current;
+                 // const sin = Math.sin(t + Math.PI); 
+                 // gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
+                 
+                 // For now, fall through to standard lerp below
+             } 
+             
+             // Standard Smooth Transition to Target Pose (Idle or Air)
+             const lerpSpeed = 0.1 * timeScale;
+             gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, targetArmEuler.x, lerpSpeed);
+             gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, targetArmEuler.y, lerpSpeed);
+             gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, targetArmEuler.z, lerpSpeed);
         }
     }
     
@@ -1571,8 +1592,7 @@ if (!stunned) {
              headRef.current.quaternion.slerp(q, 0.1 * timeScale);
          }
     }
-
-    // 4. Leg Inertia Sway & Animation Logic
+// 4. Leg Inertia Sway & Animation Logic
     if (legsRef.current) {
          // Determine if falling
          const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
@@ -1879,7 +1899,9 @@ if (!stunned && isShooting.current) {
         shootTimer.current = 0;
         if (isGrounded.current && shootMode.current === 'STOP') {
             landingFrames.current = getLandingLag();
-            visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual
+            // FIX: Removed visualLandingFrames setting here to prevent the "Screen Stutter" / Crouch animation
+            // The landing frames logic still exists for gameplay balance (cannot move),
+            // but we don't force the camera to dip down.
         }
     }
 }
