@@ -440,6 +440,7 @@ return (
 export const Player: React.FC = () => {
 const meshRef = useRef<Mesh>(null);
 const headRef = useRef<Group>(null);
+const torsoRef = useRef<Group>(null); // NEW: Ref for entire torso (Waist + Chest)
 const upperBodyRef = useRef<Group>(null); // NEW: Ref for chest/upper body animation
 const legsRef = useRef<Group>(null);
 // NEW: Individual leg refs for splaying animation
@@ -1418,8 +1419,13 @@ if (!stunned) {
 
          const invRot = meshRef.current.quaternion.clone().invert();
          const localVel = velocity.current.clone().applyQuaternion(invRot);
-         const targetPitch = isFalling ? 0 : localVel.z * 1.5; 
-         const targetRoll = isFalling ? 0 : -localVel.x * 1.5;
+         
+         // NEW: Only allow sway in EVADE state
+         const enableInertiaSway = nextVisualState === 'EVADE';
+         
+         const targetPitch = (enableInertiaSway && !isFalling) ? localVel.z * 1.5 : 0; 
+         const targetRoll = (enableInertiaSway && !isFalling) ? -localVel.x * 1.5 : 0;
+         
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
 
@@ -1473,12 +1479,13 @@ if (!stunned) {
              lerpSpeed = 0.2 * timeScale; // Snappier for walking
          }
          else if (isDashing.current) {
-             targetRightThighX = -2; // Lift Right Leg
-             targetRightKneeX = 2.5; // Bend Right Knee (Kick)
-             targetLeftThighX = 0.45; // Drag Left Leg
-             targetLeftFootX = 0.8; // Left Foot Backward
-             targetSpread = 0.35;
-             targetBodyTilt = 0.75; // Forward Lean
+             targetRightThighX = -1; // Lift Right Leg
+             targetRightKneeX = 2.2; // Bend Right Knee (Kick)
+             targetLeftThighX = 1.1; // Drag Left Leg
+             targetLeftFootX = 0.85; // Left Foot Backward
+            
+             targetSpread = 0.0;
+             targetBodyTilt = 0.65; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
              upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
              upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
@@ -1570,10 +1577,10 @@ if (!stunned) {
              leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
          }
 
-         // Upper Body Tilt
+         // Upper Body Tilt (Applied to Torso for Waist + Chest lean)
          currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
-         if (upperBodyRef.current) {
-            upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+         if (torsoRef.current) {
+            torsoRef.current.rotation.x = currentUpperBodyTilt.current;
          }
     }
 }
@@ -1689,13 +1696,15 @@ return (
 <group>
 <mesh ref={meshRef} castShadow>
 <group position={[0, 2.0, 0]}>
-{/* WAIST */}
-<mesh position={[0, 0, 0]}>
-<boxGeometry args={[0.6, 0.5, 0.5]} />
-<meshToonMaterial color="#ff0000" />
-<Edges threshold={15} color="black" />
-</mesh>
-{/* CHEST */}
+{/* TORSO GROUP (Waist + Chest) for shared tilt */}
+<group ref={torsoRef}>
+    {/* WAIST */}
+    <mesh position={[0, 0, 0]}>
+    <boxGeometry args={[0.6, 0.5, 0.5]} />
+    <meshToonMaterial color="#ff0000" />
+    <Edges threshold={15} color="black" />
+    </mesh>
+    {/* CHEST */}
         <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                 <mesh>
                     <boxGeometry args={[0.9, 0.7, 0.7]} />
@@ -1919,6 +1928,7 @@ return (
                     <BoostBurst triggerTime={dashTriggerTime} />
 
                 </group>
+        </group>
         </group>
 
         {/* LEGS GROUP */}

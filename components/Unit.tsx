@@ -144,6 +144,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
+  const torsoRef = useRef<Group>(null); // NEW: Wrap Waist+Chest
   const upperBodyRef = useRef<Group>(null); 
   const legsRef = useRef<Group>(null);
   
@@ -765,8 +766,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          }
 
          currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
-         if (upperBodyRef.current) {
-            upperBodyRef.current.rotation.x = currentUpperBodyTilt.current;
+         if (torsoRef.current) {
+            torsoRef.current.rotation.x = currentUpperBodyTilt.current;
          }
     }
 
@@ -792,237 +793,240 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
       <group ref={rotateGroupRef}>
          <group position={[0, 2.0, 0]}>
             
-            {/* WAIST */}
-            <mesh position={[0, 0, 0]}>
-                <boxGeometry args={[0.6, 0.5, 0.5]} />
-                <meshToonMaterial color={armorColor} /> // RED WAIST
-                <Edges threshold={15} color="black" />
-            </mesh>
+            {/* TORSO GROUP (Waist + Chest) */}
+            <group ref={torsoRef}>
+                {/* WAIST */}
+                <mesh position={[0, 0, 0]}>
+                    <boxGeometry args={[0.6, 0.5, 0.5]} />
+                    <meshToonMaterial color={armorColor} /> 
+                    <Edges threshold={15} color="black" />
+                </mesh>
 
-            {/* CHEST */}
-            <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                    <mesh>
-                        <boxGeometry args={[0.9, 0.7, 0.7]} />
-                        <meshToonMaterial color={chestColor} /> 
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                   {/* Vents */}
-                    <group position={[0.28, 0.1, 0.36]}>
+                {/* CHEST */}
+                <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                         <mesh>
-                            <boxGeometry args={[0.35, 0.25, 0.05]} />
-                            <meshToonMaterial color="#ffaa00" />
+                            <boxGeometry args={[0.9, 0.7, 0.7]} />
+                            <meshToonMaterial color={chestColor} /> 
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        {[...Array(5)].map((_, index) => (
-                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                                <boxGeometry args={[0.33, 0.02, 0.02]} />
-                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                            </mesh>
-                        ))}
-                    </group>
-                    <group position={[-0.28, 0.1, 0.36]}>
-                        <mesh>
-                            <boxGeometry args={[0.35, 0.25, 0.05]} />
-                            <meshToonMaterial color="#ffaa00" />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        {[...Array(5)].map((_, index) => (
-                            <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                                <boxGeometry args={[0.33, 0.02, 0.02]} />
-                                <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                            </mesh>
-                        ))}
-                    </group>
-
-                    {/* HEAD */}
-                    <group ref={headRef} position={[0, 0.6, 0]}>
-                        <mesh>
-                            <boxGeometry args={[0.4, 0.4, 0.45]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, 0.15, 0.23]}>
-                            <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
-                                <boxGeometry args={[0.3, 0.05, 0.02]} />
+                    {/* Vents */}
+                        <group position={[0.28, 0.1, 0.36]}>
+                            <mesh>
+                                <boxGeometry args={[0.35, 0.25, 0.05]} />
                                 <meshToonMaterial color="#ffaa00" />
+                                <Edges threshold={15} color="black" />
                             </mesh>
-                            <mesh rotation={[0, 0, -0.4]} position={[-0.15, 0.15, 0]}>
-                                <boxGeometry args={[0.3, 0.05, 0.02]} />
+                            {[...Array(5)].map((_, index) => (
+                                <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                    <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                    <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                                </mesh>
+                            ))}
+                        </group>
+                        <group position={[-0.28, 0.1, 0.36]}>
+                            <mesh>
+                                <boxGeometry args={[0.35, 0.25, 0.05]} />
                                 <meshToonMaterial color="#ffaa00" />
-                            </mesh>
-                            <mesh position={[0, 0, 0]}>
-                                <boxGeometry args={[0.08, 0.08, 0.05]} />
-                                <meshToonMaterial color="#ff0000" />
-                            </mesh>
-                        </group>
-                        <mesh position={[0, -0.18, 0.23]}>
-                                <boxGeometry args={[0.1, 0.08, 0.05]} />
-                                <meshToonMaterial color="red" />
-                                <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, -0.06, 0.235]}>
-                            <group position={[0, 0.015, 0]}>
-                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
-                                        <boxGeometry args={[0.05, 0.015, 0.001]} />
-                                        <meshBasicMaterial color="#111" />
-                                </mesh>
-                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
-                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
-                                        <meshBasicMaterial color="#111" />
-                                </mesh>
-                            </group>
-                            <group position={[0, -0.015, 0]}>
-                                <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
-                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
-                                        <meshBasicMaterial color="#111" />
-                                </mesh>
-                                <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
-                                        <boxGeometry args={[0.04, 0.015, 0.001]} />
-                                        <meshBasicMaterial color="#111" />
-                                </mesh>
-                            </group>
-                        </group>
-                        
-                        {/* EYES (Shape Geometry) */}
-                        <group position={[0, 0.015, 0.228]}>
-                            {/* Black Visor Background */}
-                            <mesh position={[0, 0.02, -0.001]}>
-                                <planeGeometry args={[0.24, 0.08]} />
-                                <meshBasicMaterial color="#111" />
-                            </mesh>
-                            
-                            {/* Right Eye */}
-                            <mesh>
-                                <shapeGeometry args={[eyeShape]} />
-                                <meshBasicMaterial color={eyeColor} toneMapped={false} />
-                            </mesh>
-                            
-                            {/* Left Eye (Mirrored) */}
-                            <mesh scale={[-1, 1, 1]}>
-                                <shapeGeometry args={[eyeShape]} />
-                                <meshBasicMaterial color={eyeColor} toneMapped={false} />
-                            </mesh>
-                        </group>
-
-                    </group>
-
-                    {/* ARMS */}
-                    {/* Right Shoulder & Arm (Holding SHIELD) */}
-                    <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
-                        <mesh>
-                            <boxGeometry args={[0.5, 0.5, 0.5]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
-                            <mesh>
-                                <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                <meshToonMaterial color="#444" />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh>
-                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                    <meshToonMaterial color={armorColor} />
+                            {[...Array(5)].map((_, index) => (
+                                <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                    <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                    <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                                </mesh>
+                            ))}
+                        </group>
+
+                        {/* HEAD */}
+                        <group ref={headRef} position={[0, 0.6, 0]}>
+                            <mesh>
+                                <boxGeometry args={[0.4, 0.4, 0.45]} />
+                                <meshToonMaterial color={armorColor} />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                            <group position={[0, 0.15, 0.23]}>
+                                <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
+                                    <boxGeometry args={[0.3, 0.05, 0.02]} />
+                                    <meshToonMaterial color="#ffaa00" />
+                                </mesh>
+                                <mesh rotation={[0, 0, -0.4]} position={[-0.15, 0.15, 0]}>
+                                    <boxGeometry args={[0.3, 0.05, 0.02]} />
+                                    <meshToonMaterial color="#ffaa00" />
+                                </mesh>
+                                <mesh position={[0, 0, 0]}>
+                                    <boxGeometry args={[0.08, 0.08, 0.05]} />
+                                    <meshToonMaterial color="#ff0000" />
+                                </mesh>
+                            </group>
+                            <mesh position={[0, -0.18, 0.23]}>
+                                    <boxGeometry args={[0.1, 0.08, 0.05]} />
+                                    <meshToonMaterial color="red" />
                                     <Edges threshold={15} color="black" />
+                            </mesh>
+                            <group position={[0, -0.06, 0.235]}>
+                                <group position={[0, 0.015, 0]}>
+                                    <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                            <boxGeometry args={[0.05, 0.015, 0.001]} />
+                                            <meshBasicMaterial color="#111" />
                                     </mesh>
-                                    <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
-                                        <mesh position={[0, 0.2, 0]}>
-                                            <boxGeometry args={[0.1, 1.4, 0.6]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        <mesh position={[0.06, 0.2, 0]}>
-                                            <boxGeometry args={[0.05, 1.2, 0.4]} />
-                                            <meshToonMaterial color="#ff0000" />
-                                        </mesh>
-                                    </group>
+                                    <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                            <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                            <meshBasicMaterial color="#111" />
+                                    </mesh>
+                                </group>
+                                <group position={[0, -0.015, 0]}>
+                                    <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                            <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                            <meshBasicMaterial color="#111" />
+                                    </mesh>
+                                    <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                            <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                            <meshBasicMaterial color="#111" />
+                                    </mesh>
+                                </group>
                             </group>
-                        </group>
-                    </group>
+                            
+                            {/* EYES (Shape Geometry) */}
+                            <group position={[0, 0.015, 0.228]}>
+                                {/* Black Visor Background */}
+                                <mesh position={[0, 0.02, -0.001]}>
+                                    <planeGeometry args={[0.24, 0.08]} />
+                                    <meshBasicMaterial color="#111" />
+                                </mesh>
+                                
+                                {/* Right Eye */}
+                                <mesh>
+                                    <shapeGeometry args={[eyeShape]} />
+                                    <meshBasicMaterial color={eyeColor} toneMapped={false} />
+                                </mesh>
+                                
+                                {/* Left Eye (Mirrored) */}
+                                <mesh scale={[-1, 1, 1]}>
+                                    <shapeGeometry args={[eyeShape]} />
+                                    <meshBasicMaterial color={eyeColor} toneMapped={false} />
+                                </mesh>
+                            </group>
 
-                    {/* Left Shoulder & Arm (Holding GUN) */}
-                    <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
-                        <mesh>
-                            <boxGeometry args={[0.5, 0.5, 0.5]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
+                        </group>
+
+                        {/* ARMS */}
+                        {/* Right Shoulder & Arm (Holding SHIELD) */}
+                        <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                             <mesh>
-                                <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                <meshToonMaterial color="#444" />
+                                <boxGeometry args={[0.5, 0.5, 0.5]} />
+                                <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh>
-                                    <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                    <meshToonMaterial color={armorColor} />
+                            <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
+                                <mesh>
+                                    <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                    <meshToonMaterial color="#444" />
                                     <Edges threshold={15} color="black" />
-                                    </mesh>
-                                    <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                        <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
-                                            <boxGeometry args={[0.1, 0.2, 0.15]} />
-                                            <meshToonMaterial color="#222" />
+                                </mesh>
+                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <mesh>
+                                        <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
                                         </mesh>
-                                        <mesh position={[0, 0.2, 0.4]}>
-                                            <boxGeometry args={[0.15, 0.25, 1.0]} />
-                                            <meshToonMaterial color="#444" />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
-                                            <cylinderGeometry args={[0.04, 0.04, 0.6]} />
-                                            <meshToonMaterial color="#222" />
-                                        </mesh>
-                                        <mesh position={[0.05, 0.35, 0.2]}>
-                                            <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
-                                            <meshToonMaterial color="#222" />
-                                            <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
-                                                <circleGeometry args={[0.06]} />
-                                                <meshBasicMaterial color="#00ff00" />
+                                        <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
+                                            <mesh position={[0, 0.2, 0]}>
+                                                <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                                <meshToonMaterial color={armorColor} />
+                                                <Edges threshold={15} color="black" />
                                             </mesh>
-                                        </mesh>
-                                        <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
-                                            <MuzzleFlash active={showMuzzleFlash} />
+                                            <mesh position={[0.06, 0.2, 0]}>
+                                                <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                                <meshToonMaterial color="#ff0000" />
+                                            </mesh>
                                         </group>
-                                    </group>
+                                </group>
                             </group>
                         </group>
-                    </group>
 
-                    {/* BACKPACK */}
-                    <group position={[0, 0.2, -0.4]}>
-                        <mesh>
-                            <boxGeometry args={[0.7, 0.8, 0.4]} />
-                            <meshToonMaterial color="#333" />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
-                                <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                                <meshToonMaterial color="white" />
+                        {/* Left Shoulder & Arm (Holding GUN) */}
+                        <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
+                            <mesh>
+                                <boxGeometry args={[0.5, 0.5, 0.5]} />
+                                <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
-                        </mesh>
-                        <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
-                                <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                                <meshToonMaterial color="white" />
-                                <Edges threshold={15} color="black" />
-                        </mesh>
-                        
-                        <group position={[0.25, -0.9, -0.4]}>
-                                <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                                <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
+                            </mesh>
+                            <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
+                                <mesh>
+                                    <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                    <meshToonMaterial color="#444" />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <mesh>
+                                        <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
+                                                <boxGeometry args={[0.1, 0.2, 0.15]} />
+                                                <meshToonMaterial color="#222" />
+                                            </mesh>
+                                            <mesh position={[0, 0.2, 0.4]}>
+                                                <boxGeometry args={[0.15, 0.25, 1.0]} />
+                                                <meshToonMaterial color="#444" />
+                                                <Edges threshold={15} color="black" />
+                                            </mesh>
+                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
+                                                <cylinderGeometry args={[0.04, 0.04, 0.6]} />
+                                                <meshToonMaterial color="#222" />
+                                            </mesh>
+                                            <mesh position={[0.05, 0.35, 0.2]}>
+                                                <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
+                                                <meshToonMaterial color="#222" />
+                                                <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
+                                                    <circleGeometry args={[0.06]} />
+                                                    <meshBasicMaterial color="#00ff00" />
+                                                </mesh>
+                                            </mesh>
+                                            <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
+                                                <MuzzleFlash active={showMuzzleFlash} />
+                                            </group>
+                                        </group>
+                                </group>
+                            </group>
                         </group>
-                        <group position={[-0.25, -0.9, -0.4]}>
-                                <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                                <meshToonMaterial color="#222" />
-                                <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
-                        </group>
-                        
-                        {/* BOOST BURST EFFECT - Synced with Dash */}
-                        <BoostBurst triggerTime={dashTriggerTime} />
 
-                    </group>
+                        {/* BACKPACK */}
+                        <group position={[0, 0.2, -0.4]}>
+                            <mesh>
+                                <boxGeometry args={[0.7, 0.8, 0.4]} />
+                                <meshToonMaterial color="#333" />
+                                <Edges threshold={15} color="black" />
+                            </mesh>
+                            <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
+                                    <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                    <meshToonMaterial color="white" />
+                                    <Edges threshold={15} color="black" />
+                            </mesh>
+                            <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
+                                    <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                    <meshToonMaterial color="white" />
+                                    <Edges threshold={15} color="black" />
+                            </mesh>
+                            
+                            <group position={[0.25, -0.9, -0.4]}>
+                                    <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                                    <meshToonMaterial color="#222" />
+                                    <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
+                            </group>
+                            <group position={[-0.25, -0.9, -0.4]}>
+                                    <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                                    <meshToonMaterial color="#222" />
+                                    <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
+                            </group>
+                            
+                            {/* BOOST BURST EFFECT - Synced with Dash */}
+                            <BoostBurst triggerTime={dashTriggerTime} />
+
+                        </group>
+                </group>
             </group>
 
             {/* LEGS GROUP */}
