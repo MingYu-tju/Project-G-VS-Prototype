@@ -1603,11 +1603,13 @@ if (!stunned) {
          }
          else if (isDashing.current) {
              targetRightThigh.x = -1; // Lift Right Leg
-             targetRightKneeX = 2.2; // Bend Right Knee (Kick)
+             targetRightKneeX = 2.6; // Bend Right Knee (Kick)
+             targetLeftKneeX = 0.3; // Bend Right Knee (Kick)
              targetLeftThigh.x = 1.1; // Drag Left Leg
-             targetLeftAnkle.x = 0.85; // Left Foot Backward
+             targetLeftThigh.y = -0.5; // 调节 Y 轴：大腿的左右旋转 (正值向外旋/内旋，视坐标系而定)
+             targetLeftThigh.z = -0.2; // 调节 Z 轴：大腿的向外张开程度 
+             targetLeftAnkle.x = 0.25; // Left Foot Backward
              targetRightAnkle.x = 0.8; 
-            
              targetBodyTilt = 0.65; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
              upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
