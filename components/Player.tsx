@@ -1,8 +1,7 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color } from 'three';
-import { Trail, Edges, useGLTF } from '@react-three/drei';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler } from 'three';
+import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
 import { 
@@ -28,7 +27,7 @@ const IDLE_POSE = {
     },
     // 头部 (Head)
     HEAD: { 
-        x: -0.25, // 抬头/低头 (正值低头) - 下巴微收
+        x: 0.15, // 抬头/低头 (正值低头) - 下巴微收
         y: 0.25  // 左右转头 (正值向左)
     },
     // 左臂 (持枪手 - Gun Arm)
@@ -478,43 +477,6 @@ return (
     </group>
 )
 }
-
-// --- NEW: MECHA HEAD COMPONENT (GLB Loader via gltfjsx structure) ---
-useGLTF.preload('models/head.glb');
-
-const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
-    const { nodes } = useGLTF('models/head.glb') as any;
-    
-    // Common properties for all head meshes
-    const meshProps = {
-        castShadow: true,
-        receiveShadow: true
-    };
-
-    return (
-        <group position={[-0.08, 0.4, 0.1]} >
-            <group dispose={null}>
-                <group position={[-0, -0.28, -0]} scale={0.02}>
-                    <group rotation={[Math.PI / 2, 0, 0]}>
-                    
-                    {/* Iterate through all head polygons and apply style */}
-                    {/* Polygon_35 is the main helmet part - Removed Edges per user request */}
-          <mesh geometry={nodes.Polygon_35.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps} > <meshToonMaterial color={mainColor} /></mesh>
-          <mesh geometry={nodes.Polygon_55.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_56.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_57.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_58.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}><meshToonMaterial color={mainColor} /></mesh>
-          <mesh geometry={nodes.Polygon_59.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ffff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_60.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#000000" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_61.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
-
-                    </group>
-                </group>
-            </group>
-        </group>
-    );
-};
-
 export const Player: React.FC = () => {
 const meshRef = useRef<Mesh>(null);
 const headRef = useRef<Group>(null);
@@ -878,7 +840,17 @@ GLOBAL_CONFIG.LANDING_LAG_MIN + (penaltyFactor * (GLOBAL_CONFIG.LANDING_LAG_MAX 
 );
 }
 };
-
+// --- MECHA EYE SHAPE ---
+const eyeShape = useMemo(() => {
+const s = new Shape();
+// Drawing Right Eye (X > 0)
+s.moveTo(0.025, -0.01); // Inner Bottom
+s.lineTo(0.11, 0.01); // Outer Bottom
+s.lineTo(0.11, 0.06); // Outer Top
+s.lineTo(0.025, 0.03); // Inner Top (Lower than outer = Angry)
+s.autoClose = true;
+return s;
+}, []);
 useFrame((state, delta) => {
 if (!meshRef.current) return;
 const timeScale = delta * 60;
@@ -1161,8 +1133,9 @@ if (stunned) {
             if (isAscentInput) {
                 canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
                 if (canAscend) {
+                    // Mark as consumed so when we release, it doesn't trigger short hop or double tap
                     lConsumedByAction.current = true;
-                    // 如果当前视觉状态不是上升（说明刚开始上升），则播放音效
+                    // NOTE: We do NOT set lConsumedByDash here.
                     if (visualState !== 'ASCEND') {
                         playBoostSound();
                     }
@@ -1347,7 +1320,7 @@ if (!stunned) {
             // Slerp speed adjustment:
             // 12 frames startup. We want to face target by the time we shoot.
             // 0.25 per frame (60fps) is fast enough.
-            meshRef.current.quaternion.slerp(targetQuat, 0.1 * timeScale);
+            meshRef.current.quaternion.slerp(targetQuat, 0.25 * timeScale);
         }
     }
     else if (isDashing.current) {
@@ -1565,12 +1538,10 @@ if (!stunned) {
          if (t) {
              const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
              const dirToT = t.position.clone().sub(position.current).normalize();
-             if (fwd.dot(dirToT) > 0) { 
+             if (fwd.dot(dirToT) > -0.1) { 
                  shouldLook = true;
                 const startQuat = headRef.current.quaternion.clone();
-                // Look at HEAD height (approx 1.7m up from base) to avoid looking at feet
-                const lookAtTarget = t.position.clone().add(new Vector3(0, 1.7, 0));
-                headRef.current.lookAt(lookAtTarget);
+                headRef.current.lookAt(t.position);
                 const targetQuat = headRef.current.quaternion.clone();
                 headRef.current.quaternion.copy(startQuat);
                 headRef.current.quaternion.slerp(targetQuat, 0.1);
@@ -1599,7 +1570,7 @@ if (!stunned) {
              // Simplest way to blend back to Euler control:
              // 1. Create target Quaternion from Euler
              const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, 0));
-             headRef.current.quaternion.slerp(q, 0.05 * timeScale);
+             headRef.current.quaternion.slerp(q, 0.1 * timeScale);
          }
     }
 // 4. Leg Inertia Sway & Animation Logic
@@ -1941,10 +1912,10 @@ if (stunned) {
 camera.position.lerp(targetCamPos, 0.1 * timeScale);
 camera.lookAt(targetLookAt);
 });
-
-// --- COLORS ---
-// Fixed colors, removing stun/overheat/landing visual overrides per user request
-const armorColor = '#eeeeee';
+let armorColor = '#eeeeee';
+if (isStunned) armorColor = '#ffffff';
+else if (isOverheated) armorColor = '#888888';
+else if (visualState === 'LANDING') armorColor = '#aaaaaa';
 const engineColor = visualState === 'DASH' ? '#00ffff' : (visualState === 'ASCEND' ? '#ffaa00' : '#333');
 const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND';
 const isAscending = visualState === 'ASCEND';
@@ -1959,10 +1930,8 @@ speedLinesRef.current.lookAt(position.current.clone().sub(vel));
 }
 }
 })
-const chestColor = '#2244aa';
+const chestColor = isStunned ? '#ffffff' : '#2244aa';
 const feetColor = '#aa2222';
-const eyeColor = '#00ff00';
-
 return (
 <group>
 <mesh ref={meshRef} castShadow>
@@ -1970,21 +1939,21 @@ return (
 {/* TORSO GROUP (Waist + Chest) for shared tilt */}
 <group ref={torsoRef}>
     {/* WAIST */}
-    <mesh position={[0, 0, 0]} castShadow receiveShadow>
+    <mesh position={[0, 0, 0]}>
     <boxGeometry args={[0.6, 0.5, 0.5]} />
     <meshToonMaterial color="#ff0000" />
     <Edges threshold={15} color="black" />
     </mesh>
     {/* CHEST */}
         <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                <mesh castShadow receiveShadow>
+                <mesh>
                     <boxGeometry args={[0.9, 0.7, 0.7]} />
                     <meshToonMaterial color={chestColor} /> 
                     <Edges threshold={15} color="black" />
                 </mesh>
                 {/* Vents */}
                 <group position={[0.28, 0.1, 0.36]}>
-                    <mesh castShadow>
+                    <mesh>
                         <boxGeometry args={[0.35, 0.25, 0.05]} />
                         <meshToonMaterial color="#ffaa00" />
                         <Edges threshold={15} color="black" />
@@ -1997,7 +1966,7 @@ return (
                     ))}
                 </group>
                 <group position={[-0.28, 0.1, 0.36]}>
-                    <mesh castShadow>
+                    <mesh>
                         <boxGeometry args={[0.35, 0.25, 0.05]} />
                         <meshToonMaterial color="#ffaa00" />
                         <Edges threshold={15} color="black" />
@@ -2010,15 +1979,82 @@ return (
                     ))}
                 </group>
 
-                {/* REPLACED HEAD WITH MECHA HEAD COMPONENT */}
-                <group ref={headRef}>
-                    <MechaHead mainColor={armorColor} />
+                {/* HEAD */}
+                <group ref={headRef} position={[0, 0.6, 0]}>
+                    <mesh>
+                        <boxGeometry args={[0.4, 0.4, 0.45]} />
+                        <meshToonMaterial color={armorColor} />
+                        <Edges threshold={15} color="black" />
+                    </mesh>
+                    <group position={[0, 0.15, 0.23]}>
+                        <mesh rotation={[0, 0, 0.4]} position={[0.15, 0.15, 0]}>
+                            <boxGeometry args={[0.3, 0.05, 0.02]} />
+                            <meshToonMaterial color="#ffaa00" />
+                        </mesh>
+                        <mesh rotation={[0, 0, -0.4]} position={[-0.15, 0.15, 0]}>
+                            <boxGeometry args={[0.3, 0.05, 0.02]} />
+                            <meshToonMaterial color="#ffaa00" />
+                        </mesh>
+                        <mesh position={[0, 0, 0]}>
+                            <boxGeometry args={[0.08, 0.08, 0.05]} />
+                            <meshToonMaterial color="#ff0000" />
+                        </mesh>
+                    </group>
+                    <mesh position={[0, -0.18, 0.23]}>
+                            <boxGeometry args={[0.1, 0.08, 0.05]} />
+                            <meshToonMaterial color="red" />
+                            <Edges threshold={15} color="black" />
+                    </mesh>
+                    <group position={[0, -0.06, 0.235]}>
+                        <group position={[0, 0.015, 0]}>
+                            <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                    <boxGeometry args={[0.05, 0.015, 0.001]} />
+                                    <meshBasicMaterial color="#111" />
+                            </mesh>
+                            <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                    <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                    <meshBasicMaterial color="#111" />
+                            </mesh>
+                        </group>
+                        <group position={[0, -0.015, 0]}>
+                            <mesh position={[-0.015, -0.015, 0]} rotation={[0, 0, 0.6]}>
+                                    <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                    <meshBasicMaterial color="#111" />
+                            </mesh>
+                            <mesh position={[0.015, -0.015, 0]} rotation={[0, 0, -0.6]}>
+                                    <boxGeometry args={[0.04, 0.015, 0.001]} />
+                                    <meshBasicMaterial color="#111" />
+                            </mesh>
+                        </group>
+                    </group>
+                    
+                    {/* EYES (Shape Geometry) */}
+                    <group position={[0, 0.015, 0.228]}>
+                        {/* Black Visor Background */}
+                        <mesh position={[0, 0.02, -0.001]}>
+                            <planeGeometry args={[0.24, 0.08]} />
+                            <meshBasicMaterial color="#111" />
+                        </mesh>
+                        
+                        {/* Right Eye */}
+                        <mesh>
+                            <shapeGeometry args={[eyeShape]} />
+                            <meshBasicMaterial color="#00ff00" toneMapped={false} />
+                        </mesh>
+                        
+                        {/* Left Eye (Mirrored) */}
+                        <mesh scale={[-1, 1, 1]}>
+                            <shapeGeometry args={[eyeShape]} />
+                            <meshBasicMaterial color="#00ff00" toneMapped={false} />
+                        </mesh>
+                    </group>
+
                 </group>
 
                 {/* ARMS */}
                 {/* Right Shoulder & Arm (Holding SHIELD) */}
                 <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
-                    <mesh castShadow receiveShadow>
+                    <mesh>
                         <boxGeometry args={[0.5, 0.5, 0.5]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
@@ -2026,7 +2062,7 @@ return (
                     {/* FOREARM */}
                     <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
                         {/* 1. Inner Skeleton */}
-                        <mesh castShadow receiveShadow>
+                        <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
                             <Edges threshold={15} color="black" />
@@ -2034,7 +2070,7 @@ return (
                         
                         {/* 2. Outer Forearm Armor (Separated from Shield Group) */}
                         <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                            <mesh castShadow receiveShadow>
+                            <mesh>
                                 <boxGeometry args={[0.28, 0.6, 0.35]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
@@ -2044,7 +2080,7 @@ return (
                         {/* 3. Shield Group (Independent Animation) */}
                         <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
                                 <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                    <mesh position={[0, 0.2, 0]} castShadow receiveShadow>
+                                    <mesh position={[0, 0.2, 0]}>
                                         <boxGeometry args={[0.1, 1.7, 0.7]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
@@ -2060,35 +2096,35 @@ return (
 
                 {/* Left Shoulder & Arm (Holding GUN) */}
                 <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
-                    <mesh castShadow receiveShadow>
+                    <mesh>
                         <boxGeometry args={[0.5, 0.5, 0.5]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
                     {/* FOREARM */}
                     <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
-                        <mesh castShadow receiveShadow>
+                        <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
                             <Edges threshold={15} color="black" />
                         </mesh>
                         <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                <mesh castShadow receiveShadow>
+                                <mesh>
                                 <boxGeometry args={[0.28, 0.6, 0.35]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                                 </mesh>
                                 <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                    <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
+                                    <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
                                         <boxGeometry args={[0.1, 0.2, 0.15]} />
                                         <meshToonMaterial color="#222" />
                                     </mesh>
-                                    <mesh position={[0, 0.2, 0.4]} castShadow>
+                                    <mesh position={[0, 0.2, 0.4]}>
                                         <boxGeometry args={[0.15, 0.25, 1.0]} />
                                         <meshToonMaterial color="#444" />
                                         <Edges threshold={15} color="black" />
                                     </mesh>
-                                    <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow>
+                                    <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
                                         <cylinderGeometry args={[0.04, 0.04, 0.6]} />
                                         <meshToonMaterial color="#222" />
                                     </mesh>
@@ -2110,17 +2146,17 @@ return (
 
                 {/* BACKPACK */}
                 <group position={[0, 0.2, -0.4]}>
-                    <mesh castShadow receiveShadow>
+                    <mesh>
                         <boxGeometry args={[0.7, 0.8, 0.4]} />
                         <meshToonMaterial color="#333" />
                         <Edges threshold={15} color="black" />
                     </mesh>
-                    <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                    <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
                             <cylinderGeometry args={[0.04, 0.04, 0.5]} />
                             <meshToonMaterial color="white" />
                             <Edges threshold={15} color="black" />
                     </mesh>
-                    <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                    <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
                             <cylinderGeometry args={[0.04, 0.04, 0.5]} />
                             <meshToonMaterial color="white" />
                             <Edges threshold={15} color="black" />
@@ -2147,24 +2183,24 @@ return (
         {/* LEGS GROUP */}
         <group ref={legsRef}>
             <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                    <mesh position={[0, -0.4, 0]}>
                         <boxGeometry args={[0.35, 0.7, 0.4]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
                     <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                        <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.8, 0.45]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
                                 <boxGeometry args={[0.25, 0.3, 0.1]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
                         </mesh>
                         <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                            <mesh position={[0, -0.1, 0.1]}>
                                 <boxGeometry args={[0.32, 0.2, 0.7]} />
                                 <meshToonMaterial color={feetColor} />
                                 <Edges threshold={15} color="black" />
@@ -2174,24 +2210,24 @@ return (
             </group>
 
             <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                    <mesh position={[0, -0.4, 0]}>
                         <boxGeometry args={[0.35, 0.7, 0.4]} />
                         <meshToonMaterial color={armorColor} />
                         <Edges threshold={15} color="black" />
                     </mesh>
                     <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                        <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.8, 0.45]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
                                 <boxGeometry args={[0.25, 0.3, 0.1]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
                         </mesh>
                         <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                            <mesh position={[0, -0.1, 0.1]}>
                                 <boxGeometry args={[0.32, 0.2, 0.7]} />
                                 <meshToonMaterial color={feetColor} />
                                 <Edges threshold={15} color="black" />
