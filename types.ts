@@ -89,7 +89,7 @@ export const GLOBAL_CONFIG = {
     DASH_TURN_SPEED: 0.04,
     DASH_GRACE_PERIOD: 80, // (Deprecated/Secondary check)
     DASH_BURST_DURATION: 25, // Frames where Jump Cancel is locked (Speed decays during this)
-    DASH_COAST_DURATION: 320, // ms - Time to keep dashing after releasing keys
+    DASH_COAST_DURATION: 290, // ms - Time to keep dashing after releasing keys
     DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
     DASH_COOLDOWN_FRAMES: 30, // New: Minimum frames between dashes
 
@@ -112,7 +112,7 @@ export const GLOBAL_CONFIG = {
     FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
 
     // Landing Animation (New: Fixed Duration Visuals)
-    LANDING_VISUAL_DURATION: 40, // Total frames for the landing animation (independent of stun)
+    LANDING_VISUAL_DURATION: 35, // Total frames for the landing animation (independent of stun)
     LANDING_ANIM_RATIO: 0.06,     // 25% of time going down (impact), 75% recovering
     
     LANDING_BODY_TILT: 0.7,      // Upper body tilts forward heavily
@@ -184,7 +184,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.0, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds

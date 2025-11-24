@@ -1,5 +1,3 @@
-
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler } from 'three';
@@ -44,6 +42,45 @@ const IDLE_POSE = {
         THIGH: { x: -0.5, y: 0.1, z: 0.3 }, // 大腿
         KNEE:  { x: 0.6 },           // 膝盖
         ANKLE: { x: -0.25, y: 0.1, z: -0.1 } // 脚踝
+    }
+};
+
+// --- DASH POSE (SHIELD GUARD) ---
+// 冲刺时的举盾姿势配置
+const DASH_POSE = {
+    RIGHT_ARM: {
+        // 肩膀：稍微抬起并内收，准备撞击
+        SHOULDER: { 
+            x: -0.5, 
+            y: -0.3, 
+            z: 0.4   
+        },
+        // 小臂：屈肘90度，不再自转
+        ELBOW: { 
+            x: -1, // 屈肘
+            y: 0.0,  
+            z: 0.0 
+        }
+    },
+    // 盾牌独立变换
+    SHIELD: {
+        // 旋转逻辑：
+        // 1. 默认状态是侧挂 (Rotation 0,0,0 附近)
+        // 2. y: -1.5 -> 绕小臂轴旋转90度，从侧面转到下面/前面
+        // 3. z: 1.5 -> 绕手腕轴旋转90度，将盾牌竖起来挡在前面
+        ROTATION: { 
+            x: -0.3,    
+            y: -1,   
+            z: -1.2  
+        },
+        // 位置：
+        // 默认挂载点 [0, -0.5, 0.1] 是小臂末端
+        // 稍微调整位置以适应握持感
+        POSITION: { 
+            x: 0,   
+            y: -0.6,  
+            z: -0.1    
+        }
     }
 };
 
@@ -492,6 +529,7 @@ const gunArmRef = useRef<Group>(null);
 const rightArmRef = useRef<Group>(null); // For walking animation (right arm swing)
 const leftForeArmRef = useRef<Group>(null); // NEW: Ref for Left Elbow/Forearm
 const rightForeArmRef = useRef<Group>(null); // NEW: Ref for Right Elbow/Forearm
+const shieldRef = useRef<Group>(null); // NEW: Independent ref for Shield to handle complex pivots
 const muzzleRef = useRef<Group>(null);
 const { camera } = useThree();
 // State from Store
@@ -1389,24 +1427,37 @@ if (!stunned) {
     
     // Right Arm Swing (Shield Arm)
     if (rightArmRef.current) {
-        if (nextVisualState === 'WALK') {
-            const t = walkCycle.current;
-            const sin = Math.sin(t); // Opposite to left leg
-            // Base rotation: 0.35, 0.3, 0
-            //rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
-        } else {
-             // Idle State
-             if (isIdlePose) {
-                 const target = IDLE_POSE.RIGHT_ARM.SHOULDER;
-                 const lerpSpeed = 0.1 * timeScale;
-                 rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, target.x, lerpSpeed);
-                 rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, target.y, lerpSpeed);
-                 rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, target.z, lerpSpeed);
-             } else {
-                 // Standard fallback
-                 rightArmRef.current.rotation.set(0.35, 0.3, 0);
-             }
+        let targetX = 0.35;
+        let targetY = 0.3;
+        let targetZ = 0;
+
+        // PRIORITY 1: DASH (Shield Guard)
+        if (isDashing.current) {
+            targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
+            targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
+            targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
+        } 
+        // PRIORITY 2: IDLE POSE
+        else if (isIdlePose) {
+            targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
+            targetY = IDLE_POSE.RIGHT_ARM.SHOULDER.y;
+            targetZ = IDLE_POSE.RIGHT_ARM.SHOULDER.z;
         }
+        // PRIORITY 3: WALKING SWING
+        else if (nextVisualState === 'WALK') {
+            // const t = walkCycle.current;
+            // const sin = Math.sin(t); 
+            // targetX = 0.35 + sin * 0.5; // Walking swing
+        }
+        // DEFAULT FALLBACK
+        else {
+             // Standard fallback already set in defaults
+        }
+
+        const lerpSpeed = (isDashing.current ? 0.2 : 0.1) * timeScale;
+        rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, targetX, lerpSpeed);
+        rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, targetY, lerpSpeed);
+        rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, targetZ, lerpSpeed);
     }
 
     // Forearm Animation (New: Handled via refs now)
@@ -1415,16 +1466,47 @@ if (!stunned) {
         let targetY = -0.3;
         let targetZ = 0;
         
-        if (isIdlePose) {
+        // PRIORITY 1: DASH (Shield Guard)
+        if (isDashing.current) {
+            targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
+            targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
+            targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
+        }
+        // PRIORITY 2: IDLE POSE
+        else if (isIdlePose) {
             targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
             targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
             targetZ = IDLE_POSE.RIGHT_ARM.ELBOW.z;
         }
 
-        const lerpSpeed = 0.1 * timeScale;
+        const lerpSpeed = (isDashing.current ? 0.2 : 0.1) * timeScale;
         rightForeArmRef.current.rotation.x = MathUtils.lerp(rightForeArmRef.current.rotation.x, targetX, lerpSpeed);
         rightForeArmRef.current.rotation.y = MathUtils.lerp(rightForeArmRef.current.rotation.y, targetY, lerpSpeed);
         rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+
+    // [NEW] INDEPENDENT SHIELD ANIMATION
+    if (shieldRef.current) {
+        // Default Resting State (Mounted on Arm)
+        // Corresponds to JSX defaults: position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}
+        let targetPos = { x: 0, y: -0.5, z: 0.1 };
+        let targetRot = { x: -0.2, y: 0, z: 0 };
+
+        if (isDashing.current) {
+            // Apply DASH_POSE config
+            targetPos = DASH_POSE.SHIELD.POSITION;
+            targetRot = DASH_POSE.SHIELD.ROTATION;
+        }
+
+        const lerpSpeed = (isDashing.current ? 0.15 : 0.1) * timeScale;
+        
+        shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
+        shieldRef.current.position.y = MathUtils.lerp(shieldRef.current.position.y, targetPos.y, lerpSpeed);
+        shieldRef.current.position.z = MathUtils.lerp(shieldRef.current.position.z, targetPos.z, lerpSpeed);
+
+        shieldRef.current.rotation.x = MathUtils.lerp(shieldRef.current.rotation.x, targetRot.x, lerpSpeed);
+        shieldRef.current.rotation.y = MathUtils.lerp(shieldRef.current.rotation.y, targetRot.y, lerpSpeed);
+        shieldRef.current.rotation.z = MathUtils.lerp(shieldRef.current.rotation.z, targetRot.z, lerpSpeed);
     }
     
     if (leftForeArmRef.current) {
@@ -1976,25 +2058,32 @@ return (
                     </mesh>
                     {/* FOREARM */}
                     <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
+                        {/* 1. Inner Skeleton */}
                         <mesh>
                             <boxGeometry args={[0.25, 0.6, 0.3]} />
                             <meshToonMaterial color="#444" />
                             <Edges threshold={15} color="black" />
                         </mesh>
+                        
+                        {/* 2. Outer Forearm Armor (Separated from Shield Group) */}
                         <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                <mesh>
+                            <mesh>
                                 <boxGeometry args={[0.28, 0.6, 0.35]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
-                                </mesh>
-                                <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
+                            </mesh>
+                        </group>
+
+                        {/* 3. Shield Group (Independent Animation) */}
+                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
+                                <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
                                     <mesh position={[0, 0.2, 0]}>
-                                        <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                        <boxGeometry args={[0.1, 1.7, 0.7]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
                                     </mesh>
                                     <mesh position={[0.06, 0.2, 0]}>
-                                        <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                        <boxGeometry args={[0.05, 1.5, 0.5]} />
                                         <meshToonMaterial color="#ff0000" />
                                     </mesh>
                                 </group>

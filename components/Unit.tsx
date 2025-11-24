@@ -314,7 +314,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         shootSequence.current = 0;
     }
 
-    if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
+    if (false && aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
       if (aiState.current === 'DASHING') {
           if (Math.random() > 0.3) {
               aiState.current = 'ASCENDING';
