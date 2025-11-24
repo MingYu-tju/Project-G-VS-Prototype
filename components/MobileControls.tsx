@@ -208,7 +208,7 @@ export const MobileControls: React.FC = () => {
                 />
 
                 <ActionButton 
-                    label="DASH" 
+                    label="BOOST" 
                     kKey="l" 
                     color="bg-blue-600/60" 
                     posClass="bottom-0 left-1/2 -translate-x-1/2" 

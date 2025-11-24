@@ -2,23 +2,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 // Actions we can bind
-type ActionType = 'JUMP' | 'DASH' | 'SHOOT' | 'SWITCH TARGET';
+// UNIFIED: DASH and JUMP are now a single 'BOOST' action (Tap = Dash, Hold = Jump/Ascend)
+type ActionType = 'BOOST' | 'SHOOT' | 'SWITCH TARGET';
 
 // Default standard mapping (Xbox/PS layout approximations)
-// 0: A/Cross, 1: B/Circle, 2: X/Square, 3: Y/Triangle, etc.
+// 0: A/Cross, 1: B/Circle, 2: X/Square, 3: Y/Triangle
 const DEFAULT_MAPPING: Record<number, ActionType> = {
-    7: 'JUMP',   // A / Cross (Note: JUMP is now technically L-Hold in logic, but we keep label)
-    0: 'DASH',   // B / Circle
-    2: 'SHOOT',  // X / Square
-    1: 'SWITCH TARGET', // Y / Triangle
+    0: 'BOOST',          // A / Cross - Primary Movement (Dash/Jump)
+    2: 'SHOOT',          // X / Square - Primary Attack
+    1: 'SWITCH TARGET',  // B / Circle - Utility
 };
 
 // Map Action to the actual Keyboard Key that Player.tsx listens for
 const ACTION_TO_KEY: Record<ActionType, string> = {
-    'JUMP': 'l', // Remapped to L (Hold logic handles jump)
-    'DASH': 'l',
+    'BOOST': 'l', // Maps to 'l' which handles both Dash (tap) and Ascend (hold)
     'SHOOT': 'j',
-    'SWITCH TARGET': ' ' // Changed from 'e' to Space
+    'SWITCH TARGET': ' '
 };
 
 // Helper to dispatch keyboard events
@@ -53,7 +52,7 @@ export const GamepadControls: React.FC = () => {
 
     // Load from localStorage on mount
     useEffect(() => {
-        const saved = localStorage.getItem('gvs_gamepad_mapping');
+        const saved = localStorage.getItem('gvs_gamepad_mapping_v2'); // Updated key for new schema
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
@@ -68,7 +67,7 @@ export const GamepadControls: React.FC = () => {
 
     // Save to localStorage on change
     useEffect(() => {
-        localStorage.setItem('gvs_gamepad_mapping', JSON.stringify(mapping));
+        localStorage.setItem('gvs_gamepad_mapping_v2', JSON.stringify(mapping));
     }, [mapping]);
 
     // --- GAME LOOP ---
@@ -77,7 +76,6 @@ export const GamepadControls: React.FC = () => {
         if (!gamepads) return;
 
         // 1. Scan for available gamepads (for UI)
-        // We do this less frequently or just on every frame if lightweight
         const currentAvailable: {index: number, id: string}[] = [];
         for (let i = 0; i < gamepads.length; i++) {
             if (gamepads[i]) {
@@ -90,13 +88,11 @@ export const GamepadControls: React.FC = () => {
         
         // If selected gamepad is disconnected, try to fallback to the first available one
         if (!gp && currentAvailable.length > 0) {
-            // Auto-switch only if we effectively lost connection
             gp = gamepads[currentAvailable[0].index];
         }
 
-        // --- UI STATE SYNC (Only periodically or if menu is open to save perf) ---
+        // --- UI STATE SYNC ---
         if (isOpen) {
-             // Hacky shallow comparison to update UI list
              if (JSON.stringify(currentAvailable) !== JSON.stringify(availableGamepads)) {
                  setAvailableGamepads(currentAvailable);
              }
@@ -115,6 +111,7 @@ export const GamepadControls: React.FC = () => {
             gp.buttons.forEach((btn, index) => {
                 if (btn.pressed && !prevButtons.current[index]) {
                     const newMapping = { ...mapping };
+                    // Remove any existing bindings for this action to avoid conflicts
                     Object.keys(newMapping).forEach(key => {
                          if (newMapping[parseInt(key)] === listeningFor) {
                              delete newMapping[parseInt(key)];
@@ -151,7 +148,7 @@ export const GamepadControls: React.FC = () => {
         };
 
         const buttonKeys: { [key: string]: boolean } = {
-            ' ': false, 'l': false, 'j': false, 'e': false
+            ' ': false, 'l': false, 'j': false
         };
 
         gp.buttons.forEach((btn, index) => {
@@ -262,7 +259,7 @@ export const GamepadControls: React.FC = () => {
                         </div>
 
                         <div className="space-y-4">
-                            {(['DASH', 'JUMP', 'SHOOT', 'SWITCH TARGET'] as ActionType[]).map((action) => (
+                            {(['BOOST', 'SHOOT', 'SWITCH TARGET'] as ActionType[]).map((action) => (
                                 <div key={action} className="flex items-center justify-between group">
                                     <span className="text-gray-400 font-mono text-sm group-hover:text-white transition-colors">
                                         {action}

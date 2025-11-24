@@ -181,7 +181,7 @@ export const GameScene: React.FC = () => {
         position={[50, 80, 30]} 
         intensity={3} 
         color="#ddeeff"
-        castShadow 
+        //castShadow 
         shadow-bias={-0.0005}
         shadow-mapSize={[2048, 2048]} 
       />
