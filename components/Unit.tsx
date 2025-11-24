@@ -354,7 +354,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
+      // STATE TRANSITION LOGIC
+      // Important: Reset physics inputs when leaving a movement state
+      
       if (aiState.current === 'DASHING') {
+          // Reset input to stop infinite air drift
+          moveInput.current.set(0, 0, 0); 
+          
           if (Math.random() > 0.3) {
               aiState.current = 'ASCENDING';
               aiTimer.current = MathUtils.randInt(400, 800); 
@@ -363,6 +369,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
               aiTimer.current = MathUtils.randInt(500, 1000);
           }
       } else if (aiState.current === 'ASCENDING') {
+          moveInput.current.set(0, 0, 0); // Reset
           aiState.current = 'FALLING';
           aiTimer.current = MathUtils.randInt(1000, 2000);
       } else {
@@ -380,7 +387,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
               
               velocity.current.x = dir.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
               velocity.current.z = dir.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              velocity.current.y = 0;
+              
+              // Sync Ground Hop with Player: Pop up if grounded
+              if (isGrounded.current || position.current.y < 1.5) {
+                  velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
+                  isGrounded.current = false;
+              } else {
+                  velocity.current.y = 0;
+              }
               
               boost.current -= 15;
               aiTimer.current = MathUtils.randInt(300, 600); 
@@ -480,8 +494,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
             velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
             velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-            if (position.current.y < 3.0) velocity.current.y = -0.05 * timeScale; 
-            else velocity.current.y = 0;
+            
+            // FIXED: Sync with Player Dash Physics (No forced downforce)
+            velocity.current.y *= 0.85; 
 
         } else if (aiState.current === 'ASCENDING') {
             setIsThrusting(true);
@@ -539,6 +554,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     // 3. VISUAL UPDATE
     groupRef.current.position.copy(position.current);
 
+    const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
+
     if (aiState.current === 'SHOOTING') {
         const tPos = getTargetPos();
         if (tPos && shootMode.current === 'STOP') {
@@ -547,7 +564,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     } else if (aiState.current === 'DASHING') {
         const lookPos = position.current.clone().add(dashDirection.current);
         rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+    } else if (isWalking) {
+        // FIXED: Face velocity when moving on ground (matches Player)
+        const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+        if (horizVel.lengthSq() > 0.001) {
+            const lookPos = position.current.clone().add(horizVel);
+            rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+        }
     } else {
+        // Default / Idle / Air: Face Target
         const tPos = getTargetPos();
         if (tPos) {
             rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
@@ -560,8 +585,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     // --- PROCEDURAL ANIMATION ---
 
     const isIdle = isGrounded.current && aiState.current === 'IDLE' && landingFrames.current <= 0;
-    const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
-
+    
     // 0. Walk Cycle (NPC)
     if (isWalking) {
         const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();

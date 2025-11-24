@@ -155,7 +155,7 @@ export const GLOBAL_CONFIG = {
     BULLET_SPEED: 1.28, 
     HOMING_LATERAL_SPEED: 0.28, // New: Constant sideways speed for homing (drift speed)
     MAX_AMMO: 20,
-    AMMO_REGEN_TIME: 1.6, // Seconds per shot
+    AMMO_REGEN_TIME: 1.9, // Seconds per shot
     
     // Combat / Hitboxes (Collision Sizes)
     UNIT_HITBOX_RADIUS: 1.4,       // The size of the mechs (Hurtbox)
