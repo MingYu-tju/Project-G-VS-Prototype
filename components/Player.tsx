@@ -1473,13 +1473,16 @@ if (!stunned) {
                  targetY = IDLE_POSE.HEAD.y;
              }
              
+             // NEW: Stabilize Head during Walk (Counter-rotate body sway)
+             if (nextVisualState === 'WALK') {
+                 const t = walkCycle.current;
+                 //const sin = Math.sin(t);
+                 // Body rotates sin * 0.32, so head rotates -sin * 0.32 to stay forward
+                 targetY =  -Math.sin(t + 0.25) * 0.32; 
+             }
+             
              // Manually lerp Euler if not tracking
              const lerpSpeed = 0.1 * timeScale;
-             // Using rotation directly since we aren't using LookAt quaternion here
-             // Note: headRef might have residual quaternion from previous lookAt. 
-             // We reset quaternion to identity via slerp first, then apply Euler? 
-             // Or just use rotation. setFromEuler is safer if mixing.
-             
              // Simplest way to blend back to Euler control:
              // 1. Create target Quaternion from Euler
              const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, 0));
@@ -1565,34 +1568,38 @@ if (!stunned) {
          let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
 
          if (nextVisualState === 'WALK') {
-             // --- WALKING ANIMATION ---
+             // --- WALKING ANIMATION (OPTIMIZED BOW/CYCLOID STEP) ---
              const t = walkCycle.current;
              const sin = Math.sin(t);
              const cos = Math.cos(t);
 
-             // Thighs (Anti-phase)
-             targetRightThigh.x = -sin * 1.2;
-             targetLeftThigh.x = sin * 1.2;
+             // Thighs: Simple Sine Wave (Negative = Forward)
+             targetRightThigh.x = -sin * 0.9; 
+             targetLeftThigh.x = sin * 0.9;
 
-             // Knees
-             targetRightKneeX = Math.max(0, sin) * 1.2 + 0.1;
-             targetLeftKneeX = Math.max(0, -sin) * 1.2 + 0.1;
+             // Knees: Lift (Bend) when passing under body (Cos peak)
+             // Cos > 0 means leg is crossing center (mid-swing)
+             targetRightKneeX = Math.max(0, cos) * 1.8 + 0.7;
+             targetLeftKneeX = Math.max(0, -cos) * 1.8 + 0.7;
 
-             // Feet (Ankle compensation)
-             targetRightAnkle.x = -0.4 - sin * 0.4;
-             targetLeftAnkle.x = -0.4 + sin * 0.5;
+             // Ankles: Compensate Knee + Heel Strike/Toe Off
+             // 1. Compensate Knee Bend (keep foot flat-ish) -> -Knee * 0.5
+             // 2. Heel Strike (Leg Fwd/Sin=1) -> Toes Up (Neg)
+             // 3. Toe Off (Leg Back/Sin=-1) -> Toes Down (Pos)
+             targetRightAnkle.x = (targetRightKneeX * 0.1) - (sin * 0.6);
+             targetLeftAnkle.x = (targetLeftKneeX * 0.1) + (sin * 0.6);
 
              // Bobbing & Sway
              targetBodyTilt = 0.5; // Slight forward lean
              
              // Apply body bob/sway directly to groups
              if (upperBodyRef.current) {
-                 upperBodyRef.current.position.y = 0.65 + Math.sin(t * 2) * 0.05; // Bob
-                 upperBodyRef.current.rotation.y = sin * 0.32; // Twist
-                 upperBodyRef.current.rotation.z = cos * 0.0; // Sway
+                 //upperBodyRef.current.position.y = 0.65 + Math.abs(cos) * 0.08; // Bob up at mid-step
+                 upperBodyRef.current.rotation.y = sin * 0.32; // Twist torso into the step
+                 //upperBodyRef.current.rotation.z = cos * 0; // Slight sway
              }
              
-             lerpSpeed = 0.2 * timeScale; // Snappier for walking
+             lerpSpeed = 0.25 * timeScale; // Snappier for walking
          }
          else if (isDashing.current) {
              targetRightThigh.x = -1; // Lift Right Leg
