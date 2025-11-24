@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4 } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler } from 'three';
 import { Text, Html, Edges } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
@@ -546,8 +546,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              }
         }
         if (!shouldLook) {
-            const identity = new Quaternion();
-            headRef.current.quaternion.slerp(identity, 0.1);
+            // NEW: Stabilize Head during Walk
+            let targetQuat = new Quaternion(); // Identity by default
+            
+            // If walking, counter-rotate the head slightly to match body twist
+            if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+                 const t = walkCycle.current;
+                 const sin = Math.sin(t);
+                 // Unit body rotates sin * 0.1, head rotates -sin * 0.1
+                 targetQuat.setFromEuler(new Euler(0, -sin * 0.1, 0));
+            }
+            
+            headRef.current.quaternion.slerp(targetQuat, 0.1);
         }
     }
 
@@ -674,24 +684,32 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
          let lerpSpeed = 0.2 * timeScale; 
 
          if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
-            // Walking
+            // --- WALKING ANIMATION (OPTIMIZED BOW/CYCLOID STEP) ---
             const t = walkCycle.current;
             const sin = Math.sin(t);
             const cos = Math.cos(t);
 
-            targetRightThighX = -sin * 0.5;
-            targetLeftThighX = sin * 0.5;
-            targetRightKneeX = Math.max(0, sin) * 0.8 + 0.1;
-            targetLeftKneeX = Math.max(0, -sin) * 0.8 + 0.1;
-            targetRightFootX = -0.2 + sin * 0.2;
-            targetLeftFootX = -0.2 - sin * 0.2;
+            // Thighs: Simple Sine Wave (Negative = Forward)
+            targetRightThighX = -sin * 0.8;
+            targetLeftThighX = sin * 0.8;
             
-            targetBodyTilt = 0.1;
+            // Knees: Lift (Bend) when passing under body (Cos peak)
+            targetRightKneeX = Math.max(0, cos) * 1.2 + 0.1;
+            targetLeftKneeX = Math.max(0, -cos) * 1.2 + 0.1;
+            
+            // Ankles: Compensate Knee + Heel Strike/Toe Off
+            // 1. Compensate Knee Bend (keep foot flat-ish) -> -Knee * 0.4
+            // 2. Heel Strike (Leg Fwd/Sin=1) -> Toes Up (Neg)
+            // 3. Toe Off (Leg Back/Sin=-1) -> Toes Down (Pos)
+            targetRightFootX = -(targetRightKneeX * 0.4) - (sin * 0.3);
+            targetLeftFootX = -(targetLeftKneeX * 0.4) + (sin * 0.3);
+            
+            targetBodyTilt = 0.2;
 
             if (upperBodyRef.current) {
-                upperBodyRef.current.position.y = 0.65 + Math.sin(t * 2) * 0.02;
-                upperBodyRef.current.rotation.y = sin * 0.1;
-                upperBodyRef.current.rotation.z = cos * 0.02;
+                upperBodyRef.current.position.y = 0.65 + Math.abs(cos) * 0.05; // Bob
+                upperBodyRef.current.rotation.y = sin * 0.1; // Twist
+                upperBodyRef.current.rotation.z = cos * 0.02; // Sway
             }
          }
          else if (aiState.current === 'DASHING') {
