@@ -1370,7 +1370,7 @@ if (!stunned) {
                  const sin = Math.sin(t + Math.PI); // Opposite to right leg (Right leg is sin(t))
                  // Base rotation + swing
                  // Default arm pose: rotation.set(0.35, -0.3, 0)
-                 gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
+                 //gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
              } else {
                 // Idle State - Apply Custom IDLE_POSE if grounded and no input
                 if (isIdlePose) {
@@ -1393,7 +1393,7 @@ if (!stunned) {
             const t = walkCycle.current;
             const sin = Math.sin(t); // Opposite to left leg
             // Base rotation: 0.35, 0.3, 0
-            rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
+            //rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
         } else {
              // Idle State
              if (isIdlePose) {
@@ -1571,8 +1571,8 @@ if (!stunned) {
              const cos = Math.cos(t);
 
              // Thighs (Anti-phase)
-             targetRightThigh.x = -sin * 0.7;
-             targetLeftThigh.x = sin * 0.7;
+             targetRightThigh.x = -sin * 1.2;
+             targetLeftThigh.x = sin * 1.2;
 
              // Knees
              targetRightKneeX = Math.max(0, sin) * 1.2 + 0.1;
@@ -1580,16 +1580,16 @@ if (!stunned) {
 
              // Feet (Ankle compensation)
              targetRightAnkle.x = -0.4 - sin * 0.4;
-             targetLeftAnkle.x = -0.4 + sin * 0.4;
+             targetLeftAnkle.x = -0.4 + sin * 0.5;
 
              // Bobbing & Sway
-             targetBodyTilt = 0.3; // Slight forward lean
+             targetBodyTilt = 0.5; // Slight forward lean
              
              // Apply body bob/sway directly to groups
              if (upperBodyRef.current) {
                  upperBodyRef.current.position.y = 0.65 + Math.sin(t * 2) * 0.05; // Bob
-                 upperBodyRef.current.rotation.y = sin * 0.3; // Twist
-                 upperBodyRef.current.rotation.z = cos * 0.07; // Sway
+                 upperBodyRef.current.rotation.y = sin * 0.32; // Twist
+                 upperBodyRef.current.rotation.z = cos * 0.0; // Sway
              }
              
              lerpSpeed = 0.2 * timeScale; // Snappier for walking
