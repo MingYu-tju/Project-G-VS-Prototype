@@ -1,11 +1,18 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler } from 'three';
 import { Trail, Edges } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG } from '../types';
-import { DASH_SFX_BASE64, SHOOT_SFX_BASE64 } from '../assets';
+import { 
+    DASH_SFX_BASE64, 
+    SHOOT_SFX_BASE64,
+    SWITCH_SFX_BASE64,
+    STEP_SFX_BASE64,
+    HIT_SFX_BASE64,
+    DROP_SFX_BASE64,
+    FOOT_SFX_BASE64
+} from '../assets';
 
 const FRAME_DURATION = 1 / 60;
 
@@ -88,10 +95,17 @@ const DASH_POSE = {
 // --- AUDIO MANAGER ---
 // Lazy load AudioContext to comply with browser autoplay policies
 let globalAudioCtx: AudioContext | null = null;
+
+// Audio Buffers
 let boostAudioBuffer: AudioBuffer | null = null;
 let shootAudioBuffer: AudioBuffer | null = null;
-let isBoostLoading = false;
-let isShootLoading = false;
+let switchAudioBuffer: AudioBuffer | null = null;
+let stepAudioBuffer: AudioBuffer | null = null;
+let hitAudioBuffer: AudioBuffer | null = null;
+let dropAudioBuffer: AudioBuffer | null = null;
+let footAudioBuffer: AudioBuffer | null = null;
+
+let areSoundsLoading = false;
 
 const getAudioContext = () => {
     if (!globalAudioCtx) {
@@ -101,6 +115,20 @@ const getAudioContext = () => {
         }
     }
     return globalAudioCtx;
+};
+
+// Generic Base64 Loader
+const loadSoundAsset = async (ctx: AudioContext, base64: string): Promise<AudioBuffer | null> => {
+    if (!base64 || base64.length < 50) return null;
+    try {
+        const response = await fetch(base64);
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) return null;
+        return await ctx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+        console.warn("Failed to load sound asset", e);
+        return null;
+    }
 };
 
 // --- PROCEDURAL AUDIO GENERATORS (Fallback for missing/empty files) ---
@@ -169,9 +197,8 @@ export const resumeAudioContext = async () => {
                 console.log("AudioContext resumed successfully.");
             }
             
-            // Force load/generate buffers if missing
-            if (!boostAudioBuffer && !isBoostLoading) loadCustomBoostSound();
-            if (!shootAudioBuffer && !isShootLoading) loadCustomShootSound();
+            // Force load buffers if missing
+            if (!areSoundsLoading) loadAllSounds();
             
         } catch (e) {
             console.error("Failed to resume audio context:", e);
@@ -179,96 +206,69 @@ export const resumeAudioContext = async () => {
     }
 };
 
-// Preloader for Custom Boost Sound
-const loadCustomBoostSound = async () => {
-    if (boostAudioBuffer || isBoostLoading) return;
-    
+// Main Loader
+const loadAllSounds = async () => {
+    if (areSoundsLoading) return;
     const ctx = getAudioContext();
     if (!ctx) return;
 
-    // Check if Base64 string is populated (length > 50 assumes valid data uri header + content)
-    if (DASH_SFX_BASE64.length < 50) {
-        console.warn("DASH_SFX_BASE64 in assets.ts is empty. Using procedural fallback.");
-        boostAudioBuffer = generateProceduralDash(ctx);
-        return;
-    }
+    areSoundsLoading = true;
+    console.log("Loading audio assets...");
 
-    isBoostLoading = true;
     try {
-        console.log(`Attempting to load boost sound from Base64 asset...`);
-        const response = await fetch(DASH_SFX_BASE64);
-        const arrayBuffer = await response.arrayBuffer();
-        
-        if (arrayBuffer.byteLength === 0) {
-             throw new Error("Buffer is empty");
-        }
+        // 1. Boost (With Fallback)
+        boostAudioBuffer = await loadSoundAsset(ctx, DASH_SFX_BASE64);
+        if (!boostAudioBuffer) boostAudioBuffer = generateProceduralDash(ctx);
 
-        const decodedData = await ctx.decodeAudioData(arrayBuffer);
-        boostAudioBuffer = decodedData;
-        console.log("Custom boost sound loaded.");
-    } catch (error) {
-        console.warn("Using procedural DASH sound due to load error:", error);
-        // FALLBACK: Generate procedural buffer
-        boostAudioBuffer = generateProceduralDash(ctx);
+        // 2. Shoot (With Fallback)
+        shootAudioBuffer = await loadSoundAsset(ctx, SHOOT_SFX_BASE64);
+        if (!shootAudioBuffer) shootAudioBuffer = generateProceduralShoot(ctx);
+
+        // 3. New Sounds
+        if (!switchAudioBuffer) switchAudioBuffer = await loadSoundAsset(ctx, SWITCH_SFX_BASE64);
+        if (!stepAudioBuffer) stepAudioBuffer = await loadSoundAsset(ctx, STEP_SFX_BASE64);
+        if (!hitAudioBuffer) hitAudioBuffer = await loadSoundAsset(ctx, HIT_SFX_BASE64);
+        if (!dropAudioBuffer) dropAudioBuffer = await loadSoundAsset(ctx, DROP_SFX_BASE64);
+        if (!footAudioBuffer) footAudioBuffer = await loadSoundAsset(ctx, FOOT_SFX_BASE64);
+
+        console.log("Audio assets loaded.");
+    } catch (e) {
+        console.warn("Error loading audio assets:", e);
     } finally {
-        isBoostLoading = false;
+        areSoundsLoading = false;
     }
 };
 
-// Preloader for Custom Shoot Sound
-const loadCustomShootSound = async () => {
-    if (shootAudioBuffer || isShootLoading) return;
-    
+// --- PLAY FUNCTIONS ---
+
+const playSoundBuffer = (buffer: AudioBuffer | null, volume: number = 1.0, pitchVar: number = 0.0) => {
     const ctx = getAudioContext();
-    if (!ctx) return;
+    if (!ctx || !buffer) return;
+    if (ctx.state === 'suspended') ctx.resume();
 
-    // Check if Base64 string is populated
-    if (SHOOT_SFX_BASE64.length < 50) {
-        console.warn("SHOOT_SFX_BASE64 in assets.ts is empty. Using procedural fallback.");
-        shootAudioBuffer = generateProceduralShoot(ctx);
-        return;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (pitchVar > 0) {
+        source.playbackRate.value = 1.0 + (Math.random() - 0.5) * pitchVar;
     }
-
-    isShootLoading = true;
-    try {
-        console.log(`Attempting to load shoot sound from Base64 asset...`);
-        const response = await fetch(SHOOT_SFX_BASE64);
-        const arrayBuffer = await response.arrayBuffer();
-        
-        if (arrayBuffer.byteLength === 0) throw new Error("Buffer is empty");
-
-        const decodedData = await ctx.decodeAudioData(arrayBuffer);
-        shootAudioBuffer = decodedData;
-        console.log("Custom shoot sound loaded.");
-    } catch (error) {
-        console.warn("Using procedural SHOOT sound due to load error:", error);
-        // FALLBACK: Generate procedural buffer
-        shootAudioBuffer = generateProceduralShoot(ctx);
-    } finally {
-        isShootLoading = false;
-    }
+    
+    source.start(0);
 };
 
 const playShootSound = () => {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
-
-    // 1. Prefer Buffer (Loaded or Procedural)
     if (shootAudioBuffer) {
-        const source = ctx.createBufferSource();
-        source.buffer = shootAudioBuffer;
-        const gain = ctx.createGain();
-        gain.gain.value = 0.4; 
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.playbackRate.value = 0.9 + Math.random() * 0.2; // Pitch variation
-        source.start(0);
-        return;
+        playSoundBuffer(shootAudioBuffer, 0.4, 0.2);
+    } else {
+        const ctx = getAudioContext();
+        if(ctx) playBeamRifleSynth(ctx);
     }
-    
-    // 2. Ultimate Fallback (Oscillator) if even buffer generation failed
-    playBeamRifleSynth(ctx);
 };
 
 // Procedural Beam Rifle Sound (Fallback)
@@ -291,53 +291,18 @@ const playBeamRifleSynth = (ctx: AudioContext) => {
     osc.stop(t + 0.2);
 };
 
-const playBoostSound = () => {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
+const playBoostSound = () => playSoundBuffer(boostAudioBuffer, 0.6); // Full volume, no filter
+const playSwitchSound = () => playSoundBuffer(switchAudioBuffer, 0.6, 0.1);
+const playStepSound = () => playSoundBuffer(stepAudioBuffer, 0.8, 0.1);
+const playDropSound = () => playSoundBuffer(dropAudioBuffer, 0.8, 0.2);
+const playFootSound = () => playSoundBuffer(footAudioBuffer, 0.55, 0.15);
 
-    // 1. Prefer Buffer (Loaded or Procedural)
-    if (boostAudioBuffer) {
-        const source = ctx.createBufferSource();
-        source.buffer = boostAudioBuffer;
-        const gain = ctx.createGain();
-        
-        // Add a lowpass filter to make the white noise sound more like an engine
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 800;
-
-        source.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        
-        source.start(0);
-        return;
-    }
-
-    // 2. Ultimate Fallback (Oscillator)
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(150, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.4);
-
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(800, ctx.currentTime);
-    filter.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.4);
-
-    gain.gain.setValueAtTime(0.0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
+// EXPORTED for Projectile.tsx
+export const playHitSound = (distance: number) => {
+    // Simple linear attenuation: Full volume at 0m, 0 volume at 100m
+    const maxDist = 100;
+    const vol = Math.max(0.05, 1 - (distance / maxDist));
+    playSoundBuffer(hitAudioBuffer, vol * 0.4, 0.2); // Slightly varied pitch
 };
 
 // --- VISUAL EFFECTS ---
@@ -597,6 +562,7 @@ const totalPredictedFallFrames = useRef(0); // NEW: Calculated total frames for 
 
 // Walking Animation Refs
 const walkCycle = useRef(0);
+const lastWalkCycle = useRef(0); // Track previous cycle for footstep triggers
 
 // Evade State
 const isEvading = useRef(false);
@@ -617,8 +583,7 @@ const ammoRegenTimer = useRef(0);
 // Try loading custom sounds on mount
 useEffect(() => {
     // Attempt load, but the Play functions will handle fallback if this fails or is 0 bytes
-    loadCustomBoostSound();
-    loadCustomShootSound();
+    loadAllSounds();
 }, []);
 
 const getDirectionFromKey = (key: string) => {
@@ -748,6 +713,8 @@ if (!keys.current[key]) {
                      shootTimer.current = 0;
                      // INTERRUPT: Evade also cancels landing animation
                      visualLandingFrames.current = 0;
+                     
+                     playStepSound(); // Play Evade Sound
                  }
              }
           }
@@ -833,6 +800,7 @@ if (!keys.current[key]) {
       // CHANGED: Switch Target key changed from 'e' to ' ' (Space)
       if (key === ' ') {
         useGameStore.getState().cycleTarget();
+        playSwitchSound(); // Play Switch Sound
       }
   }
 };
@@ -1168,6 +1136,9 @@ if (stunned) {
                     // Mark as consumed so when we release, it doesn't trigger short hop or double tap
                     lConsumedByAction.current = true;
                     // NOTE: We do NOT set lConsumedByDash here.
+                    if (visualState !== 'ASCEND') {
+                        playBoostSound();
+                    }
                 }
             }
 
@@ -1276,6 +1247,7 @@ if (position.current.y <= 0) {
         if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
              landingFrames.current = getLandingLag(); // Gameplay lockout
              visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual anim
+             playDropSound(); // Play Landing Sound
         }
         if (isDashing.current) isDashing.current = false; 
         if (isEvading.current) isEvading.current = false;
@@ -1308,7 +1280,16 @@ meshRef.current.position.copy(position.current);
 if (isGrounded.current && nextVisualState === 'WALK') {
     const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
     if (speed > 0.05) {
-        walkCycle.current += delta * 10; // Speed multiplier
+        lastWalkCycle.current = walkCycle.current;
+        walkCycle.current += delta * 9.5; // Speed multiplier
+        
+        // Footstep Audio Logic (Triggers every half sine wave, e.g., when passing PI or 0)
+        // Simple approach: check if integer part of (value / PI) changed
+        const prevStep = Math.floor(lastWalkCycle.current / Math.PI);
+        const currStep = Math.floor(walkCycle.current / Math.PI);
+        if (currStep !== prevStep) {
+            playFootSound();
+        }
     } else {
         // Decay to closest integer multiple of PI to return to neutral-ish stance smoothly? 
         // Or just stop. For now, stop.
@@ -1696,9 +1677,9 @@ if (!stunned) {
              
              // Apply body bob/sway directly to groups
              if (upperBodyRef.current) {
-                 //upperBodyRef.current.position.y = 0.65 + Math.abs(cos) * 0.08; // Bob up at mid-step
-                 upperBodyRef.current.rotation.y = sin * 0.32; // Twist torso into the step
-                 //upperBodyRef.current.rotation.z = cos * 0; // Slight sway
+                 upperBodyRef.current.position.y = 0.55 + Math.abs(cos) * 0.08; // Bob up at mid-step
+                 upperBodyRef.current.rotation.y = sin * 0.22; // Twist torso into the step
+                 upperBodyRef.current.rotation.z = cos * 0.1; // Slight sway
              }
              
              lerpSpeed = 0.25 * timeScale; // Snappier for walking

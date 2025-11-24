@@ -119,8 +119,8 @@ export const GLOBAL_CONFIG = {
     LANDING_LEG_SPLAY: 0.3,      // Legs splay out wider
     
     // Separate Left/Right Config for Asymmetrical Poses (Landing)
-    LANDING_LEG_PITCH_RIGHT: -1.2, // Thighs pitch forward (negative X)
-    LANDING_LEG_PITCH_LEFT: -0.5,
+    LANDING_LEG_PITCH_RIGHT: -1.8, // Thighs pitch forward (negative X)
+    LANDING_LEG_PITCH_LEFT: -0.8,
     
     LANDING_KNEE_BEND_RIGHT: 2.5,  // Knees bend back (crouch)
     LANDING_KNEE_BEND_LEFT: 2,
@@ -128,7 +128,7 @@ export const GLOBAL_CONFIG = {
     LANDING_ANKLE_PITCH_RIGHT: -1, // New: Right ankle pitches forward
     LANDING_ANKLE_PITCH_LEFT: -1.3,  // New: Left ankle pitches forward
     
-    LANDING_HIP_DIP: 0.5, // New: Visual vertical drop distance when landing (Crouch height)
+    LANDING_HIP_DIP: 0.8, // New: Visual vertical drop distance when landing (Crouch height)
 
     // Evade (Step)
     EVADE_SPEED: 0.45,          // Faster than dash burst
@@ -184,7 +184,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.06, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
