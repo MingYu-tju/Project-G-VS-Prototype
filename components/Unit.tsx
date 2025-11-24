@@ -1,5 +1,4 @@
 
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler } from 'three';
@@ -8,6 +7,42 @@ import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
 
 const FRAME_DURATION = 1 / 60;
+
+// --- IDLE POSE CONFIGURATION (Synced with Player) ---
+const IDLE_POSE = {
+    TORSO: { x: 0.25, y: 0, z: 0.0 },
+    HEAD: { x: 0.15, y: 0.25 },
+    LEFT_ARM: {
+        SHOULDER: { x: -0, y: -0.3, z: -0.25},
+        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }
+    },
+    RIGHT_ARM: {
+        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
+        ELBOW:    { x: -1, y: -0.4, z: 0.0 }
+    },
+    LEFT_LEG: {
+        THIGH: { x: -0.4, y: -0.1, z: -0.3 },
+        KNEE:  { x: 0.6 },
+        ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
+    },
+    RIGHT_LEG: {
+        THIGH: { x: -0.5, y: 0.1, z: 0.3 },
+        KNEE:  { x: 0.6 },
+        ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
+    }
+};
+
+// --- DASH POSE (SHIELD GUARD) ---
+const DASH_POSE = {
+    RIGHT_ARM: {
+        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
+        ELBOW: { x: -1, y: 0.0, z: 0.0 }
+    },
+    SHIELD: {
+        ROTATION: { x: -0.3, y: -1, z: -1.2 },
+        POSITION: { x: 0, y: -0.6, z: -0.1 }
+    }
+};
 
 // --- VISUALS ---
 
@@ -144,7 +179,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
-  const torsoRef = useRef<Group>(null); // NEW: Wrap Waist+Chest
+  const torsoRef = useRef<Group>(null); 
   const upperBodyRef = useRef<Group>(null); 
   const legsRef = useRef<Group>(null);
   
@@ -156,7 +191,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const leftFootRef = useRef<Group>(null);
   
   const gunArmRef = useRef<Group>(null);
-  const rightArmRef = useRef<Group>(null); // Added Right Arm Ref for animation sync
+  const rightArmRef = useRef<Group>(null); 
+  const rightForeArmRef = useRef<Group>(null); // NEW: Right Forearm
+  const leftForeArmRef = useRef<Group>(null); // NEW: Left Forearm
+  const shieldRef = useRef<Group>(null); // NEW: Independent Shield
   const muzzleRef = useRef<Group>(null);
   
   // Physics State
@@ -172,7 +210,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const currentFallTime = useRef(0);
   const totalPredictedFallFrames = useRef(0);
   const currentUpperBodyTilt = useRef(0);
-  const [dashTriggerTime, setDashTriggerTime] = useState(0); // For BoostBurst
+  const [dashTriggerTime, setDashTriggerTime] = useState(0); 
 
   // Walking Animation
   const walkCycle = useRef(0);
@@ -276,6 +314,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     shootCooldown.current -= delta;
     
+    // AI LOGIC - Simple State Machine
     if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
         if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
              
@@ -520,13 +559,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     // --- PROCEDURAL ANIMATION ---
 
+    const isIdle = isGrounded.current && aiState.current === 'IDLE' && landingFrames.current <= 0;
+    const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
+
     // 0. Walk Cycle (NPC)
-    if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+    if (isWalking) {
         const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
         walkCycle.current += delta * 8 * (speed / GLOBAL_CONFIG.WALK_SPEED);
     }
 
-    
     // 1. Head Tracking
     if (headRef.current && !stunned) {
         const tPos = getTargetPos();
@@ -546,22 +587,28 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              }
         }
         if (!shouldLook) {
-            // NEW: Stabilize Head during Walk
-            let targetQuat = new Quaternion(); // Identity by default
+            // Revert to Idle pose or Neutral
+             let targetX = 0;
+             let targetY = 0;
+             if (isIdle) {
+                 targetX = IDLE_POSE.HEAD.x;
+                 targetY = IDLE_POSE.HEAD.y;
+             }
             
-            // If walking, counter-rotate the head slightly to match body twist
-            if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
+            // Stabilize Head during Walk
+            if (isWalking) {
                  const t = walkCycle.current;
-                 const sin = Math.sin(t);
-                 // Unit body rotates sin * 0.1, head rotates -sin * 0.1
-                 targetQuat.setFromEuler(new Euler(0, -sin * 0.1, 0));
+                 targetY = -Math.sin(t + 0.25) * 0.1; 
             }
             
-            headRef.current.quaternion.slerp(targetQuat, 0.1);
+            const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, 0));
+            headRef.current.quaternion.slerp(q, 0.1 * timeScale);
         }
     }
 
-    // 2. Gun Arm Aiming
+    // 2. Arms (Synced with Player Logic)
+    
+    // Left Arm (Gun Arm)
     if (gunArmRef.current && !stunned) {
          if (aiState.current === 'SHOOTING') {
              const tPos = getTargetPos();
@@ -590,43 +637,116 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const identity = new Quaternion();
 
                  if (elapsedFrames < startup) {
-                     // PHASE 1: Raise Gun
                      if (elapsedFrames < aiming) {
                          const t = elapsedFrames / aiming;
                          const smoothT = 1 - Math.pow(1 - t, 3);
                          gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
-                     } 
-                     // PHASE 2: Hold Gun
-                     else {
+                     } else {
                          gunArmRef.current.quaternion.copy(targetQuat);
                      }
                  } else {
-                     // PHASE 3: Recoil / Recovery
                      const t = (elapsedFrames - startup) / recovery;
                      gunArmRef.current.quaternion.slerpQuaternions(targetQuat, identity, t);
                  }
              }
          } else {
-             // Idle or Walking
-             if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING') {
-                 const t = walkCycle.current;
-                 const sin = Math.sin(t + Math.PI);
-                 gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
-             } else {
+             if (isWalking) {
+                 // Walking Swing (optional, keeping minimal for NPC)
                  gunArmRef.current.rotation.set(0.35, -0.3, 0);
+             } else {
+                 if (isIdle) {
+                    const target = IDLE_POSE.LEFT_ARM.SHOULDER;
+                    const lerpSpeed = 0.1 * timeScale;
+                    gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, target.x, lerpSpeed);
+                    gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, target.y, lerpSpeed);
+                    gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, target.z, lerpSpeed);
+                 } else {
+                    gunArmRef.current.rotation.set(0.35, -0.3, 0);
+                 }
              }
          }
     }
     
-    // Right Arm Swing
-    if (rightArmRef.current && !stunned) {
-        if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
-             const t = walkCycle.current;
-             const sin = Math.sin(t);
-             rightArmRef.current.rotation.set(0.35 + sin * 0.5, 0.3, 0);
-        } else {
-             rightArmRef.current.rotation.set(0.35, 0.3, 0);
+    // Left Forearm
+    if (leftForeArmRef.current && !stunned) {
+        let targetX = -0.65;
+        let targetY = 0.3;
+        let targetZ = 0;
+
+        if (isIdle) {
+             targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
+             targetY = IDLE_POSE.LEFT_ARM.ELBOW.y;
+             targetZ = IDLE_POSE.LEFT_ARM.ELBOW.z;
         }
+        const lerpSpeed = 0.1 * timeScale;
+        leftForeArmRef.current.rotation.x = MathUtils.lerp(leftForeArmRef.current.rotation.x, targetX, lerpSpeed);
+        leftForeArmRef.current.rotation.y = MathUtils.lerp(leftForeArmRef.current.rotation.y, targetY, lerpSpeed);
+        leftForeArmRef.current.rotation.z = MathUtils.lerp(leftForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+    
+    // Right Arm (Shield Arm)
+    if (rightArmRef.current && !stunned) {
+        let targetX = 0.35;
+        let targetY = 0.3;
+        let targetZ = 0;
+
+        if (aiState.current === 'DASHING') {
+            targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
+            targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
+            targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
+        } else if (isIdle) {
+            targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
+            targetY = IDLE_POSE.RIGHT_ARM.SHOULDER.y;
+            targetZ = IDLE_POSE.RIGHT_ARM.SHOULDER.z;
+        }
+        
+        const lerpSpeed = (aiState.current === 'DASHING' ? 0.2 : 0.1) * timeScale;
+        rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, targetX, lerpSpeed);
+        rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, targetY, lerpSpeed);
+        rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+
+    // Right Forearm
+    if (rightForeArmRef.current && !stunned) {
+        let targetX = -0.65;
+        let targetY = -0.3;
+        let targetZ = 0;
+        
+        if (aiState.current === 'DASHING') {
+            targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
+            targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
+            targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
+        } else if (isIdle) {
+            targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
+            targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
+            targetZ = IDLE_POSE.RIGHT_ARM.ELBOW.z;
+        }
+
+        const lerpSpeed = (aiState.current === 'DASHING' ? 0.2 : 0.1) * timeScale;
+        rightForeArmRef.current.rotation.x = MathUtils.lerp(rightForeArmRef.current.rotation.x, targetX, lerpSpeed);
+        rightForeArmRef.current.rotation.y = MathUtils.lerp(rightForeArmRef.current.rotation.y, targetY, lerpSpeed);
+        rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+    }
+
+    // Shield (Independent)
+    if (shieldRef.current && !stunned) {
+        let targetPos = { x: 0, y: -0.5, z: 0.1 };
+        let targetRot = { x: -0.2, y: 0, z: 0 };
+
+        if (aiState.current === 'DASHING') {
+            targetPos = DASH_POSE.SHIELD.POSITION;
+            targetRot = DASH_POSE.SHIELD.ROTATION;
+        }
+
+        const lerpSpeed = (aiState.current === 'DASHING' ? 0.15 : 0.1) * timeScale;
+        
+        shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
+        shieldRef.current.position.y = MathUtils.lerp(shieldRef.current.position.y, targetPos.y, lerpSpeed);
+        shieldRef.current.position.z = MathUtils.lerp(shieldRef.current.position.z, targetPos.z, lerpSpeed);
+
+        shieldRef.current.rotation.x = MathUtils.lerp(shieldRef.current.rotation.x, targetRot.x, lerpSpeed);
+        shieldRef.current.rotation.y = MathUtils.lerp(shieldRef.current.rotation.y, targetRot.y, lerpSpeed);
+        shieldRef.current.rotation.z = MathUtils.lerp(shieldRef.current.rotation.z, targetRot.z, lerpSpeed);
     }
 
     // 3. Leg Inertia Sway & Animation Logic
@@ -664,68 +784,69 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              currentFallTime.current = 0;
          }
 
-         const invRot = rotateGroupRef.current.quaternion.clone().invert();
-         const localVel = velocity.current.clone().applyQuaternion(invRot);
-         const targetPitch = isFalling ? 0 : localVel.z * 1.5; 
-         const targetRoll = isFalling ? 0 : -localVel.x * 1.5;
-         legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
-         legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
+         // REMOVED INERTIA SWAY FOR NPC
+         // We ensure the legs container is straight (0,0,0) locally
+         legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, 0, 0.1);
+         legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, 0, 0.1);
 
-         let targetRightThighX = 0;
-         let targetLeftThighX = 0;
+         let targetRightThigh = { x: 0, y: 0, z: 0 };
+         let targetLeftThigh = { x: 0, y: 0, z: 0 };
          let targetRightKneeX = 0.2; 
          let targetLeftKneeX = 0.2;  
+         let targetRightAnkle = { x: -0.2, y: 0, z: 0 };
+         let targetLeftAnkle = { x: -0.2, y: 0, z: 0 };
          
-         let targetRightFootX = aiState.current === 'DASHING' ? 0.8 : -0.2; 
-         let targetLeftFootX = -0.2; 
-         
-         let targetSpread = 0;
          let targetBodyTilt = 0;
+         let targetBodyTwist = 0;
+         let targetBodyRoll = 0;
          let lerpSpeed = 0.2 * timeScale; 
 
-         if (isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING') {
-            // --- WALKING ANIMATION (OPTIMIZED BOW/CYCLOID STEP) ---
+         if (isWalking) {
+            // --- WALKING ANIMATION ---
             const t = walkCycle.current;
             const sin = Math.sin(t);
             const cos = Math.cos(t);
 
-            // Thighs: Simple Sine Wave (Negative = Forward)
-            targetRightThighX = -sin * 0.8;
-            targetLeftThighX = sin * 0.8;
+            targetRightThigh.x = -sin * 0.8;
+            targetLeftThigh.x = sin * 0.8;
             
-            // Knees: Lift (Bend) when passing under body (Cos peak)
             targetRightKneeX = Math.max(0, cos) * 1.2 + 0.1;
             targetLeftKneeX = Math.max(0, -cos) * 1.2 + 0.1;
             
-            // Ankles: Compensate Knee + Heel Strike/Toe Off
-            // 1. Compensate Knee Bend (keep foot flat-ish) -> -Knee * 0.4
-            // 2. Heel Strike (Leg Fwd/Sin=1) -> Toes Up (Neg)
-            // 3. Toe Off (Leg Back/Sin=-1) -> Toes Down (Pos)
-            targetRightFootX = -(targetRightKneeX * 0.4) - (sin * 0.3);
-            targetLeftFootX = -(targetLeftKneeX * 0.4) + (sin * 0.3);
+            targetRightAnkle.x = -(targetRightKneeX * 0.4) - (sin * 0.3);
+            targetLeftAnkle.x = -(targetLeftKneeX * 0.4) + (sin * 0.3);
             
             targetBodyTilt = 0.2;
 
             if (upperBodyRef.current) {
-                upperBodyRef.current.position.y = 0.65 + Math.abs(cos) * 0.05; // Bob
+                //upperBodyRef.current.position.y = 0.65 + Math.abs(cos) * 0.05; // Bob
                 upperBodyRef.current.rotation.y = sin * 0.1; // Twist
                 upperBodyRef.current.rotation.z = cos * 0.02; // Sway
             }
          }
          else if (aiState.current === 'DASHING') {
-             targetRightThighX = -2; // Lift Right Leg
-             targetRightKneeX = 2.5; // Bend Right Knee (Kick)
-             targetLeftThighX = 0.45; // Drag Left Leg
-             targetLeftFootX = 0.8; // Left Foot Backward
-             targetSpread = 0.35;
-             targetBodyTilt = 0.75; // Forward Lean
+             targetRightThigh.x = -1; // Lift Right Leg
+             targetRightKneeX = 2.6; // Bend Right Knee (Kick)
+             targetLeftKneeX = 0.3; // Bend Right Knee (Kick)
+             targetLeftThigh.x = 1.1; // Drag Left Leg
+             targetLeftThigh.y = -0.5; // Rotate Out
+             targetLeftThigh.z = -0.2; // Open Up
+             targetLeftAnkle.x = 0.25; 
+             targetRightAnkle.x = 0.8; 
+             targetBodyTilt = 0.65; // Forward Lean
              lerpSpeed = 0.15 * timeScale;
+             upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
+             upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
          } else if (isFalling) {
-             targetRightThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
-             targetLeftThighX = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
+             targetRightThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
+             targetLeftThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
-             targetSpread = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight; 
+             
+             // Spread
+             targetRightThigh.z = GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+             targetLeftThigh.z = -GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+             
              targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
              lerpSpeed = 0.25 * timeScale;
          } else if (visualLandingFrames.current > 0) {
@@ -740,13 +861,16 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  w = 1 - ((progress - r) / (1 - r));
              }
              
-             targetRightThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
-             targetLeftThighX = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
+             targetRightThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
+             targetLeftThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
              targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
              targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
-             targetRightFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
-             targetLeftFootX = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
-             targetSpread = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             targetRightAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
+             targetLeftAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
+             
+             targetRightThigh.z = GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             targetLeftThigh.z = -GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+             
              targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
              rotateGroupRef.current.position.y = - (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
              lerpSpeed = 0.25 * timeScale;
@@ -754,21 +878,50 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
              rotateGroupRef.current.position.y = MathUtils.lerp(rotateGroupRef.current.position.y, 0, lerpSpeed);
              
-             // Reset Torso Bob/Sway from walking
+             if (isIdle) {
+                 targetRightThigh.x = IDLE_POSE.RIGHT_LEG.THIGH.x;
+                 targetRightThigh.y = IDLE_POSE.RIGHT_LEG.THIGH.y;
+                 targetRightThigh.z = IDLE_POSE.RIGHT_LEG.THIGH.z;
+                 
+                 targetLeftThigh.x = IDLE_POSE.LEFT_LEG.THIGH.x;
+                 targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
+                 targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
+                 
+                 targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
+                 targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
+                 
+                 targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
+                 targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;
+                 targetRightAnkle.z = IDLE_POSE.RIGHT_LEG.ANKLE.z;
+                 
+                 targetLeftAnkle.x = IDLE_POSE.LEFT_LEG.ANKLE.x;
+                 targetLeftAnkle.y = IDLE_POSE.LEFT_LEG.ANKLE.y;
+                 targetLeftAnkle.z = IDLE_POSE.LEFT_LEG.ANKLE.z;
+                 
+                 targetBodyTilt = IDLE_POSE.TORSO.x;
+                 targetBodyTwist = IDLE_POSE.TORSO.y;
+                 targetBodyRoll = IDLE_POSE.TORSO.z;
+             } else {
+                targetRightThigh.z = 0.05;
+                targetLeftThigh.z = -0.05;
+             }
+
              if (upperBodyRef.current) {
                 upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
-                upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.1);
-                upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.1);
+                upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetBodyTwist, 0.1);
+                upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetBodyRoll, 0.1);
             }
          }
          
          if (rightLegRef.current) {
-             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThighX, lerpSpeed);
-             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, 0.05 + targetSpread, lerpSpeed);
+             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThigh.x, lerpSpeed);
+             rightLegRef.current.rotation.y = MathUtils.lerp(rightLegRef.current.rotation.y, targetRightThigh.y, lerpSpeed);
+             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, targetRightThigh.z, lerpSpeed);
          }
          if (leftLegRef.current) {
-             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThighX, lerpSpeed);
-             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, -0.05 - targetSpread, lerpSpeed);
+             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThigh.x, lerpSpeed);
+             leftLegRef.current.rotation.y = MathUtils.lerp(leftLegRef.current.rotation.y, targetLeftThigh.y, lerpSpeed);
+             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, targetLeftThigh.z, lerpSpeed);
          }
          if (rightLowerLegRef.current) {
              rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
@@ -777,10 +930,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
          }
          if (rightFootRef.current) {
-             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightFootX, lerpSpeed);
+             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightAnkle.x, lerpSpeed);
+             rightFootRef.current.rotation.y = MathUtils.lerp(rightFootRef.current.rotation.y, targetRightAnkle.y, lerpSpeed);
+             rightFootRef.current.rotation.z = MathUtils.lerp(rightFootRef.current.rotation.z, targetRightAnkle.z, lerpSpeed);
          }
          if (leftFootRef.current) {
-             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftFootX, lerpSpeed);
+             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftAnkle.x, lerpSpeed);
+             leftFootRef.current.rotation.y = MathUtils.lerp(leftFootRef.current.rotation.y, targetLeftAnkle.y, lerpSpeed);
+             leftFootRef.current.rotation.z = MathUtils.lerp(leftFootRef.current.rotation.z, targetLeftAnkle.z, lerpSpeed);
          }
 
          currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
@@ -935,26 +1092,34 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]}>
+                            {/* FOREARM */}
+                            <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
+                                {/* 1. Inner Skeleton */}
                                 <mesh>
                                     <boxGeometry args={[0.25, 0.6, 0.3]} />
                                     <meshToonMaterial color="#444" />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
+                                
+                                {/* 2. Outer Forearm Armor */}
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                        <mesh>
+                                    <mesh>
                                         <boxGeometry args={[0.28, 0.6, 0.35]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        <group position={[0.3, 0, 0.1]} rotation={[0, 0, 0]}>
+                                    </mesh>
+                                </group>
+                                
+                                {/* 3. Independent Shield Group */}
+                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
+                                        <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
                                             <mesh position={[0, 0.2, 0]}>
-                                                <boxGeometry args={[0.1, 1.4, 0.6]} />
+                                                <boxGeometry args={[0.1, 1.7, 0.7]} />
                                                 <meshToonMaterial color={armorColor} />
                                                 <Edges threshold={15} color="black" />
                                             </mesh>
                                             <mesh position={[0.06, 0.2, 0]}>
-                                                <boxGeometry args={[0.05, 1.2, 0.4]} />
+                                                <boxGeometry args={[0.05, 1.5, 0.5]} />
                                                 <meshToonMaterial color="#ff0000" />
                                             </mesh>
                                         </group>
@@ -969,7 +1134,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]}>
+                            {/* FOREARM */}
+                            <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
                                 <mesh>
                                     <boxGeometry args={[0.25, 0.6, 0.3]} />
                                     <meshToonMaterial color="#444" />
