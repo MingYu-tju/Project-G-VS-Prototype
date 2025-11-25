@@ -2108,7 +2108,7 @@ export const Player: React.FC = () => {
                                             <meshToonMaterial color={feetColor} />
                                             <Edges threshold={15} color="black" />
                                         </mesh>
-                                    </mesh>
+                                    </group>
                                 </group>
                         </group>
                     </group>
