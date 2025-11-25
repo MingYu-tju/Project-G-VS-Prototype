@@ -56,7 +56,7 @@ export enum LockState {
   RED = 'RED' // Close, tracking active
 }
 
-export const RED_LOCK_DISTANCE = 45;
+export const RED_LOCK_DISTANCE = 70;
 
 export interface Projectile {
   id: string;
