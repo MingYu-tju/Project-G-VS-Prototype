@@ -1,9 +1,11 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color } from 'three';
 import { Trail, Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE } from '../types';
+import { IDLE_POSE, DASH_POSE, MELEE_STARTUP_POSE, MELEE_SLASH_POSE } from '../animations';
 import { 
     DASH_SFX_BASE64, 
     SHOOT_SFX_BASE64,
@@ -19,85 +21,10 @@ const FRAME_DURATION = 1 / 60;
 // --- MELEE CONFIGURATION ---
 type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH' | 'RECOVERY';
 
-// --- POSE CONFIGURATIONS ---
-
-// Default Idle values from old config (mapped to MechPose structure)
-const IDLE_POSE = {
-    TORSO: { x: 0.25, y: 0, z: 0.0 },
-    HEAD: { x: -0.25, y: 0.25 },
-    LEFT_ARM: {
-        SHOULDER: { x: -0, y: -0.3, z: -0.25},
-        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }
-    },
-    RIGHT_ARM: {
-        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-        ELBOW:    { x: -1, y: -0.4, z: 0.0 }
-    },
-    LEFT_LEG: {
-        THIGH: { x: -0.4, y: -0.1, z: -0.3 },
-        KNEE:  { x: 0.6 },
-        ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
-    },
-    RIGHT_LEG: {
-        THIGH: { x: -0.5, y: 0.1, z: 0.3 },
-        KNEE:  { x: 0.6 },
-        ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
-    }
-};
-
-const DASH_POSE = {
-    RIGHT_ARM: {
-        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
-        ELBOW: { x: -1, y: 0.0, z: 0.0 }
-    },
-    SHIELD: {
-        ROTATION: { x: -0.3, y: -1, z: -1.2 },
-        POSITION: { x: 0, y: -0.6, z: -0.1 }
-    }
-};
-
-// MELEE POSES - Updated with new structure
-const MELEE_POSE_DATA: { STARTUP: MechPose, SLASH: MechPose } = {
-    STARTUP: {
-        ...DEFAULT_MECH_POSE,
-        TORSO: { x: 0.1, y: 0.8, z: 0 },
-        CHEST: { x: 0, y: 0, z: 0 }, // Default
-        HEAD: { x: 0, y: 0, z: 0 },
-        LEFT_ARM: {
-            SHOULDER: { x: -1.2, y: 0.5, z: -0.8 }, 
-            ELBOW: { x: -2.0, y: 0, z: 0 },
-            FOREARM: { x: 0, y: 0, z: 0 },
-            WRIST: { x: 0, y: 0, z: 0 }
-        },
-        RIGHT_ARM: {
-            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, 
-            ELBOW: { x: -1, y: -0.4, z: 0 },
-            FOREARM: { x: 0, y: 0, z: 0 },
-            WRIST: { x: 0, y: 0, z: 0 }
-        },
-        LEFT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
-        RIGHT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
-    },
-    SLASH: {
-        ...DEFAULT_MECH_POSE,
-        TORSO: { x: 0.2, y: -0.8, z: 0 },
-        CHEST: { x: 0, y: 0, z: 0 }, // Default
-        HEAD: { x: 0, y: 0, z: 0 },
-        LEFT_ARM: {
-            SHOULDER: { x: 0.2, y: -0.8, z: 0.8 }, 
-            ELBOW: { x: -0.1, y: 0, z: 0 },
-            FOREARM: { x: 0, y: 0, z: 0 },
-            WRIST: { x: 0, y: 0, z: 0 }
-        },
-        RIGHT_ARM: {
-            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-            ELBOW: { x: -1, y: -0.4, z: 0 },
-            FOREARM: { x: 0, y: 0, z: 0 },
-            WRIST: { x: 0, y: 0, z: 0 }
-        },
-        LEFT_LEG: { THIGH: {x:0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
-        RIGHT_LEG: { THIGH: {x:-0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
-    }
+// --- SHIELD CONFIG (Keeping procedural for now) ---
+const SHIELD_POSE_DATA = {
+    ROTATION: { x: -0.3, y: -1, z: -1.2 },
+    POSITION: { x: 0, y: -0.6, z: -0.1 }
 };
 
 // ... Audio Manager code omitted for brevity (same as before) ...
@@ -1333,9 +1260,9 @@ export const Player: React.FC = () => {
 
                 if (meleeState.current !== 'NONE') {
                     // Melee overrides aiming
-                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.SHOULDER;
+                    let pose = MELEE_STARTUP_POSE.LEFT_ARM.SHOULDER;
                     if (meleeState.current === 'SLASH') {
-                        pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.SHOULDER;
+                        pose = MELEE_SLASH_POSE.LEFT_ARM.SHOULDER;
                     }
                     const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
                     const lerpSpeed = meleeState.current === 'SLASH' ? 0.4 : 0.2;
@@ -1386,8 +1313,8 @@ export const Player: React.FC = () => {
                 let targetZ = 0;
 
                 if (meleeState.current !== 'NONE') {
-                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.ELBOW;
-                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.ELBOW;
+                    let pose = MELEE_STARTUP_POSE.LEFT_ARM.ELBOW;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.LEFT_ARM.ELBOW;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isIdlePose) {
                     targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
@@ -1408,8 +1335,8 @@ export const Player: React.FC = () => {
                 let targetZ = 0;
 
                 if (meleeState.current !== 'NONE') {
-                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.SHOULDER;
-                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.SHOULDER;
+                    let pose = MELEE_STARTUP_POSE.RIGHT_ARM.SHOULDER;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM.SHOULDER;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
                     targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
@@ -1435,8 +1362,8 @@ export const Player: React.FC = () => {
                 let targetZ = 0;
                 
                 if (meleeState.current !== 'NONE') {
-                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.ELBOW;
-                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.ELBOW;
+                    let pose = MELEE_STARTUP_POSE.RIGHT_ARM.ELBOW;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM.ELBOW;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
                     targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
@@ -1462,8 +1389,8 @@ export const Player: React.FC = () => {
                 let twist = { x: 0, y: 0, z: 0 };
                 let wrist = { x: 0, y: 0, z: 0 };
                 if (meleeState.current !== 'NONE') {
-                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM;
-                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.LEFT_ARM;
+                    let pose = MELEE_STARTUP_POSE.LEFT_ARM;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.LEFT_ARM;
                     twist = pose.FOREARM;
                     wrist = pose.WRIST;
                 }
@@ -1482,8 +1409,8 @@ export const Player: React.FC = () => {
                 let twist = { x: 0, y: 0, z: 0 };
                 let wrist = { x: 0, y: 0, z: 0 };
                 if (meleeState.current !== 'NONE') {
-                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM;
-                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM;
+                    let pose = MELEE_STARTUP_POSE.RIGHT_ARM;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM;
                     twist = pose.FOREARM;
                     wrist = pose.WRIST;
                 }
@@ -1503,8 +1430,8 @@ export const Player: React.FC = () => {
                 let targetRot = { x: -0.2, y: 0, z: 0 };
 
                 if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
-                    targetPos = DASH_POSE.SHIELD.POSITION;
-                    targetRot = DASH_POSE.SHIELD.ROTATION;
+                    targetPos = SHIELD_POSE_DATA.POSITION;
+                    targetRot = SHIELD_POSE_DATA.ROTATION;
                 }
 
                 const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.15 : 0.1) * timeScale;
@@ -1540,12 +1467,13 @@ export const Player: React.FC = () => {
                     let targetZ = 0;
                     
                     if (meleeState.current !== 'NONE') {
-                        let pose = MELEE_POSE_DATA.STARTUP.HEAD;
-                        if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.HEAD;
+                        let pose = MELEE_STARTUP_POSE.HEAD;
+                        if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.HEAD;
                         targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                     } else if (isIdlePose) {
                         targetX = IDLE_POSE.HEAD.x;
                         targetY = IDLE_POSE.HEAD.y;
+                        targetZ = IDLE_POSE.HEAD.z;
                     }
                     
                     if (nextVisualState === 'WALK') {
@@ -1659,14 +1587,14 @@ export const Player: React.FC = () => {
                     
                     if (meleeState.current !== 'NONE') {
                         // Override from Melee Data
-                        const pose = MELEE_POSE_DATA.STARTUP;
+                        const pose = MELEE_STARTUP_POSE;
                         targetBodyTilt = pose.TORSO.x;
                         targetBodyTwist = pose.TORSO.y; 
                         targetBodyRoll = pose.TORSO.z;
                         targetChest = pose.CHEST; // Use Melee Chest
                     } 
                 } else if (meleeState.current === 'SLASH') {
-                    const pose = MELEE_POSE_DATA.SLASH;
+                    const pose = MELEE_SLASH_POSE;
                     targetRightThigh = pose.RIGHT_LEG.THIGH;
                     targetLeftThigh = pose.LEFT_LEG.THIGH;
                     targetRightKneeX = pose.RIGHT_LEG.KNEE;
@@ -1719,8 +1647,8 @@ export const Player: React.FC = () => {
                         targetLeftThigh.x = IDLE_POSE.LEFT_LEG.THIGH.x;
                         targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
                         targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
-                        targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
-                        targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
+                        targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE;
+                        targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE;
                         targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
                         targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;
                         targetRightAnkle.z = IDLE_POSE.RIGHT_LEG.ANKLE.z;
@@ -1730,6 +1658,7 @@ export const Player: React.FC = () => {
                         targetBodyTilt = IDLE_POSE.TORSO.x;
                         targetBodyTwist = IDLE_POSE.TORSO.y;
                         targetBodyRoll = IDLE_POSE.TORSO.z;
+                        targetChest = IDLE_POSE.CHEST;
                     } else {
                         targetRightThigh.z = 0.05;
                         targetLeftThigh.z = -0.05;

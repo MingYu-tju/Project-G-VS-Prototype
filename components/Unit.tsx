@@ -5,43 +5,14 @@ import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, Additiv
 import { Text, Html, Edges, useGLTF } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
+import { IDLE_POSE, DASH_POSE } from '../animations';
 
 const FRAME_DURATION = 1 / 60;
 
-// --- IDLE POSE CONFIGURATION (Synced with Player) ---
-const IDLE_POSE = {
-    TORSO: { x: 0.25, y: 0, z: 0.0 },
-    HEAD: { x: 0.15, y: 0.25 },
-    LEFT_ARM: {
-        SHOULDER: { x: -0, y: -0.3, z: -0.25},
-        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }
-    },
-    RIGHT_ARM: {
-        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-        ELBOW:    { x: -1, y: -0.4, z: 0.0 }
-    },
-    LEFT_LEG: {
-        THIGH: { x: -0.4, y: -0.1, z: -0.3 },
-        KNEE:  { x: 0.6 },
-        ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
-    },
-    RIGHT_LEG: {
-        THIGH: { x: -0.5, y: 0.1, z: 0.3 },
-        KNEE:  { x: 0.6 },
-        ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
-    }
-};
-
-// --- DASH POSE (SHIELD GUARD) ---
-const DASH_POSE = {
-    RIGHT_ARM: {
-        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
-        ELBOW: { x: -1, y: 0.0, z: 0.0 }
-    },
-    SHIELD: {
-        ROTATION: { x: -0.3, y: -1, z: -1.2 },
-        POSITION: { x: 0, y: -0.6, z: -0.1 }
-    }
+// --- SHIELD POSE CONFIG (Keeping procedural for now) ---
+const SHIELD_POSE_DATA = {
+    ROTATION: { x: -0.3, y: -1, z: -1.2 },
+    POSITION: { x: 0, y: -0.6, z: -0.1 }
 };
 
 // --- VISUALS ---
@@ -836,8 +807,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         let targetRot = { x: -0.2, y: 0, z: 0 };
 
         if (aiState.current === 'DASHING') {
-            targetPos = DASH_POSE.SHIELD.POSITION;
-            targetRot = DASH_POSE.SHIELD.ROTATION;
+            targetPos = SHIELD_POSE_DATA.POSITION;
+            targetRot = SHIELD_POSE_DATA.ROTATION;
         }
 
         const lerpSpeed = (aiState.current === 'DASHING' ? 0.15 : 0.1) * timeScale;
@@ -989,8 +960,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
                  targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
                  
-                 targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
-                 targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
+                 targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE;
+                 targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE;
                  
                  targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
                  targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;

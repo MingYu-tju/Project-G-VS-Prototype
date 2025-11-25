@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, ContactShadows, PerspectiveCamera } from '@react-three/drei';
-import { MechPose, DEFAULT_MECH_POSE } from '../types';
+import { MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
 import { PosableUnit } from './PosableUnit';
 
 const RangeControl: React.FC<{ 
@@ -49,9 +49,45 @@ const VectorControl: React.FC<{
     );
 };
 
+// Helper to round numbers for cleaner output
+const r = (num: number) => parseFloat(num.toFixed(2));
+const fmtVec = (v: RotationVector) => `{ x: ${r(v.x)}, y: ${r(v.y)}, z: ${r(v.z)} }`;
+
+const formatPoseToObj = (pose: MechPose): string => {
+    return `{
+    TORSO: ${fmtVec(pose.TORSO)},
+    CHEST: ${fmtVec(pose.CHEST)},
+    HEAD: ${fmtVec(pose.HEAD)},
+    LEFT_ARM: {
+        SHOULDER: ${fmtVec(pose.LEFT_ARM.SHOULDER)},
+        ELBOW: ${fmtVec(pose.LEFT_ARM.ELBOW)},
+        FOREARM: ${fmtVec(pose.LEFT_ARM.FOREARM)},
+        WRIST: ${fmtVec(pose.LEFT_ARM.WRIST)}
+    },
+    RIGHT_ARM: {
+        SHOULDER: ${fmtVec(pose.RIGHT_ARM.SHOULDER)},
+        ELBOW: ${fmtVec(pose.RIGHT_ARM.ELBOW)},
+        FOREARM: ${fmtVec(pose.RIGHT_ARM.FOREARM)},
+        WRIST: ${fmtVec(pose.RIGHT_ARM.WRIST)}
+    },
+    LEFT_LEG: {
+        THIGH: ${fmtVec(pose.LEFT_LEG.THIGH)},
+        KNEE: ${r(pose.LEFT_LEG.KNEE)},
+        ANKLE: ${fmtVec(pose.LEFT_LEG.ANKLE)}
+    },
+    RIGHT_LEG: {
+        THIGH: ${fmtVec(pose.RIGHT_LEG.THIGH)},
+        KNEE: ${r(pose.RIGHT_LEG.KNEE)},
+        ANKLE: ${fmtVec(pose.RIGHT_LEG.ANKLE)}
+    }
+}`;
+};
+
 export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [pose, setPose] = useState<MechPose>(JSON.parse(JSON.stringify(DEFAULT_MECH_POSE)));
     const [weapon, setWeapon] = useState<'GUN' | 'SABER'>('SABER');
+    const [showImport, setShowImport] = useState(false);
+    const [importText, setImportText] = useState('');
 
     const updatePose = (path: string[], axis: string, val: number) => {
         setPose(prev => {
@@ -76,13 +112,70 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     };
 
     const copyData = () => {
-        const json = JSON.stringify(pose, null, 4);
-        navigator.clipboard.writeText(json);
-        alert("Pose JSON copied to clipboard!");
+        const objStr = formatPoseToObj(pose);
+        navigator.clipboard.writeText(objStr);
+        alert("Pose Object copied to clipboard! You can paste it directly into animations.ts");
+    };
+
+    const handleImport = () => {
+        try {
+            // Use Function constructor to parse the JS object string loosely (JSON.parse requires strict quotes)
+            // eslint-disable-next-line no-new-func
+            const parseFn = new Function(`return ${importText}`);
+            const importedPose = parseFn();
+            
+            // Basic validation
+            if (importedPose && importedPose.TORSO && importedPose.LEFT_ARM) {
+                // Merge with default to ensure new fields (like CHEST) exist if importing old data
+                const merged = { ...DEFAULT_MECH_POSE, ...importedPose };
+                // Deep merge specific nested structures if needed, but spread works for top level.
+                // For safety on nested:
+                if(importedPose.LEFT_ARM) merged.LEFT_ARM = { ...DEFAULT_MECH_POSE.LEFT_ARM, ...importedPose.LEFT_ARM };
+                if(importedPose.RIGHT_ARM) merged.RIGHT_ARM = { ...DEFAULT_MECH_POSE.RIGHT_ARM, ...importedPose.RIGHT_ARM };
+                
+                setPose(merged);
+                setShowImport(false);
+            } else {
+                alert("Invalid pose object structure.");
+            }
+        } catch (e) {
+            alert("Failed to parse object. Ensure it is a valid JS object string.");
+            console.error(e);
+        }
     };
 
     return (
         <div className="absolute inset-0 z-[100] bg-[#111] flex flex-col md:flex-row text-gray-200 font-sans">
+            
+            {/* IMPORT MODAL */}
+            {showImport && (
+                <div className="absolute inset-0 z-[110] bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-gray-600 p-6 rounded-lg w-full max-w-2xl shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-4">IMPORT POSE OBJECT</h3>
+                        <textarea 
+                            className="w-full h-64 bg-black/50 border border-gray-700 p-4 font-mono text-xs text-green-400 mb-4 focus:outline-none focus:border-cyan-500"
+                            placeholder="Paste the pose object here (e.g. { TORSO: { x: 0... } })..."
+                            value={importText}
+                            onChange={(e) => setImportText(e.target.value)}
+                        />
+                        <div className="flex justify-end space-x-3">
+                            <button 
+                                onClick={() => setShowImport(false)}
+                                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold"
+                            >
+                                CANCEL
+                            </button>
+                            <button 
+                                onClick={handleImport}
+                                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-bold"
+                            >
+                                APPLY POSE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 3D VIEWPORT */}
             <div className="flex-1 relative h-[50vh] md:h-auto bg-gradient-to-b from-gray-900 to-gray-800">
                 <Canvas shadows>
@@ -146,13 +239,19 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         onClick={() => setWeapon(w => w === 'GUN' ? 'SABER' : 'GUN')}
                         className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-xs font-bold border border-gray-500"
                     >
-                        TOGGLE WEAPON: <span className="text-cyan-400">{weapon}</span>
+                        WEAPON: <span className="text-cyan-400">{weapon}</span>
+                    </button>
+                    <button 
+                        onClick={() => setShowImport(true)}
+                        className="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-xs font-bold border border-purple-500"
+                    >
+                        IMPORT
                     </button>
                     <button 
                         onClick={copyData}
                         className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg border border-cyan-400"
                     >
-                        COPY JSON TO CLIPBOARD
+                        COPY OBJ
                     </button>
                 </div>
             </div>
