@@ -2050,22 +2050,26 @@ export const Player: React.FC = () => {
                     </group>
 
                     <group ref={legsRef}>
+                        {/* RIGHT LEG */}
                         <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                                 <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
                                     <boxGeometry args={[0.35, 0.7, 0.4]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
+                                {/* LOWER LEG GROUP */}
                                 <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                                    {/* Shin */}
                                     <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
                                         <boxGeometry args={[0.35, 0.8, 0.45]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
-                                        <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                            <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
+                                    </mesh>
+                                    {/* Knee Pad (Sibling, not child of mesh) */}
+                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                        <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
                                     </mesh>
                                     <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
                                         <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
@@ -2073,26 +2077,30 @@ export const Player: React.FC = () => {
                                             <meshToonMaterial color={feetColor} />
                                             <Edges threshold={15} color="black" />
                                         </mesh>
-                                    </mesh>
+                                    </group>
                                 </group>
                         </group>
 
+                        {/* LEFT LEG */}
                         <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
                                 <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
                                     <boxGeometry args={[0.35, 0.7, 0.4]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
+                                {/* LOWER LEG GROUP */}
                                 <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                                    {/* Shin */}
                                     <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
                                         <boxGeometry args={[0.35, 0.8, 0.45]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
-                                        <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                            <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
+                                    </mesh>
+                                    {/* Knee Pad (Sibling) */}
+                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                        <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
                                     </mesh>
                                     <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
                                         <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
