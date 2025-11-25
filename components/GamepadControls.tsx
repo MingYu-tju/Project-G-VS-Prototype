@@ -1,15 +1,18 @@
 
+
+
 import React, { useEffect, useRef, useState } from 'react';
 
 // Actions we can bind
 // UNIFIED: DASH and JUMP are now a single 'BOOST' action (Tap = Dash, Hold = Jump/Ascend)
-type ActionType = 'BOOST' | 'SHOOT' | 'SWITCH TARGET';
+type ActionType = 'BOOST' | 'SHOOT' | 'MELEE' | 'SWITCH TARGET';
 
 // Default standard mapping (Xbox/PS layout approximations)
 // 0: A/Cross, 1: B/Circle, 2: X/Square, 3: Y/Triangle
 const DEFAULT_MAPPING: Record<number, ActionType> = {
     0: 'BOOST',          // A / Cross - Primary Movement (Dash/Jump)
     2: 'SHOOT',          // X / Square - Primary Attack
+    3: 'MELEE',          // Y / Triangle - Melee Attack
     1: 'SWITCH TARGET',  // B / Circle - Utility
 };
 
@@ -17,6 +20,7 @@ const DEFAULT_MAPPING: Record<number, ActionType> = {
 const ACTION_TO_KEY: Record<ActionType, string> = {
     'BOOST': 'l', // Maps to 'l' which handles both Dash (tap) and Ascend (hold)
     'SHOOT': 'j',
+    'MELEE': 'k',
     'SWITCH TARGET': ' '
 };
 
@@ -148,7 +152,7 @@ export const GamepadControls: React.FC = () => {
         };
 
         const buttonKeys: { [key: string]: boolean } = {
-            ' ': false, 'l': false, 'j': false
+            ' ': false, 'l': false, 'j': false, 'k': false
         };
 
         gp.buttons.forEach((btn, index) => {
@@ -259,7 +263,7 @@ export const GamepadControls: React.FC = () => {
                         </div>
 
                         <div className="space-y-4">
-                            {(['BOOST', 'SHOOT', 'SWITCH TARGET'] as ActionType[]).map((action) => (
+                            {(['BOOST', 'SHOOT', 'MELEE', 'SWITCH TARGET'] as ActionType[]).map((action) => (
                                 <div key={action} className="flex items-center justify-between group">
                                     <span className="text-gray-400 font-mono text-sm group-hover:text-white transition-colors">
                                         {action}

@@ -300,6 +300,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (stunned) {
         setIsThrusting(false);
         velocity.current.set(0, 0, 0);
+        
+        // 1. Apply Knockback Physics
         if (knockbackDir) {
              position.current.add(knockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
         }
@@ -310,6 +312,38 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             velocity.current.y = 0;
         }
 
+        // 2. Specific Stun Animation (Overrides Procedural)
+        // Forced Backward Tilt + Head Recoil
+        const progress = (now - lastHitTime) / GLOBAL_CONFIG.KNOCKBACK_DURATION;
+        // Curve: Fast recoil (0-0.2), Slow recovery (0.2-1.0)
+        let animVal = 0;
+        if (progress < 0.2) {
+            animVal = progress / 0.2;
+        } else {
+            animVal = 1 - (progress - 0.2) / 0.8;
+        }
+        
+        if (upperBodyRef.current) {
+            // Tilt back violently (negative X) and slightly diagonally based on hit dir if possible
+            // Simplification: Just back and slight roll
+            upperBodyRef.current.rotation.x = MathUtils.lerp(0, -0.8, animVal);
+            upperBodyRef.current.rotation.z = MathUtils.lerp(0, 0.2, animVal); // Slight twist
+        }
+        if (headRef.current) {
+            // Head snaps back further
+            headRef.current.rotation.x = MathUtils.lerp(0, -0.5, animVal);
+        }
+        
+        // Reset limbs to neutral hanging during stun
+        if (rightArmRef.current) rightArmRef.current.rotation.set(0, 0, 0.2);
+        if (gunArmRef.current) gunArmRef.current.rotation.set(0, 0, -0.2);
+        if (legsRef.current) {
+             legsRef.current.rotation.set(0,0,0);
+             if (rightLegRef.current) rightLegRef.current.rotation.set(0,0,0);
+             if (leftLegRef.current) leftLegRef.current.rotation.set(0,0,0);
+        }
+
+        // Boundary Check
         const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
         const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
         if (currentRadiusSq > maxRadius * maxRadius) {
@@ -318,8 +352,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             position.current.z = Math.sin(angle) * maxRadius;
         }
 
+        // UPDATE POSITION AND TARGET STORE (CRITICAL FOR CAMERA TRACKING)
         groupRef.current.position.copy(position.current);
-        return; 
+        useGameStore.getState().updateTargetPosition(id, position.current.clone());
+        
+        return; // Skip AI Logic
     }
 
     const freshState = useGameStore.getState();
@@ -1099,6 +1136,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     </mesh>
                                 </group>
                                 
+                                {/* Right Fist (NPC) */}
+                                <mesh position={[0, -0.35, 0]} castShadow>
+                                    <boxGeometry args={[0.25, 0.25, 0.25]} />
+                                    <meshToonMaterial color="#222" />
+                                </mesh>
+                                
                                 {/* 3. Independent Shield Group */}
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
                                         <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
@@ -1136,6 +1179,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
                                         </mesh>
+                                        
+                                        {/* Left Fist (NPC) */}
+                                        <mesh position={[0, -0.35, 0]} castShadow>
+                                            <boxGeometry args={[0.25, 0.25, 0.25]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+
                                         <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
                                             <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
                                                 <boxGeometry args={[0.1, 0.2, 0.15]} />

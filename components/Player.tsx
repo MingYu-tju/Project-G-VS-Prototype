@@ -4,7 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color } from 'three';
 import { Trail, Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
-import { Team, LockState, GLOBAL_CONFIG } from '../types';
+import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE } from '../types';
 import { 
     DASH_SFX_BASE64, 
     SHOOT_SFX_BASE64,
@@ -17,87 +17,84 @@ import {
 
 const FRAME_DURATION = 1 / 60;
 
-// --- IDLE POSE CONFIGURATION ---
-// 站立待机姿势配置 (仅在地面且无输入时生效)
+// --- MELEE CONFIGURATION ---
+type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH' | 'RECOVERY';
+
+// --- POSE CONFIGURATIONS ---
+
+// Default Idle values from old config (mapped to MechPose structure)
+// We use a partial update logic in Player usually, but here we define the bases.
 const IDLE_POSE = {
-    // 身体核心 (Torso)
-    TORSO: { 
-        x: 0.25,  // 躯干前倾 (正值向前)
-        y: 0, // 躯干旋转 (正值向左, 负值向右) - 稍微侧身
-        z: 0.0    // 躯干侧倾 (正值向左)
-    },
-    // 头部 (Head)
-    HEAD: { 
-        x: -0.25, // 抬头/低头 (正值低头) - 下巴微收
-        y: 0.25  // 左右转头 (正值向左)
-    },
-    // 左臂 (持枪手 - Gun Arm)
+    TORSO: { x: 0.25, y: 0, z: 0.0 },
+    HEAD: { x: -0.25, y: 0.25 },
     LEFT_ARM: {
-        SHOULDER: { x: -0, y: -0.3, z: -0.25}, // 肩膀 (x:抬起, y:前后, z:开合)
-        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }  // 肘部 (x:弯曲 负值, y:旋转, z:扭转) - 举枪
+        SHOULDER: { x: -0, y: -0.3, z: -0.25},
+        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 }
     },
-    // 右臂 (持盾手 - Shield Arm)
     RIGHT_ARM: {
-        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, // 肩膀
-        ELBOW:    { x: -1, y: -0.4, z: 0.0 } // 肘部 - 自然下垂微曲
+        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
+        ELBOW:    { x: -1, y: -0.4, z: 0.0 }
     },
-    // 腿部 (Legs)
     LEFT_LEG: {
-        THIGH: { x: -0.4, y: -0.1, z: -0.3 }, // 大腿 (x:前后, y:旋转, z:开合 负值向外)
-        KNEE:  { x: 0.6 },           // 膝盖 (正值弯曲)
-        ANKLE: { x: -0.2, y: 0.1, z: 0.1 } // 脚踝 (x:抵消膝盖弯曲, y:旋转, z:侧翻)
+        THIGH: { x: -0.4, y: -0.1, z: -0.3 },
+        KNEE:  { x: 0.6 },
+        ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
     },
     RIGHT_LEG: {
-        THIGH: { x: -0.5, y: 0.1, z: 0.3 }, // 大腿
-        KNEE:  { x: 0.6 },           // 膝盖
-        ANKLE: { x: -0.25, y: 0.1, z: -0.1 } // 脚踝
+        THIGH: { x: -0.5, y: 0.1, z: 0.3 },
+        KNEE:  { x: 0.6 },
+        ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
     }
 };
 
-// --- DASH POSE (SHIELD GUARD) ---
-// 冲刺时的举盾姿势配置
 const DASH_POSE = {
     RIGHT_ARM: {
-        // 肩膀：稍微抬起并内收，准备撞击
-        SHOULDER: { 
-            x: -0.5, 
-            y: -0.3, 
-            z: 0.4   
-        },
-        // 小臂：屈肘90度，不再自转
-        ELBOW: { 
-            x: -1, // 屈肘
-            y: 0.0,  
-            z: 0.0 
-        }
+        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
+        ELBOW: { x: -1, y: 0.0, z: 0.0 }
     },
-    // 盾牌独立变换
     SHIELD: {
-        // 旋转逻辑：
-        // 1. 默认状态是侧挂 (Rotation 0,0,0 附近)
-        // 2. y: -1.5 -> 绕小臂轴旋转90度，从侧面转到下面/前面
-        // 3. z: 1.5 -> 绕手腕轴旋转90度，将盾牌竖起来挡在前面
-        ROTATION: { 
-            x: -0.3,    
-            y: -1,   
-            z: -1.2  
+        ROTATION: { x: -0.3, y: -1, z: -1.2 },
+        POSITION: { x: 0, y: -0.6, z: -0.1 }
+    }
+};
+
+// MELEE POSES - Using full MechPose structure so they can be replaced by Editor JSON
+const MELEE_POSE_DATA: { STARTUP: MechPose, SLASH: MechPose } = {
+    STARTUP: {
+        ...DEFAULT_MECH_POSE,
+        TORSO: { x: 0.1, y: 0.8, z: 0 },
+        HEAD: { x: 0, y: 0, z: 0 },
+        LEFT_ARM: {
+            SHOULDER: { x: -1.2, y: 0.5, z: -0.8 }, 
+            ELBOW: { x: -2.0, y: 0, z: 0 }
         },
-        // 位置：
-        // 默认挂载点 [0, -0.5, 0.1] 是小臂末端
-        // 稍微调整位置以适应握持感
-        POSITION: { 
-            x: 0,   
-            y: -0.6,  
-            z: -0.1    
-        }
+        RIGHT_ARM: {
+            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, // Idle-ish
+            ELBOW: { x: -1, y: -0.4, z: 0 }
+        },
+        // Legs will be overridden by movement logic mostly, but defined here for completeness
+        LEFT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
+        RIGHT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
+    },
+    SLASH: {
+        ...DEFAULT_MECH_POSE,
+        TORSO: { x: 0.2, y: -0.8, z: 0 },
+        HEAD: { x: 0, y: 0, z: 0 },
+        LEFT_ARM: {
+            SHOULDER: { x: 0.2, y: -0.8, z: 0.8 }, 
+            ELBOW: { x: -0.1, y: 0, z: 0 }
+        },
+        RIGHT_ARM: {
+            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
+            ELBOW: { x: -1, y: -0.4, z: 0 }
+        },
+        LEFT_LEG: { THIGH: {x:0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
+        RIGHT_LEG: { THIGH: {x:-0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
     }
 };
 
 // --- AUDIO MANAGER ---
-// Lazy load AudioContext to comply with browser autoplay policies
 let globalAudioCtx: AudioContext | null = null;
-
-// Audio Buffers
 let boostAudioBuffer: AudioBuffer | null = null;
 let shootAudioBuffer: AudioBuffer | null = null;
 let switchAudioBuffer: AudioBuffer | null = null;
@@ -105,7 +102,6 @@ let stepAudioBuffer: AudioBuffer | null = null;
 let hitAudioBuffer: AudioBuffer | null = null;
 let dropAudioBuffer: AudioBuffer | null = null;
 let footAudioBuffer: AudioBuffer | null = null;
-
 let areSoundsLoading = false;
 
 const getAudioContext = () => {
@@ -118,7 +114,6 @@ const getAudioContext = () => {
     return globalAudioCtx;
 };
 
-// Generic Base64 Loader
 const loadSoundAsset = async (ctx: AudioContext, base64: string): Promise<AudioBuffer | null> => {
     if (!base64 || base64.length < 50) return null;
     try {
@@ -132,63 +127,41 @@ const loadSoundAsset = async (ctx: AudioContext, base64: string): Promise<AudioB
     }
 };
 
-// --- PROCEDURAL AUDIO GENERATORS (Fallback for missing/empty files) ---
-
-// Generates a Sci-Fi "Swish" noise burst
 const generateProceduralDash = (ctx: AudioContext): AudioBuffer => {
     const duration = 0.6;
     const sampleRate = ctx.sampleRate;
     const frameCount = sampleRate * duration;
     const buffer = ctx.createBuffer(1, frameCount, sampleRate);
     const data = buffer.getChannelData(0);
-
     for (let i = 0; i < frameCount; i++) {
-        // 1. Base White Noise
         const noise = Math.random() * 2 - 1;
-        
-        // 2. Amplitude Envelope (Fast attack, long tail)
         const t = i / frameCount;
         let envelope = 0;
-        if (t < 0.1) envelope = t / 0.1; // Attack
-        else envelope = 1 - ((t - 0.1) / 0.9); // Decay
-        envelope = Math.pow(envelope, 2); // Quadratic curve for smoother fade
-
-        // 3. Simple Lowpass Filter Simulation (Moving Average - crude but fast)
-        // Ideally we use BiquadFilterNode at runtime, but for a baked buffer:
-        // We just let the noise be "hissy" which fits a steam thruster.
-        
-        data[i] = noise * envelope * 0.5; // Scale volume
+        if (t < 0.1) envelope = t / 0.1;
+        else envelope = 1 - ((t - 0.1) / 0.9);
+        envelope = Math.pow(envelope, 2);
+        data[i] = noise * envelope * 0.5;
     }
     return buffer;
 };
 
-// Generates a Retro "Pew" Laser
 const generateProceduralShoot = (ctx: AudioContext): AudioBuffer => {
     const duration = 0.3;
     const sampleRate = ctx.sampleRate;
     const frameCount = sampleRate * duration;
     const buffer = ctx.createBuffer(1, frameCount, sampleRate);
     const data = buffer.getChannelData(0);
-
     for (let i = 0; i < frameCount; i++) {
         const t = i / sampleRate;
         const progress = i / frameCount;
-
-        // Frequency Sweep: 1200Hz -> 200Hz
         const frequency = 1200 - (1000 * Math.pow(progress, 0.5));
-        
-        // Waveform: Square-ish (using sine with sign)
         const val = Math.sign(Math.sin(2 * Math.PI * frequency * t));
-
-        // Envelope
         const envelope = 1 - progress;
-
         data[i] = val * envelope * 0.3;
     }
     return buffer;
 };
 
-// EXPORTED HELPER for App.tsx to resume audio on Start Click
 export const resumeAudioContext = async () => {
     const ctx = getAudioContext();
     if (ctx) {
@@ -197,41 +170,29 @@ export const resumeAudioContext = async () => {
                 await ctx.resume();
                 console.log("AudioContext resumed successfully.");
             }
-            
-            // Force load buffers if missing
             if (!areSoundsLoading) loadAllSounds();
-            
         } catch (e) {
             console.error("Failed to resume audio context:", e);
         }
     }
 };
 
-// Main Loader
 const loadAllSounds = async () => {
     if (areSoundsLoading) return;
     const ctx = getAudioContext();
     if (!ctx) return;
-
     areSoundsLoading = true;
     console.log("Loading audio assets...");
-
     try {
-        // 1. Boost (With Fallback)
         boostAudioBuffer = await loadSoundAsset(ctx, DASH_SFX_BASE64);
         if (!boostAudioBuffer) boostAudioBuffer = generateProceduralDash(ctx);
-
-        // 2. Shoot (With Fallback)
         shootAudioBuffer = await loadSoundAsset(ctx, SHOOT_SFX_BASE64);
         if (!shootAudioBuffer) shootAudioBuffer = generateProceduralShoot(ctx);
-
-        // 3. New Sounds
         if (!switchAudioBuffer) switchAudioBuffer = await loadSoundAsset(ctx, SWITCH_SFX_BASE64);
         if (!stepAudioBuffer) stepAudioBuffer = await loadSoundAsset(ctx, STEP_SFX_BASE64);
         if (!hitAudioBuffer) hitAudioBuffer = await loadSoundAsset(ctx, HIT_SFX_BASE64);
         if (!dropAudioBuffer) dropAudioBuffer = await loadSoundAsset(ctx, DROP_SFX_BASE64);
         if (!footAudioBuffer) footAudioBuffer = await loadSoundAsset(ctx, FOOT_SFX_BASE64);
-
         console.log("Audio assets loaded.");
     } catch (e) {
         console.warn("Error loading audio assets:", e);
@@ -240,26 +201,19 @@ const loadAllSounds = async () => {
     }
 };
 
-// --- PLAY FUNCTIONS ---
-
 const playSoundBuffer = (buffer: AudioBuffer | null, volume: number = 1.0, pitchVar: number = 0.0) => {
     const ctx = getAudioContext();
     if (!ctx || !buffer) return;
     if (ctx.state === 'suspended') ctx.resume();
-
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    
     const gain = ctx.createGain();
     gain.gain.value = volume;
-    
     source.connect(gain);
     gain.connect(ctx.destination);
-    
     if (pitchVar > 0) {
         source.playbackRate.value = 1.0 + (Math.random() - 0.5) * pitchVar;
     }
-    
     source.start(0);
 };
 
@@ -272,244 +226,224 @@ const playShootSound = () => {
     }
 };
 
-// Procedural Beam Rifle Sound (Fallback)
 const playBeamRifleSynth = (ctx: AudioContext) => {
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
     osc.type = 'square';
     osc.frequency.setValueAtTime(1500, t);
     osc.frequency.exponentialRampToValueAtTime(300, t + 0.15);
-    
     gain.gain.setValueAtTime(0.1, t);
     gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
-    
     osc.connect(gain);
     gain.connect(ctx.destination);
-    
     osc.start(t);
     osc.stop(t + 0.2);
 };
 
-const playBoostSound = () => playSoundBuffer(boostAudioBuffer, 0.6); // Full volume, no filter
+const playBoostSound = () => playSoundBuffer(boostAudioBuffer, 0.6);
 const playSwitchSound = () => playSoundBuffer(switchAudioBuffer, 0.6, 0.1);
 const playStepSound = () => playSoundBuffer(stepAudioBuffer, 0.8, 0.1);
 const playDropSound = () => playSoundBuffer(dropAudioBuffer, 0.8, 0.2);
 const playFootSound = () => playSoundBuffer(footAudioBuffer, 0.55, 0.15);
 
-// EXPORTED for Projectile.tsx
 export const playHitSound = (distance: number) => {
-    // Simple linear attenuation: Full volume at 0m, 0 volume at 100m
     const maxDist = 100;
     const vol = Math.max(0.05, 1 - (distance / maxDist));
-    playSoundBuffer(hitAudioBuffer, vol * 0.4, 0.2); // Slightly varied pitch
+    playSoundBuffer(hitAudioBuffer, vol * 0.4, 0.2);
 };
 
 // --- VISUAL EFFECTS ---
 const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
-const groupRef = useRef<Group>(null);
-// --- CONFIGURATION (ADJUST HERE) ---
-const DURATION = 0.4; 
-const CONE_LENGTH = 1.6;      // Length of the burst cones
-const CONE_WIDTH = 0.08;    // Width at the base (outer end)
-const TILT_ANGLE = -35;     // Degrees. -90 points straight back. -65 flares out.
-const BURST_COLOR = "#00ffff"; 
-// -----------------------------------
+    const groupRef = useRef<Group>(null);
+    const DURATION = 0.4; 
+    const CONE_LENGTH = 1.6;
+    const CONE_WIDTH = 0.08;
+    const TILT_ANGLE = -35;
+    const BURST_COLOR = "#00ffff"; 
 
-useFrame(() => {
-    if (!groupRef.current) return;
-    
-    const now = Date.now();
-    const elapsed = (now - triggerTime) / 1000; // convert to seconds
+    useFrame(() => {
+        if (!groupRef.current) return;
+        const now = Date.now();
+        const elapsed = (now - triggerTime) / 1000;
+        if (elapsed > DURATION) {
+            groupRef.current.visible = false;
+            return;
+        }
+        groupRef.current.visible = true;
+        const scaleProgress = elapsed / DURATION;
+        const scale = MathUtils.lerp(0.5, 2.5, Math.pow(scaleProgress, 0.3));
+        groupRef.current.scale.setScalar(scale);
+        let opacity = 0;
+        if (elapsed < 0.1) {
+            opacity = elapsed / 0.1;
+        } else {
+            const fadeOutProgress = (elapsed - 0.1) / (DURATION - 0.1);
+            opacity = 1 - fadeOutProgress;
+        }
+        groupRef.current.children.forEach((angleGroup: any) => {
+            if (angleGroup.children && angleGroup.children[0] && angleGroup.children[0].children[0]) {
+                const mesh = angleGroup.children[0].children[0];
+                if (mesh.material) mesh.material.opacity = opacity;
+            }
+        });
+    });
 
-    if (elapsed > DURATION) {
-        groupRef.current.visible = false;
-        return;
-    }
+    return (
+        <group ref={groupRef} visible={false} position={[0, -0.2, -0.3]} rotation={[0, 0, 0]}>
+            {[45, 135, 225, 315].map((angle, i) => (
+                <group key={i} rotation={[0, 0, MathUtils.degToRad(angle)]}>
+                    <group rotation={[MathUtils.degToRad(TILT_ANGLE), 0, 0]}>
+                        <mesh position={[0, CONE_LENGTH / 2, 0]}> 
+                            <cylinderGeometry args={[0, CONE_WIDTH, CONE_LENGTH, 8, 1]} /> 
+                            <meshBasicMaterial color={BURST_COLOR} transparent depthWrite={false} blending={AdditiveBlending} />
+                        </mesh>
+                    </group>
+                </group>
+            ))}
+        </group>
+    );
+};
 
-    groupRef.current.visible = true;
+const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
+    const groupRef = useRef<Group>(null);
+    useFrame((state) => {
+        if (!groupRef.current) return;
+        const flicker = MathUtils.randFloat(0.8, 1.2);
+        const targetScale = active ? 1 : 0;
+        const lerpSpeed = 0.1;
+        groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
+        groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
+        groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
+        groupRef.current.visible = groupRef.current.scale.z > 0.05;
+    });
+    return (
+        <group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}>
+            <group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}>
+                <mesh position={[0, -0.3, 0.8]}>
+                    <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
+                </mesh>
+                <mesh position={[0, -0.3, 0.5]}>
+                    <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
+                    <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
+                </mesh>
+            </group>
+        </group>
+    );
+};
 
-    // Animation Logic
-    // 1. Scale: Explodes outward (0.5 -> 2.5)
-    const scaleProgress = elapsed / DURATION;
-    const scale = MathUtils.lerp(0.5, 2.5, Math.pow(scaleProgress, 0.3));
-    groupRef.current.scale.setScalar(scale);
-
-    // 2. Opacity: Fast fade in, then slow fade out
-    let opacity = 0;
-    if (elapsed < 0.1) {
-        opacity = elapsed / 0.1; // 0 -> 1
-    } else {
-        const fadeOutProgress = (elapsed - 0.1) / (DURATION - 0.1);
-        opacity = 1 - fadeOutProgress; // 1 -> 0
-    }
-    
-    // Apply opacity to specific children (Meshes)
-    groupRef.current.children.forEach((angleGroup: any) => {
-        if (angleGroup.children && angleGroup.children[0] && angleGroup.children[0].children[0]) {
-            const mesh = angleGroup.children[0].children[0];
-            if (mesh.material) mesh.material.opacity = opacity;
+const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
+    const ref = useRef<Mesh>(null);
+    const [scale, setScale] = useState(0);
+    useEffect(() => {
+        if (active) setScale(1.5);
+    }, [active]);
+    useFrame(() => {
+        if (!ref.current) return;
+        if (scale > 0) {
+            setScale(s => Math.max(0, s - 0.2));
+            ref.current.scale.setScalar(scale);
+            ref.current.visible = true;
+        } else {
+            ref.current.visible = false;
         }
     });
-});
-
-return (
-    <group ref={groupRef} visible={false} position={[0, -0.2, -0.3]} rotation={[0, 0, 0]}>
-        {/* 4 Cones forming a Tetrahedron-like X shape */}
-        {[45, 135, 225, 315].map((angle, i) => (
-            // 1. Rotate around Z axis to form X cross
-            <group key={i} rotation={[0, 0, MathUtils.degToRad(angle)]}>
-                
-                {/* 2. Tilt X axis to flare OUT from the center (Tetrahedron style) */}
-                {/* Cylinder points +Y. Rotating X by -90 points it to +Z. */}
-                <group rotation={[MathUtils.degToRad(TILT_ANGLE), 0, 0]}>
-                    
-                    {/* 3. Offset Mesh so it starts at center and grows outward */}
-                    <mesh position={[0, CONE_LENGTH / 2, 0]}> 
-                        {/* Top Radius 0 (Cone Tip), Bottom Radius CONE_WIDTH. */}
-                        {/* R3F Cylinder: radiusTop, radiusBottom, height */}
-                        <cylinderGeometry args={[0, CONE_WIDTH, CONE_LENGTH, 8, 1]} /> 
-                        <meshBasicMaterial 
-                            color={BURST_COLOR} 
-                            transparent 
-                            depthWrite={false} 
-                            blending={AdditiveBlending} 
-                        />
-                    </mesh>
-                </group>
-            </group>
-        ))}
-    </group>
-);
+    return (
+        <mesh ref={ref} visible={false}>
+            <sphereGeometry args={[0.5, 8, 8]} />
+            <meshBasicMaterial color="#ffaa00" transparent opacity={0.8} />
+        </mesh>
+    );
 };
-const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
-const groupRef = useRef<Group>(null);
-useFrame((state) => {
-if (!groupRef.current) return;
-const flicker = MathUtils.randFloat(0.8, 1.2);
-const targetScale = active ? 1 : 0;
-const lerpSpeed = 0.1;
-groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
-groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
-groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
-groupRef.current.visible = groupRef.current.scale.z > 0.05;
-});
-return (
-<group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}>
-<group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}>
-<mesh position={[0, -0.3, 0.8]}>
-<cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
-<meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
-</mesh>
-<mesh position={[0, -0.3, 0.5]}>
-<cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
-<meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
-</mesh>
-</group>
-</group>
-);
-};
-const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
-const ref = useRef<Mesh>(null);
-const [scale, setScale] = useState(0);
-useEffect(() => {
-    if (active) setScale(1.5);
-}, [active]);
 
-useFrame(() => {
-    if (!ref.current) return;
-    if (scale > 0) {
-        setScale(s => Math.max(0, s - 0.2));
-        ref.current.scale.setScalar(scale);
-        ref.current.visible = true;
-    } else {
-        ref.current.visible = false;
-    }
-});
-
-return (
-    <mesh ref={ref} visible={false}>
-        <sphereGeometry args={[0.5, 8, 8]} />
-        <meshBasicMaterial color="#ffaa00" transparent opacity={0.8} />
-    </mesh>
-);
-};
-// Speed Lines for Evade (Restored)
 const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
-const groupRef = useRef<Group>(null);
-const LINE_COUNT = 12;
-const TRAIL_LENGTH = 3; // How far back they go
-const LINE_GEOM_LENGTH = 3; // The visual length of the mesh
-
-useFrame(() => {
-    if (!groupRef.current) return;
-    groupRef.current.visible = visible;
-    if (visible) {
-        groupRef.current.children.forEach((child: any, i: number) => {
-            child.position.z -= 1.8;
-            if (child.position.z < -TRAIL_LENGTH) {
-                child.position.z = MathUtils.randFloat(0, 3); 
-                child.position.x = MathUtils.randFloat(-0.6, 0.6); 
-                child.position.y = MathUtils.randFloat(0.5, 2.5); 
-            }
-            const opacity = Math.max(0, 1 - (Math.abs(child.position.z) / TRAIL_LENGTH));
-            child.material.opacity = opacity * 0.6;
-        });
-    }
-});
-
-return (
-    <group ref={groupRef} visible={false}>
-        {[...Array(LINE_COUNT)].map((_, i) => (
-             <mesh 
-                key={i} 
-                position={[
-                    MathUtils.randFloat(-0.6, 0.6), 
-                    MathUtils.randFloat(0.5, 2.5), 
-                    MathUtils.randFloat(-5, 0) 
-                ]} 
-                rotation={[Math.PI/2, 0, 0]}
-            >
-                 <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
-                 <meshBasicMaterial color="#ffd700" transparent opacity={1} depthWrite={false} />
-             </mesh>
-        ))}
-    </group>
-)
+    const groupRef = useRef<Group>(null);
+    const TRAIL_LENGTH = 3;
+    const LINE_COUNT = 12;
+    const LINE_GEOM_LENGTH = 3;
+    useFrame(() => {
+        if (!groupRef.current) return;
+        groupRef.current.visible = visible;
+        if (visible) {
+            groupRef.current.children.forEach((child: any, i: number) => {
+                child.position.z -= 1.8;
+                if (child.position.z < -TRAIL_LENGTH) {
+                    child.position.z = MathUtils.randFloat(0, 3); 
+                    child.position.x = MathUtils.randFloat(-0.6, 0.6); 
+                    child.position.y = MathUtils.randFloat(0.5, 2.5); 
+                }
+                const opacity = Math.max(0, 1 - (Math.abs(child.position.z) / TRAIL_LENGTH));
+                child.material.opacity = opacity * 0.6;
+            });
+        }
+    });
+    return (
+        <group ref={groupRef} visible={false}>
+            {[...Array(LINE_COUNT)].map((_, i) => (
+                 <mesh key={i} position={[Math.random(), Math.random(), Math.random()]} rotation={[Math.PI/2, 0, 0]}>
+                     <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
+                     <meshBasicMaterial color="#ffd700" transparent opacity={1} depthWrite={false} />
+                 </mesh>
+            ))}
+        </group>
+    )
 }
 
-// --- NEW: MECHA HEAD COMPONENT (GLB Loader via gltfjsx structure) ---
-// Using absolute path to models to ensure correct resolution on custom domain
+// --- BEAM SABER COMPONENT ---
+const BeamSaber: React.FC<{ active: boolean }> = ({ active }) => {
+    const groupRef = useRef<Group>(null);
+    
+    useFrame(() => {
+        if (groupRef.current) {
+            const targetScale = active ? 1 : 0;
+            groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, 0.3);
+            groupRef.current.visible = groupRef.current.scale.y > 0.01;
+        }
+    });
+
+    return (
+        <group ref={groupRef} visible={false}>
+            {/* Handle - White, Protruding from Fist */}
+            <mesh position={[0, -0.25, 0]}>
+                <cylinderGeometry args={[0.035, 0.04, 0.6, 8]} />
+                <meshToonMaterial color="white" />
+                <Edges threshold={15} color="#999" />
+            </mesh>
+            {/* Blade Core */}
+            <mesh position={[0, 1.6, 0]}>
+                <cylinderGeometry args={[0.05, 0.05, 2.8, 8]} />
+                <meshBasicMaterial color="#ffffff" />
+            </mesh>
+            {/* Blade Glow */}
+            <mesh position={[0, 1.6, 0]}>
+                <cylinderGeometry args={[0.12, 0.12, 3.0, 8]} />
+                <meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} />
+            </mesh>
+        </group>
+    );
+};
+
+// --- MECHA HEAD COMPONENT ---
 const MODEL_PATH = '/models/head.glb';
 useGLTF.preload(MODEL_PATH);
 
 const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
     const { nodes } = useGLTF(MODEL_PATH) as any;
-    
-    // Common properties for all head meshes
-    const meshProps = {
-        castShadow: true,
-        receiveShadow: true
-    };
-
+    const meshProps = { castShadow: true, receiveShadow: true };
     return (
         <group position={[-0.08, 0.4, 0.1]} >
             <group dispose={null}>
                 <group position={[-0, -0.28, -0]} scale={0.02}>
                     <group rotation={[Math.PI / 2, 0, 0]}>
-                    
-                    {/* Iterate through all head polygons and apply style */}
-                    {/* Polygon_35 is the main helmet part - Removed Edges per user request */}
-          <mesh geometry={nodes.Polygon_35.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps} > <meshToonMaterial color={mainColor} /></mesh>
-          <mesh geometry={nodes.Polygon_55.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_56.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_57.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_58.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}><meshToonMaterial color={mainColor} /></mesh>
-          <mesh geometry={nodes.Polygon_59.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ffff00" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_60.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#000000" /><Edges threshold={15} color="black" /></mesh>
-          <mesh geometry={nodes.Polygon_61.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
-
+                      <mesh geometry={nodes.Polygon_35.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps} > <meshToonMaterial color={mainColor} /></mesh>
+                      <mesh geometry={nodes.Polygon_55.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
+                      <mesh geometry={nodes.Polygon_56.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#00ff00" /><Edges threshold={15} color="black" /></mesh>
+                      <mesh geometry={nodes.Polygon_57.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
+                      <mesh geometry={nodes.Polygon_58.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}><meshToonMaterial color={mainColor} /></mesh>
+                      <mesh geometry={nodes.Polygon_59.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ffff00" /><Edges threshold={15} color="black" /></mesh>
+                      <mesh geometry={nodes.Polygon_60.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#000000" /><Edges threshold={15} color="black" /></mesh>
+                      <mesh geometry={nodes.Polygon_61.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <meshToonMaterial color="#ff0000" /><Edges threshold={15} color="black" /></mesh>
                     </group>
                 </group>
             </group>
@@ -518,1697 +452,1663 @@ const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
 };
 
 export const Player: React.FC = () => {
-const meshRef = useRef<Mesh>(null);
-const headRef = useRef<Group>(null);
-const torsoRef = useRef<Group>(null); // NEW: Ref for entire torso (Waist + Chest)
-const upperBodyRef = useRef<Group>(null); // NEW: Ref for chest/upper body animation
-const legsRef = useRef<Group>(null);
-// NEW: Individual leg refs for splaying animation
-const rightLegRef = useRef<Group>(null);
-const leftLegRef = useRef<Group>(null);
-const rightLowerLegRef = useRef<Group>(null); // NEW: Ref for Right Shin (Shield Side - Knee Kick)
-const leftLowerLegRef = useRef<Group>(null); // NEW: Ref for Left Shin
-const rightFootRef = useRef<Group>(null); // NEW: Ref for Right Foot Ankle
-const leftFootRef = useRef<Group>(null); // NEW: Ref for Left Foot Ankle
+    const meshRef = useRef<Mesh>(null);
+    const headRef = useRef<Group>(null);
+    const torsoRef = useRef<Group>(null); 
+    const upperBodyRef = useRef<Group>(null); 
+    const legsRef = useRef<Group>(null);
+    const rightLegRef = useRef<Group>(null);
+    const leftLegRef = useRef<Group>(null);
+    const rightLowerLegRef = useRef<Group>(null);
+    const leftLowerLegRef = useRef<Group>(null);
+    const rightFootRef = useRef<Group>(null);
+    const leftFootRef = useRef<Group>(null);
 
-const gunArmRef = useRef<Group>(null);
-const rightArmRef = useRef<Group>(null); // For walking animation (right arm swing)
-const leftForeArmRef = useRef<Group>(null); // NEW: Ref for Left Elbow/Forearm
-const rightForeArmRef = useRef<Group>(null); // NEW: Ref for Right Elbow/Forearm
-const shieldRef = useRef<Group>(null); // NEW: Independent ref for Shield to handle complex pivots
-const muzzleRef = useRef<Group>(null);
-const { camera } = useThree();
-// State from Store
-const {
-targets,
-currentTargetIndex,
-setPlayerPos,
-consumeBoost,
-refillBoost,
-boost,
-maxBoost,
-isOverheated,
-lockState,
-consumeAmmo,
-spawnProjectile,
-recoverAmmo,
-playerLastHitTime,
-playerKnockbackDir,
-cutTracking,
-isGameStarted // Import this to disable inputs if not started
-} = useGameStore();
-// Physics State
-const velocity = useRef(new Vector3(0, 0, 0));
-const position = useRef(new Vector3(0, 0, 0));
-const isGrounded = useRef(true);
-const landingFrames = useRef(0);
-// NEW: Track VISUAL animation frames for landing, independent of gameplay lag
-const visualLandingFrames = useRef(0);
-const wasStunnedRef = useRef(false);
-// Input State
-const keys = useRef<{ [key: string]: boolean }>({});
-const lastKeyPressTime = useRef(0);
-const lastKeyPressed = useRef<string>("");
+    const gunArmRef = useRef<Group>(null);
+    const gunMeshRef = useRef<Group>(null); 
+    const rightArmRef = useRef<Group>(null); 
+    const leftForeArmRef = useRef<Group>(null); 
+    const rightForeArmRef = useRef<Group>(null); 
+    const shieldRef = useRef<Group>(null); 
+    const muzzleRef = useRef<Group>(null);
+    const { camera } = useThree();
 
-// NEW INPUT STATE FOR L-KEY (Ascent/Dash)
-const lPressStartTime = useRef(0);
-const lastLReleaseTime = useRef(0);
-// lConsumedByAction: Tracks if the current press did *anything* (Dash, Ascent, Hop).
-// If true, releasing the key will NOT trigger a short hop or double tap prime.
-const lConsumedByAction = useRef(false); 
-// lConsumedByDash: SPECIFICALLY tracks if the current press was used to trigger a DASH.
-// If true, holding the key will NOT trigger an ascent (prevents Jump Cancel during dash hold).
-const lConsumedByDash = useRef(false);
-// NEW: Special flag to allow double-tap even if the first tap was consumed (e.g. Evade Cancel)
-const preserveDoubleTapOnRelease = useRef(false);
+    const {
+        targets,
+        currentTargetIndex,
+        setPlayerPos,
+        consumeBoost,
+        refillBoost,
+        boost,
+        maxBoost,
+        isOverheated,
+        lockState,
+        consumeAmmo,
+        spawnProjectile,
+        recoverAmmo,
+        playerLastHitTime,
+        playerKnockbackDir,
+        cutTracking,
+        applyHit,
+        isGameStarted
+    } = useGameStore();
 
-// Action State
-const isDashing = useRef(false);
-const dashStartTime = useRef(0);
-const dashReleaseTime = useRef<number | null>(null);
-const currentDashSpeed = useRef(0);
-const dashDirection = useRef(new Vector3(0, 0, -1));
-const dashBuffer = useRef(false); // Buffer input for dash
-const dashCooldownTimer = useRef(0); // Cooldown timer for dash
-// NEW: Dash Burst / Jump Cancel Buffer logic
-const dashBurstTimer = useRef(0); // Counts down during burst phase
-const jumpBuffer = useRef(false); // Tracks if jump was pressed during burst
-const forcedAscentFrames = useRef(0); // Forces ascent state for short hop
-// Animation Variables
-const currentUpperBodyTilt = useRef(0); // NEW: Track upper body forward tilt angle
-const wasFallingRef = useRef(false); // NEW: Track falling state change
-const currentFallTime = useRef(0); // NEW: Track duration of current fall
-const totalPredictedFallFrames = useRef(0); // NEW: Calculated total frames for fall
+    // Physics State
+    const velocity = useRef(new Vector3(0, 0, 0));
+    const position = useRef(new Vector3(0, 0, 0));
+    const isGrounded = useRef(true);
+    const landingFrames = useRef(0);
+    const visualLandingFrames = useRef(0);
+    const wasStunnedRef = useRef(false);
+    const isMeleeGroundedStart = useRef(false);
 
-// Walking Animation Refs
-const walkCycle = useRef(0);
-const lastWalkCycle = useRef(0); // Track previous cycle for footstep triggers
+    // Input State
+    const keys = useRef<{ [key: string]: boolean }>({});
+    const lastKeyPressTime = useRef(0);
+    const lastKeyPressed = useRef<string>("");
+    const lPressStartTime = useRef(0);
+    const lastLReleaseTime = useRef(0);
+    const lConsumedByAction = useRef(false); 
+    const lConsumedByDash = useRef(false);
+    const preserveDoubleTapOnRelease = useRef(false);
 
-// Evade State
-const isEvading = useRef(false);
-const evadeTimer = useRef(0);
-const evadeDirection = useRef(new Vector3(0, 0, 0));
-// Combat State
-const isShooting = useRef(false);
-const shootTimer = useRef(0);
-const hasFired = useRef(false);
-const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
-const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
-const [dashTriggerTime, setDashTriggerTime] = useState(0);
-// Visual State
-const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE'>('IDLE');
-const [isStunned, setIsStunned] = useState(false);
-const ammoRegenTimer = useRef(0);
+    // Action State
+    const isDashing = useRef(false);
+    const dashStartTime = useRef(0);
+    const dashReleaseTime = useRef<number | null>(null);
+    const currentDashSpeed = useRef(0);
+    const dashDirection = useRef(new Vector3(0, 0, -1));
+    const dashBuffer = useRef(false);
+    const dashCooldownTimer = useRef(0);
+    const dashBurstTimer = useRef(0); 
+    const jumpBuffer = useRef(false); 
+    const forcedAscentFrames = useRef(0); 
 
-// Try loading custom sounds on mount
-useEffect(() => {
-    // Attempt load, but the Play functions will handle fallback if this fails or is 0 bytes
-    loadAllSounds();
-}, []);
+    // Animation Variables
+    const currentUpperBodyTilt = useRef(0); 
+    const wasFallingRef = useRef(false); 
+    const currentFallTime = useRef(0); 
+    const totalPredictedFallFrames = useRef(0); 
+    const walkCycle = useRef(0);
+    const lastWalkCycle = useRef(0); 
 
-const getDirectionFromKey = (key: string) => {
-const input = new Vector3(0,0,0);
-if (key === 'w') input.z -= 1;
-if (key === 's') input.z += 1;
-if (key === 'a') input.x -= 1;
-if (key === 'd') input.x += 1;
-const camDir = new Vector3();
-  camera.getWorldDirection(camDir);
-  camDir.y = 0;
-  camDir.normalize();
-  
-  const camRight = new Vector3();
-  camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
-  
-  const moveDir = new Vector3();
-  moveDir.addScaledVector(camDir, -input.z);
-  moveDir.addScaledVector(camRight, input.x);
-  return moveDir.normalize();
-}
-const getCameraRelativeInput = () => {
-const input = new Vector3(0, 0, 0);
-if (keys.current['w']) input.z -= 1;
-if (keys.current['s']) input.z += 1;
-if (keys.current['a']) input.x -= 1;
-if (keys.current['d']) input.x += 1;
-if (input.lengthSq() === 0) return null;
-input.normalize();
+    // Evade State
+    const isEvading = useRef(false);
+    const evadeTimer = useRef(0);
+    const evadeDirection = useRef(new Vector3(0, 0, 0));
 
-const camDir = new Vector3();
-camera.getWorldDirection(camDir);
-camDir.y = 0;
-camDir.normalize();
+    // Combat State
+    const isShooting = useRef(false);
+    const shootTimer = useRef(0);
+    const hasFired = useRef(false);
+    const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
+    const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
+    const [dashTriggerTime, setDashTriggerTime] = useState(0);
 
-const camRight = new Vector3();
-camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
+    // MELEE STATE
+    const meleeState = useRef<MeleePhase>('NONE');
+    const meleeTimer = useRef(0);
+    const meleeLungeTargetPos = useRef<Vector3 | null>(null); 
 
-const moveDir = new Vector3();
-moveDir.addScaledVector(camDir, -input.z); 
-moveDir.addScaledVector(camRight, input.x);
+    // Visual State
+    const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE'>('IDLE');
+    const [isStunned, setIsStunned] = useState(false);
+    const ammoRegenTimer = useRef(0);
+    const [activeWeapon, setActiveWeapon] = useState<'GUN' | 'SABER'>('GUN');
 
-return moveDir.normalize();
-};
-// Helper to start dash logic (extracted for reuse in input buffer)
-const startDashAction = () => {
-const now = Date.now();
-// Use getState() to get the absolute latest state (especially useful if called inside useFrame after refill)
-const state = useGameStore.getState();
-// FIX: Allow Last-Ditch Dash (check state.boost > 0 instead of full cost)
-  if (!state.isOverheated && state.boost > 0 && !isStunned) {
-      if (isEvading.current) {
-          isEvading.current = false;
-          evadeTimer.current = 0;
-      }
-      if (isShooting.current) {
-          isShooting.current = false;
-          shootTimer.current = 0;
-      }
-      isDashing.current = true;
-      // INTERRUPT: Dash immediately cancels visual landing animation
-      visualLandingFrames.current = 0;
-      
-      dashStartTime.current = now;
-      dashReleaseTime.current = null; 
-      currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
-      
-      dashCooldownTimer.current = GLOBAL_CONFIG.DASH_COOLDOWN_FRAMES; // Start Cooldown
-      dashBurstTimer.current = GLOBAL_CONFIG.DASH_BURST_DURATION; // Start Burst Lockout
-      jumpBuffer.current = false; // Reset jump buffer
-      
-      // Note: using the action from the hook, which is stable
-      consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
+    useEffect(() => {
+        loadAllSounds();
+    }, []);
 
-      setDashTriggerTime(now);
-      playBoostSound();
+    const getDirectionFromKey = (key: string) => {
+        const input = new Vector3(0,0,0);
+        if (key === 'w') input.z -= 1;
+        if (key === 's') input.z += 1;
+        if (key === 'a') input.x -= 1;
+        if (key === 'd') input.x += 1;
+        const camDir = new Vector3();
+        camera.getWorldDirection(camDir);
+        camDir.y = 0;
+        camDir.normalize();
+        const camRight = new Vector3();
+        camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
+        const moveDir = new Vector3();
+        moveDir.addScaledVector(camDir, -input.z);
+        moveDir.addScaledVector(camRight, input.x);
+        return moveDir.normalize();
+    }
 
-      // FIX: Check proximity to ground (e.g., < 1.5 units) to trigger Ground Hop
-      // This prevents the physics engine from snapping the player to ground and cancelling dash immediately
-      // if they dash just before landing.
-      if (isGrounded.current || position.current.y < 1.5) {
-          velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
-          isGrounded.current = false;
-      }
-      
-      const inputDir = getCameraRelativeInput();
-      if (inputDir) {
-          dashDirection.current.copy(inputDir);
-      } else {
-          if (meshRef.current) {
-              const currentDir = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
-              currentDir.y = 0;
-              if (currentDir.lengthSq() > 0) {
-                  dashDirection.current.copy(currentDir.normalize());
-              }
-          }
-      }
-      
-      velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
-      velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
-  }
-};
-// Setup Inputs
-useEffect(() => {
-const handleKeyDown = (e: KeyboardEvent) => {
-// Block input if game not started
-if (!useGameStore.getState().isGameStarted) return;
+    const getCameraRelativeInput = () => {
+        const input = new Vector3(0, 0, 0);
+        if (keys.current['w']) input.z -= 1;
+        if (keys.current['s']) input.z += 1;
+        if (keys.current['a']) input.x -= 1;
+        if (keys.current['d']) input.x += 1;
+        if (input.lengthSq() === 0) return null;
+        input.normalize();
+        const camDir = new Vector3();
+        camera.getWorldDirection(camDir);
+        camDir.y = 0;
+        camDir.normalize();
+        const camRight = new Vector3();
+        camRight.crossVectors(camDir, new Vector3(0, 1, 0)).normalize();
+        const moveDir = new Vector3();
+        moveDir.addScaledVector(camDir, -input.z); 
+        moveDir.addScaledVector(camRight, input.x);
+        return moveDir.normalize();
+    };
 
-const key = e.key.toLowerCase();
-const now = Date.now();
-if (!keys.current[key]) {
-      if (['w', 'a', 's', 'd'].includes(key)) {
-          if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
-             // FIX: Allow Last-Ditch Evade (boost > 0)
-             if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
-                 if (consumeBoost(GLOBAL_CONFIG.EVADE_BOOST_COST)) {
-                     isEvading.current = true;
-                     evadeTimer.current = GLOBAL_CONFIG.EVADE_DURATION;
-                     cutTracking('player');
-                     const dir = getDirectionFromKey(key);
-                     evadeDirection.current.copy(dir);
-                     velocity.current.x = dir.x * GLOBAL_CONFIG.EVADE_SPEED;
-                     velocity.current.z = dir.z * GLOBAL_CONFIG.EVADE_SPEED;
-                     velocity.current.y = 0;
-                     isDashing.current = false;
-                     isShooting.current = false;
-                     shootTimer.current = 0;
-                     // INTERRUPT: Evade also cancels landing animation
-                     visualLandingFrames.current = 0;
-                     
-                     playStepSound(); // Play Evade Sound
-                 }
-             }
-          }
-          lastKeyPressed.current = key;
-          lastKeyPressTime.current = now;
-      }
+    const startDashAction = () => {
+        const now = Date.now();
+        const state = useGameStore.getState();
+        if (!state.isOverheated && state.boost > 0 && !isStunned) {
+            if (meleeState.current !== 'NONE') {
+                meleeState.current = 'NONE';
+            }
+            if (isEvading.current) {
+                isEvading.current = false;
+                evadeTimer.current = 0;
+            }
+            if (isShooting.current) {
+                isShooting.current = false;
+                shootTimer.current = 0;
+            }
+            isDashing.current = true;
+            visualLandingFrames.current = 0;
+            dashStartTime.current = now;
+            dashReleaseTime.current = null; 
+            currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
+            dashCooldownTimer.current = GLOBAL_CONFIG.DASH_COOLDOWN_FRAMES; 
+            dashBurstTimer.current = GLOBAL_CONFIG.DASH_BURST_DURATION; 
+            jumpBuffer.current = false; 
+            consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_INIT);
+            setDashTriggerTime(now);
+            playBoostSound();
 
-      keys.current[key] = true;
-      
-      if (key === 'j') {
-           if (!isShooting.current && !isEvading.current && landingFrames.current <= 0 && !isStunned) {
-               const hasAmmo = consumeAmmo();
-               if (hasAmmo) {
-                   isShooting.current = true;
-                   // INTERRUPT: Shooting immediately cancels visual landing animation
-                   visualLandingFrames.current = 0;
-                   
-                   shootTimer.current = 0;
-                   hasFired.current = false;
-                   
-                   const target = targets[currentTargetIndex];
-                   let isFrontal = true; 
-
-                   if (target && meshRef.current) {
-                      const playerDir = new Vector3();
-                      meshRef.current.getWorldDirection(playerDir);
-                      playerDir.y = 0;
-                      playerDir.normalize();
-
-                      const toTarget = new Vector3().subVectors(target.position, position.current);
-                      toTarget.y = 0;
-                      toTarget.normalize();
-
-                      const dot = playerDir.dot(toTarget);
-                      isFrontal = dot >= -0.28;
-                   }
-
-                   shootMode.current = isFrontal ? 'MOVE' : 'STOP';
-                   
-                   if (shootMode.current === 'STOP' && isDashing.current) {
-                       isDashing.current = false;
-                   }
-               }
-           }
-      }
-
-      if (key === 'l') {
-        const timeSinceLastRelease = now - lastLReleaseTime.current;
-
-        if (timeSinceLastRelease < GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
-            // --- DOUBLE TAP DETECTED: DASH LOGIC ---
-            
-            // Mark as consumed specifically by Dash
-            lConsumedByDash.current = true;
-            // Also mark as consumed generically to prevent release actions
-            lConsumedByAction.current = true;
-
-            // 1. If in Landing Lag, BUFFER the input
-            if (landingFrames.current > 0) {
-                // INPUT BUFFER: Only buffer if close to recovery
-                if (landingFrames.current <= GLOBAL_CONFIG.LANDING_LAG_BUFFER_WINDOW) {
-                    dashBuffer.current = true;
-                }
-                return;
+            if (isGrounded.current || position.current.y < 1.5) {
+                velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
+                isGrounded.current = false;
             }
             
-            // 2. If in Dash Cooldown, BUFFER the input
-            if (dashCooldownTimer.current > 0) {
-                dashBuffer.current = true;
-                return;
-            }
-
-            // 3. Otherwise attempt dash immediately
-            startDashAction();
-        } else {
-            // --- FIRST PRESS: START HOLD TIMER FOR ASCENT ---
-            lPressStartTime.current = now;
-            lConsumedByAction.current = false; // Reset to allow ascent check
-            lConsumedByDash.current = false;   // Reset Dash flag
-        }
-      }
-      
-      // CHANGED: Switch Target key changed from 'e' to ' ' (Space)
-      if (key === ' ') {
-        useGameStore.getState().cycleTarget();
-        playSwitchSound(); // Play Switch Sound
-      }
-  }
-};
-
-const handleKeyUp = (e: KeyboardEvent) => {
-    const key = e.key.toLowerCase();
-    keys.current[key] = false;
-    
-    if (key === 'l') {
-        // If consumed by action, usually we invalidate double tap.
-        // UNLESS preserveDoubleTapOnRelease is true (e.g. Evade Cancel Ascent).
-        if (lConsumedByAction.current && !preserveDoubleTapOnRelease.current) {
-            lastLReleaseTime.current = 0;
-        } else {
-            lastLReleaseTime.current = Date.now();
-        }
-        // Reset flag for next press
-        preserveDoubleTapOnRelease.current = false;
-    }
-};
-
-window.addEventListener('keydown', handleKeyDown);
-window.addEventListener('keyup', handleKeyUp);
-return () => {
-  window.removeEventListener('keydown', handleKeyDown);
-  window.removeEventListener('keyup', handleKeyUp);
-};
-}, [boost, isOverheated, consumeBoost, camera, consumeAmmo, isStunned, targets, currentTargetIndex, cutTracking]);
-const getLandingLag = () => {
-if (isOverheated) {
-return GLOBAL_CONFIG.LANDING_LAG_OVERHEAT;
-} else {
-const boostRatio = boost / maxBoost;
-const penaltyFactor = 1.0 - boostRatio;
-return Math.floor(
-GLOBAL_CONFIG.LANDING_LAG_MIN + (penaltyFactor * (GLOBAL_CONFIG.LANDING_LAG_MAX - GLOBAL_CONFIG.LANDING_LAG_MIN))
-);
-}
-};
-
-useFrame((state, delta) => {
-if (!meshRef.current) return;
-const timeScale = delta * 60;
-const now = Date.now();
-const currentTarget = targets[currentTargetIndex];
-const moveDir = getCameraRelativeInput();
-// Removed spaceHeld variable
-
-const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
-
-if (wasStunnedRef.current && !stunned) {
-    if (isGrounded.current) {
-        landingFrames.current = getLandingLag();
-        visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual anim
-        velocity.current.set(0, 0, 0);
-    }
-}
-wasStunnedRef.current = stunned;
-setIsStunned(stunned);
-
-// Decrement Dash Cooldown
-if (dashCooldownTimer.current > 0) {
-    dashCooldownTimer.current -= 1 * timeScale;
-    if (dashCooldownTimer.current <= 0) {
-        dashCooldownTimer.current = 0;
-        // --- COOLDOWN BUFFER CHECK ---
-        if (dashBuffer.current && landingFrames.current <= 0 && !stunned) {
-            startDashAction();
-            dashBuffer.current = false;
-        }
-    }
-}
-
-// Decrement Dash Burst Timer (Lockout)
-if (dashBurstTimer.current > 0) {
-    dashBurstTimer.current -= 1 * timeScale;
-    if (dashBurstTimer.current <= 0) {
-        dashBurstTimer.current = 0;
-        // --- BURST BUFFER CHECK ---
-        if (jumpBuffer.current) {
-            // Cancel Dash to allow transition to Ascend
-            isDashing.current = false;
-            jumpBuffer.current = false;
-            
-            // If key is NOT held anymore, force a short hop
-            if (!keys.current['l']) {
-                forcedAscentFrames.current = GLOBAL_CONFIG.JUMP_SHORT_HOP_FRAMES;
-            }
-            // If key IS held, physics loop below will catch 'isAscentInput' naturally
-        }
-    }
-}
-
-// Decrement Forced Ascent Timer
-if (forcedAscentFrames.current > 0) {
-    forcedAscentFrames.current -= 1 * timeScale;
-}
-
-ammoRegenTimer.current += delta;
-if (ammoRegenTimer.current > GLOBAL_CONFIG.AMMO_REGEN_TIME) {
-    recoverAmmo();
-    ammoRegenTimer.current = 0;
-}
-
-let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' = 'IDLE';
-
-// ==========================================
-// 1. STATE & PHYSICS CALCULATION
-// ==========================================
-
-// DETERMINE INPUT STATES
-const isLHeld = keys.current['l'];
-const lHeldDuration = isLHeld ? (now - lPressStartTime.current) : 0;
-
-// FIX: Ascent Logic Correction
-// We only block ascent if the key press was explicitly used for a DASH.
-// If it was used for a previous frame of Ascent (lConsumedByAction=true), we SHOULD continue.
-// NEW: If Evading, allow instant ascent (ignore hold threshold)
-const isEvadeCancelInput = isEvading.current && isLHeld && !lConsumedByDash.current;
-const isNormalAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
-const isAscentInput = isEvadeCancelInput || isNormalAscentInput;
-
-// NEW: VISUAL LOCK CHECK (Prevents WASD/Ascent if Landing Animation is playing, unless interrupted by Dash/Shoot)
-const isVisualLock = visualLandingFrames.current > 0;
-
-// --- SHORT HOP LOGIC (Tap detection) ---
-// If key is released, was not consumed, and enough time has passed since release that double tap is impossible
-if (!isLHeld && lastLReleaseTime.current > 0 && !lConsumedByAction.current) {
-    // Wait for double tap window to close BEFORE deciding whether to discard or hop
-    if (now - lastLReleaseTime.current > GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
-        
-        if (isDashing.current) {
-            // FIX: If we are dashing, a short press (that failed to become a double tap) 
-            // should be ignored to prevent unintended vertical movement.
-            lConsumedByAction.current = true;
-            lastLReleaseTime.current = 0;
-        } else {
-            // Trigger Short Hop
-            if (!isStunned && !isOverheated && landingFrames.current <= 0 && !isVisualLock && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP) {
-                if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP)) {
-                    velocity.current.y = GLOBAL_CONFIG.JUMP_SHORT_HOP_SPEED;
-                    isGrounded.current = false;
-                    // Mark as consumed so it doesn't trigger again
-                    lConsumedByAction.current = true;
-                    lastLReleaseTime.current = 0;
-                    // Optional: Force a brief ascent visual state
-                    forcedAscentFrames.current = 10;
-                }
+            const inputDir = getCameraRelativeInput();
+            if (inputDir) {
+                dashDirection.current.copy(inputDir);
             } else {
-                // Even if failed (no boost/stunned), mark as consumed to stop check loop
-                lConsumedByAction.current = true;
-                lastLReleaseTime.current = 0;
-            }
-        }
-    }
-}
-
-// JUMP CANCEL LOGIC (Updated for L-Key)
-// If we are dashing, and we hold L long enough, trigger jump cancel logic
-if (isDashing.current && isAscentInput) {
-     if (dashBurstTimer.current > 0) {
-         jumpBuffer.current = true; // Buffer input if in burst
-     } else {
-         // Grace period check
-         if (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD) {
-             isDashing.current = false; // Cancel Dash -> Next frame loop will catch Ascent
-         }
-     }
-}
-
-if (stunned) {
-    isDashing.current = false;
-    isShooting.current = false;
-    isEvading.current = false; 
-    dashBuffer.current = false; 
-    jumpBuffer.current = false; // Clear Buffers
-    forcedAscentFrames.current = 0;
-    shootTimer.current = 0;
-    landingFrames.current = 0;
-    visualLandingFrames.current = 0; 
-
-    velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY * timeScale, 0);
-    position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
-    position.current.y += velocity.current.y * timeScale;
-
-} else {
-    if (isEvading.current) {
-        nextVisualState = 'EVADE';
-        evadeTimer.current -= 1 * timeScale;
-        
-        velocity.current.x = evadeDirection.current.x * GLOBAL_CONFIG.EVADE_SPEED;
-        velocity.current.z = evadeDirection.current.z * GLOBAL_CONFIG.EVADE_SPEED;
-        velocity.current.y = 0; 
-
-        // EVADE CANCEL -> ASCENT
-        if (isAscentInput) {
-            if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
-                isEvading.current = false; 
-                nextVisualState = 'ASCEND';
-                velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
-                
-                // Mark input as consumed by ascent
-                lConsumedByAction.current = true;
-                // NEW: Special Case - Allow this specific press to be the "first tap" for a dash double tap
-                preserveDoubleTapOnRelease.current = true;
-            }
-        }
-
-        if (evadeTimer.current <= 0) {
-            isEvading.current = false;
-            velocity.current.set(0, 0, 0);
-            if (isGrounded.current) {
-                landingFrames.current = getLandingLag();
-                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_LAG_MAX + 10; // Trigger visual
-            }
-        }
-    }
-    // --- SHOOTING STATE LOGIC ---
-    else if (isShooting.current && shootMode.current === 'STOP') {
-        nextVisualState = 'SHOOT';
-        velocity.current.set(0, 0, 0);
-    }
-    else if (landingFrames.current > 0) {
-        // --- GAMEPLAY LANDING LAG ---
-        velocity.current.set(0, 0, 0);
-        landingFrames.current -= 1 * timeScale; 
-        
-        // Note: nextVisualState will be 'LANDING' if visualLandingFrames > 0 below
-        
-        if (landingFrames.current <= 0) { 
-             landingFrames.current = 0;
-             refillBoost();
-             
-             // --- BUFFERED ACTION CHECK (LANDING) ---
-             if (dashBuffer.current) {
-                 if (dashCooldownTimer.current <= 0) {
-                    startDashAction();
-                    dashBuffer.current = false;
-                 }
-             }
-        }
-    } 
-    else {
-        // MOVEMENT LOGIC (DASH / ASCEND / WALK)
-        
-        // FIX: Handle Overheat during Dash properly (Coasting)
-        if (isDashing.current) {
-            // CHECK OVERHEAT FIRST
-            // If we just ran out of boost, force coasting immediately.
-            if ((isOverheated || boost <= 0) && dashReleaseTime.current === null) {
-                 dashReleaseTime.current = now;
+                if (meshRef.current) {
+                    const currentDir = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                    currentDir.y = 0;
+                    if (currentDir.lengthSq() > 0) {
+                        dashDirection.current.copy(currentDir.normalize());
+                    }
+                }
             }
             
-            // CHECK INPUT RELEASE
-            if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
-                 dashReleaseTime.current = now;
-            }
-
-            // --- COASTING EXPIRY CHECK ---
-            // This must run regardless of boost state if we are coasting.
-            if (dashReleaseTime.current !== null) {
-                 if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
-                     isDashing.current = false;
-                 }
-            }
+            velocity.current.x = dashDirection.current.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
+            velocity.current.z = dashDirection.current.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
         }
+    };
 
-        // --- APPLY PHYSICS BASED ON STATE ---
-
-        // Determine if we are trying to Ascend (Key Held only)
-        // CHECK: Cannot ascend if landing animation is playing (unless dashed out)
-        const effectiveAscent = isAscentInput && !isVisualLock; 
-        const isDashBursting = dashBurstTimer.current > 0;
-
-        if (isDashing.current) {
-             const isCoasting = dashReleaseTime.current !== null;
-             // If coasting, we don't consume boost, so "canSustain" is true.
-             // If NOT coasting, we try to consume boost.
-                 let canSustain = isCoasting;
-                 
-                 if (!isCoasting) {
-                     const paid = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale);
-                     if (paid) {
-                         canSustain = true;
-                     } else {
-                         // 扣气失败。检查是不是真的没气了/过热了。
-                         const checkState = useGameStore.getState();
-                         if (checkState.isOverheated || checkState.boost <= 0) {
-                             // 是的，没气了。强制进入滑行，并允许这一帧继续运动。
-                             dashReleaseTime.current = now;
-                             canSustain = true; 
-                         } else {
-                             canSustain = false; // 其他原因失败
-                         }
-                     }
-                 }
-             if (canSustain) {
-                nextVisualState = 'DASH';
-                currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
-                
-                if (moveDir && dashReleaseTime.current === null) {
-                    const angle = moveDir.angleTo(dashDirection.current);
-                    const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
-                    const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
-                    dashDirection.current.applyAxisAngle(axis, rotateAmount);
-                    dashDirection.current.normalize();
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!useGameStore.getState().isGameStarted) return;
+            const key = e.key.toLowerCase();
+            const now = Date.now();
+            if (!keys.current[key]) {
+                if (['w', 'a', 's', 'd'].includes(key)) {
+                    if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
+                        if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
+                            if (meleeState.current !== 'NONE') {
+                                meleeState.current = 'NONE';
+                            }
+                            if (consumeBoost(GLOBAL_CONFIG.EVADE_BOOST_COST)) {
+                                isEvading.current = true;
+                                evadeTimer.current = GLOBAL_CONFIG.EVADE_DURATION;
+                                cutTracking('player');
+                                const dir = getDirectionFromKey(key);
+                                evadeDirection.current.copy(dir);
+                                velocity.current.x = dir.x * GLOBAL_CONFIG.EVADE_SPEED;
+                                velocity.current.z = dir.z * GLOBAL_CONFIG.EVADE_SPEED;
+                                velocity.current.y = 0;
+                                isDashing.current = false;
+                                isShooting.current = false;
+                                shootTimer.current = 0;
+                                visualLandingFrames.current = 0;
+                                playStepSound(); 
+                            }
+                        }
+                    }
+                    lastKeyPressed.current = key;
+                    lastKeyPressTime.current = now;
                 }
+
+                keys.current[key] = true;
                 
-                velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
-                velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-                velocity.current.y *= 0.85; // Flatten flight
-            } else {
-                isDashing.current = false;
-            }
-        }
-        else if (effectiveAscent && !isOverheated && !isDashBursting) {
-            // ASCENT LOGIC
-            // If checking real input (not forced), pay the cost
-            let canAscend = true;
-            if (isAscentInput) {
-                canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
-                if (canAscend) {
-                    lConsumedByAction.current = true;
-                    // 如果当前视觉状态不是上升（说明刚开始上升），则播放音效
-                    if (visualState !== 'ASCEND') {
-                        playBoostSound();
+                if (key === 'j') {
+                    if (!isShooting.current && !isEvading.current && landingFrames.current <= 0 && !isStunned && meleeState.current === 'NONE') {
+                        const hasAmmo = consumeAmmo();
+                        if (hasAmmo) {
+                            isShooting.current = true;
+                            setActiveWeapon('GUN');
+                            visualLandingFrames.current = 0;
+                            shootTimer.current = 0;
+                            hasFired.current = false;
+                            
+                            const target = targets[currentTargetIndex];
+                            let isFrontal = true; 
+                            if (target && meshRef.current) {
+                                const playerDir = new Vector3();
+                                meshRef.current.getWorldDirection(playerDir);
+                                playerDir.y = 0;
+                                playerDir.normalize();
+                                const toTarget = new Vector3().subVectors(target.position, position.current);
+                                toTarget.y = 0;
+                                toTarget.normalize();
+                                const dot = playerDir.dot(toTarget);
+                                isFrontal = dot >= -0.28;
+                            }
+                            shootMode.current = isFrontal ? 'MOVE' : 'STOP';
+                            if (shootMode.current === 'STOP' && isDashing.current) {
+                                isDashing.current = false;
+                            }
+                        }
                     }
                 }
-            }
 
-            if (canAscend) {
-                nextVisualState = 'ASCEND';
-                velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
-                
-                // PURE INERTIA LOGIC for Ascent
-                velocity.current.x *= Math.pow(0.995, timeScale);
-                velocity.current.z *= Math.pow(0.995, timeScale);
+                if (key === 'k') {
+                    if (!isStunned && landingFrames.current <= 0 && meleeState.current === 'NONE' && !isShooting.current) {
+                        const state = useGameStore.getState();
+                        const target = state.targets[state.currentTargetIndex];
+                        setActiveWeapon('SABER');
+                        isDashing.current = false;
+                        isEvading.current = false;
+                        visualLandingFrames.current = 0;
 
-                // NEW: Horizontal Acceleration during Ascent with Speed Limit
-                if (moveDir) {
-                    const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                    const projectedSpeed = currentHVel.dot(moveDir);
-                    if (projectedSpeed < GLOBAL_CONFIG.ASCENT_MAX_HORIZONTAL_SPEED) {
-                        velocity.current.x += moveDir.x * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
-                        velocity.current.z += moveDir.z * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                        let inRedLock = false;
+                        if (target) {
+                            const dist = position.current.distanceTo(target.position);
+                            if (dist < RED_LOCK_DISTANCE) inRedLock = true;
+                        }
+
+                        if (isGrounded.current) {
+                            isGrounded.current = false;
+                            // Give upward velocity to ensure we can fall later to trigger landing lag
+                            // Match dash hop speed
+                            velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY; 
+                            isMeleeGroundedStart.current = true;
+                        } else {
+                            isMeleeGroundedStart.current = false;
+                        }
+
+                        if (inRedLock) {
+                            meleeState.current = 'LUNGE';
+                            meleeTimer.current = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME;
+                            if (target && meshRef.current) {
+                                const tPos = target.position.clone();
+                                tPos.y = position.current.y;
+                                meshRef.current.lookAt(tPos);
+                                meleeLungeTargetPos.current = target.position.clone();
+                            }
+                        } else {
+                            meleeState.current = 'STARTUP';
+                            meleeTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES;
+                        }
                     }
                 }
-            }
-        }
-        else {
-            // GROUND MOVEMENT (WALK)
-            if (isGrounded.current) {
-                // MOVEMENT LOCK: If Visual Animation is playing, cannot walk
-                if (moveDir && !isVisualLock) {
-                    nextVisualState = 'WALK';
-                    const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                    const speed = currentVel.length();
-                    
-                    // Smooth Steering Logic
-                    let effectiveDir = currentVel.clone();
-                    if (speed < 0.01) {
-                        effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
-                        effectiveDir.y = 0;
-                    }
-                    effectiveDir.normalize();
 
-                    const angle = moveDir.angleTo(effectiveDir);
-                    if (angle > 0.001) {
-                        let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
-                        if (axis.lengthSq() < 0.01) axis = new Vector3(0, 1, 0);
-                        const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
-                        const rotateAmount = Math.min(angle, turnRate);
-                        effectiveDir.applyAxisAngle(axis, rotateAmount);
-                        currentVel.copy(effectiveDir);
+                if (key === 'l') {
+                    const timeSinceLastRelease = now - lastLReleaseTime.current;
+                    if (timeSinceLastRelease < GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
+                        lConsumedByDash.current = true;
+                        lConsumedByAction.current = true;
+                        if (landingFrames.current > 0) {
+                            if (landingFrames.current <= GLOBAL_CONFIG.LANDING_LAG_BUFFER_WINDOW) {
+                                dashBuffer.current = true;
+                            }
+                            return;
+                        }
+                        if (dashCooldownTimer.current > 0) {
+                            dashBuffer.current = true;
+                            return;
+                        }
+                        startDashAction();
                     } else {
-                        currentVel.copy(effectiveDir);
+                        lPressStartTime.current = now;
+                        lConsumedByAction.current = false; 
+                        lConsumedByDash.current = false;   
                     }
-                    
-                    currentVel.normalize().multiplyScalar(GLOBAL_CONFIG.WALK_SPEED);
-                    velocity.current.x = currentVel.x;
-                    velocity.current.z = currentVel.z;
-                } else {
-                    velocity.current.x = 0;
-                    velocity.current.z = 0;
                 }
-            } else {
-                // AIR DRIFT (when not Dashing/Ascending)
-                if (moveDir) {
-                    velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
+                if (key === ' ') {
+                    useGameStore.getState().cycleTarget();
+                    playSwitchSound(); 
                 }
             }
-        }
+        };
 
-        const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-        const frictionFactor = Math.pow(friction, timeScale);
-        
-        // --- APPLY VISUAL OVERRIDE FOR SHORT HOP ---
-        // FIX: Removed redundant check for EVADE state which was causing a TS error because nextVisualState cannot be EVADE in this scope
-        if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') {
-            nextVisualState = 'ASCEND';
-        }
-        
-        if (nextVisualState !== 'ASCEND') {
-             velocity.current.x *= frictionFactor;
-             velocity.current.z *= frictionFactor;
-        }
-        
-        if (!isDashing.current) {
-            velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
-        }
-    }
-    
-    position.current.add(velocity.current.clone().multiplyScalar(timeScale));
-}
+        const handleKeyUp = (e: KeyboardEvent) => {
+            const key = e.key.toLowerCase();
+            keys.current[key] = false;
+            if (key === 'l') {
+                if (lConsumedByAction.current && !preserveDoubleTapOnRelease.current) {
+                    lastLReleaseTime.current = 0;
+                } else {
+                    lastLReleaseTime.current = Date.now();
+                }
+                preserveDoubleTapOnRelease.current = false;
+            }
+        };
 
-// ==========================================
-// 2. COLLISION & CONSTRAINTS
-// ==========================================
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [boost, isOverheated, consumeBoost, camera, consumeAmmo, isStunned, targets, currentTargetIndex, cutTracking]);
 
-const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
-const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
-
-if (currentRadiusSq > maxRadius * maxRadius) {
-    const angle = Math.atan2(position.current.z, position.current.x);
-    position.current.x = Math.cos(angle) * maxRadius;
-    position.current.z = Math.sin(angle) * maxRadius;
-}
-
-if (position.current.y <= 0) {
-    position.current.y = 0;
-    if (!isGrounded.current) {
-        isGrounded.current = true;
-        if (!stunned && !isDashing.current && nextVisualState !== 'EVADE') {
-             landingFrames.current = getLandingLag(); // Gameplay lockout
-             visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; // Trigger visual anim
-             playDropSound(); // Play Landing Sound
-        }
-        if (isDashing.current) isDashing.current = false; 
-        if (isEvading.current) isEvading.current = false;
-    }
-    if (velocity.current.y < 0) velocity.current.y = 0;
-} else {
-    isGrounded.current = false;
-}
-
-// ==========================================
-// 3. VISUAL & ORIENTATION
-// ==========================================
-
-// Process Visual Landing State (Decoupled from Gameplay Landing Lag)
-if (visualLandingFrames.current > 0) {
-    visualLandingFrames.current -= 1 * timeScale;
-    if (nextVisualState !== 'DASH' && nextVisualState !== 'EVADE' && nextVisualState !== 'ASCEND') {
-         nextVisualState = 'LANDING';
-    }
-    if (visualLandingFrames.current <= 0) visualLandingFrames.current = 0;
-}
-
-setVisualState(nextVisualState);
-setPlayerPos(position.current.clone());
-meshRef.current.position.copy(position.current);
-
-// --- ANIMATION LOGIC (Procedural) ---
-
-// 0. Update Walk Cycle (Engine)
-if (isGrounded.current && nextVisualState === 'WALK') {
-    const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
-    if (speed > 0.05) {
-        lastWalkCycle.current = walkCycle.current;
-        walkCycle.current += delta * 9.5; // Speed multiplier
-        
-        // Footstep Audio Logic (Triggers every half sine wave, e.g., when passing PI or 0)
-        // Simple approach: check if integer part of (value / PI) changed
-        const prevStep = Math.floor(lastWalkCycle.current / Math.PI);
-        const currStep = Math.floor(walkCycle.current / Math.PI);
-        if (currStep !== prevStep) {
-            playFootSound();
-        }
-    } else {
-        // Decay to closest integer multiple of PI to return to neutral-ish stance smoothly? 
-        // Or just stop. For now, stop.
-    }
-} else {
-    // Reset or decay? Let's just reset for snapiness or let it hang.
-    // walkCycle.current = 0; // Uncomment for reset
-}
-
-// DETERMINE IF WE ARE IN THE SPECIAL IDLE POSE STATE (Body/Legs)
-const isIdlePose = isGrounded.current && 
-                   nextVisualState === 'IDLE' && 
-                   !isShooting.current && 
-                   !isStunned &&
-                   landingFrames.current <= 0;
-
-if (!stunned) {
-    // 1. Orientation (Body)
-    if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
-        // Smooth Turn Logic for Stop Shot
-        const dirToTarget = currentTarget.position.clone().sub(meshRef.current.position);
-        dirToTarget.y = 0; 
-        dirToTarget.normalize();
-
-        if (dirToTarget.lengthSq() > 0.001) {
-            const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), dirToTarget);
-            
-            // Slerp speed adjustment:
-            // 12 frames startup. We want to face target by the time we shoot.
-            // 0.25 per frame (60fps) is fast enough.
-            meshRef.current.quaternion.slerp(targetQuat, 0.1 * timeScale);
-        }
-    }
-    else if (isDashing.current) {
-        const lookPos = position.current.clone().add(dashDirection.current);
-        meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-    }
-    else if (nextVisualState === 'ASCEND') {
-        if (moveDir) {
-            const targetLookAt = position.current.clone().sub(moveDir);
-            const m = new Matrix4();
-            m.lookAt(position.current, targetLookAt, new Vector3(0,1,0));
-            const targetQuat = new Quaternion();
-            targetQuat.setFromRotationMatrix(m);
-            meshRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
-        }
-    }
-    else if (nextVisualState === 'WALK'){
-        const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-        if (horizVel.lengthSq() > 0.001) { 
-            const lookPos = position.current.clone().add(horizVel);
-            meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-        }
-    }
-    meshRef.current.updateMatrixWorld(true);
-
-    // 2. Gun Arm Aiming Logic
-    if (gunArmRef.current) {
-        // --- DYNAMIC ARM REST POSE CALCULATION ---
-        // Determine where the arm should relax to (Idle vs Air/Move)
-        // This ensures that when shooting ends, we slerp to the correct "next" pose, preventing snaps.
-        
-        let targetArmEuler = new Euler(0.35, -0.3, 0); // Default Air/Move Pose
-
-        // Check if we should use the relaxed IDLE pose
-        // Valid if grounded and either truly IDLE or doing a standing SHOT
-        const useIdleArmPose = isGrounded.current && (
-            nextVisualState === 'IDLE' || 
-            (nextVisualState === 'SHOOT' && shootMode.current === 'STOP') ||
-            (nextVisualState === 'WALK' && velocity.current.lengthSq() < 0.01)
-        );
-
-        if (useIdleArmPose) {
-            targetArmEuler.set(
-                IDLE_POSE.LEFT_ARM.SHOULDER.x,
-                IDLE_POSE.LEFT_ARM.SHOULDER.y,
-                IDLE_POSE.LEFT_ARM.SHOULDER.z
+    const getLandingLag = () => {
+        if (isOverheated) {
+            return GLOBAL_CONFIG.LANDING_LAG_OVERHEAT;
+        } else {
+            const boostRatio = boost / maxBoost;
+            const penaltyFactor = 1.0 - boostRatio;
+            return Math.floor(
+                GLOBAL_CONFIG.LANDING_LAG_MIN + (penaltyFactor * (GLOBAL_CONFIG.LANDING_LAG_MAX - GLOBAL_CONFIG.LANDING_LAG_MIN))
             );
         }
-        
-        const targetArmQuat = new Quaternion().setFromEuler(targetArmEuler);
+    };
 
-        if (isShooting.current && currentTarget) {
-            const shoulderPos = new Vector3();
-            gunArmRef.current.getWorldPosition(shoulderPos);
-            const targetPos = currentTarget.position.clone();
-            const dirToTarget = targetPos.sub(shoulderPos).normalize();
-            const bodyInverseQuat = meshRef.current.quaternion.clone().invert();
-            const localDir = dirToTarget.applyQuaternion(bodyInverseQuat);
-            const defaultForward = new Vector3(0, -1, 0.2).normalize();
-            const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
+    useFrame((state, delta) => {
+        if (!meshRef.current) return;
+        const timeScale = delta * 60;
+        const now = Date.now();
+        const currentTarget = targets[currentTargetIndex];
+        const moveDir = getCameraRelativeInput();
+        
+        const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
+
+        if (wasStunnedRef.current && !stunned) {
+            if (isGrounded.current) {
+                landingFrames.current = getLandingLag();
+                visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; 
+                velocity.current.set(0, 0, 0);
+            }
+        }
+        wasStunnedRef.current = stunned;
+        setIsStunned(stunned);
+
+        if (dashCooldownTimer.current > 0) {
+            dashCooldownTimer.current -= 1 * timeScale;
+            if (dashCooldownTimer.current <= 0) {
+                dashCooldownTimer.current = 0;
+                if (dashBuffer.current && landingFrames.current <= 0 && !stunned) {
+                    startDashAction();
+                    dashBuffer.current = false;
+                }
+            }
+        }
+
+        if (dashBurstTimer.current > 0) {
+            dashBurstTimer.current -= 1 * timeScale;
+            if (dashBurstTimer.current <= 0) {
+                dashBurstTimer.current = 0;
+                if (jumpBuffer.current) {
+                    isDashing.current = false;
+                    jumpBuffer.current = false;
+                    if (!keys.current['l']) {
+                        forcedAscentFrames.current = GLOBAL_CONFIG.JUMP_SHORT_HOP_FRAMES;
+                    }
+                }
+            }
+        }
+
+        if (forcedAscentFrames.current > 0) {
+            forcedAscentFrames.current -= 1 * timeScale;
+        }
+
+        ammoRegenTimer.current += delta;
+        if (ammoRegenTimer.current > GLOBAL_CONFIG.AMMO_REGEN_TIME) {
+            recoverAmmo();
+            ammoRegenTimer.current = 0;
+        }
+
+        let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE' = 'IDLE';
+
+        const isLHeld = keys.current['l'];
+        const lHeldDuration = isLHeld ? (now - lPressStartTime.current) : 0;
+        const isEvadeCancelInput = isEvading.current && isLHeld && !lConsumedByDash.current;
+        const isNormalAscentInput = isLHeld && !lConsumedByDash.current && (lHeldDuration > GLOBAL_CONFIG.INPUT_ASCENT_HOLD_THRESHOLD);
+        const isAscentInput = isEvadeCancelInput || isNormalAscentInput;
+        const isVisualLock = visualLandingFrames.current > 0;
+
+        if (!isLHeld && lastLReleaseTime.current > 0 && !lConsumedByAction.current) {
+            if (now - lastLReleaseTime.current > GLOBAL_CONFIG.INPUT_DASH_WINDOW) {
+                if (isDashing.current) {
+                    lConsumedByAction.current = true;
+                    lastLReleaseTime.current = 0;
+                } else {
+                    if (!isStunned && !isOverheated && landingFrames.current <= 0 && !isVisualLock && boost > GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP && meleeState.current === 'NONE') {
+                        if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_SHORT_HOP)) {
+                            velocity.current.y = GLOBAL_CONFIG.JUMP_SHORT_HOP_SPEED;
+                            isGrounded.current = false;
+                            lConsumedByAction.current = true;
+                            lastLReleaseTime.current = 0;
+                            forcedAscentFrames.current = 10;
+                        }
+                    } else {
+                        lConsumedByAction.current = true;
+                        lastLReleaseTime.current = 0;
+                    }
+                }
+            }
+        }
+
+        if (isDashing.current && isAscentInput) {
+            if (dashBurstTimer.current > 0) {
+                jumpBuffer.current = true; 
+            } else {
+                if (now - dashStartTime.current > GLOBAL_CONFIG.DASH_GRACE_PERIOD) {
+                    isDashing.current = false; 
+                }
+            }
+        }
+
+        if (stunned) {
+            isDashing.current = false;
+            isShooting.current = false;
+            isEvading.current = false; 
+            dashBuffer.current = false; 
+            meleeState.current = 'NONE';
+            jumpBuffer.current = false; 
+            forcedAscentFrames.current = 0;
+            shootTimer.current = 0;
+            landingFrames.current = 0;
+            visualLandingFrames.current = 0; 
+
+            velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY * timeScale, 0);
+            position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
+            position.current.y += velocity.current.y * timeScale;
+
+        } else {
+            if (meleeState.current !== 'NONE') {
+                nextVisualState = 'MELEE';
+                if (isDashing.current || isEvading.current) {
+                    meleeState.current = 'NONE';
+                }
+                
+                if (meleeState.current === 'STARTUP') {
+                    velocity.current.x = 0;
+                    velocity.current.z = 0;
+                    
+                    meleeTimer.current -= timeScale;
+                    
+                    if (meleeTimer.current <= 0) {
+                        meleeState.current = 'SLASH';
+                        meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                    }
+                } 
+                else if (meleeState.current === 'LUNGE') {
+                    const paid = consumeBoost(GLOBAL_CONFIG.MELEE_BOOST_CONSUMPTION * timeScale);
+                    let dist = 999;
+                    if (currentTarget) {
+                        dist = position.current.distanceTo(currentTarget.position);
+                        
+                        // Lunge Tracking Logic
+                        const targetPos = currentTarget.position.clone();
+                        const dir = targetPos.sub(position.current).normalize();
+                        
+                        velocity.current.x = dir.x * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        velocity.current.z = dir.z * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        
+                        // Height Logic for Grounded Lunge
+                        if (!isMeleeGroundedStart.current) {
+                            velocity.current.y = dir.y * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                            meshRef.current.lookAt(currentTarget.position);
+                        } else {
+                            // If grounded start, only rotate horizontally
+                            meshRef.current.lookAt(currentTarget.position.x, position.current.y, currentTarget.position.z);
+                        }
+                        
+                    } else {
+                        const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                        velocity.current.x = fwd.x * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        velocity.current.z = fwd.z * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        if (!isMeleeGroundedStart.current) {
+                            velocity.current.y = fwd.y * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        }
+                    }
+
+                    meleeTimer.current -= timeScale;
+
+                    if (dist < GLOBAL_CONFIG.MELEE_RANGE || meleeTimer.current <= 0 || !paid) {
+                        meleeState.current = 'SLASH';
+                        meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                        // Don't zero velocity immediately if grounded to preserve hop arc? 
+                        // Actually better to zero it for the slash impact feel, gravity will take over in recovery.
+                        velocity.current.set(0,0,0); 
+                    }
+                }
+                else if (meleeState.current === 'SLASH') {
+                    velocity.current.set(0, 0, 0);
+                    if (Math.abs(meleeTimer.current - GLOBAL_CONFIG.MELEE_ATTACK_FRAMES) < timeScale * 2) {
+                        if (currentTarget) {
+                            const dist = position.current.distanceTo(currentTarget.position);
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                                const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                applyHit(currentTarget.id, knockback);
+                                playHitSound(0); 
+                            }
+                        }
+                    }
+                    meleeTimer.current -= timeScale;
+                    if (meleeTimer.current <= 0) {
+                        meleeState.current = 'RECOVERY';
+                        meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
+                    }
+                }
+                else if (meleeState.current === 'RECOVERY') {
+                    velocity.current.set(0, 0, 0);
+                    meleeTimer.current -= timeScale;
+                    if (meleeTimer.current <= 0) {
+                        meleeState.current = 'NONE';
+                    }
+                }
+                
+                // Apply gravity during Startup/Lunge if grounded start to allow the hop
+                if (isMeleeGroundedStart.current && (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE')) {
+                    velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
+                    
+                    // CEILING CLAMP: Don't fly too high during ground melee
+                    if (position.current.y > 0.5) {
+                        position.current.y = 0.5;
+                        if (velocity.current.y > 0) velocity.current.y = 0;
+                    }
+                }
+            }
+            else if (isEvading.current) {
+                nextVisualState = 'EVADE';
+                evadeTimer.current -= 1 * timeScale;
+                velocity.current.x = evadeDirection.current.x * GLOBAL_CONFIG.EVADE_SPEED;
+                velocity.current.z = evadeDirection.current.z * GLOBAL_CONFIG.EVADE_SPEED;
+                velocity.current.y = 0; 
+
+                if (isAscentInput) {
+                    if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
+                        isEvading.current = false; 
+                        nextVisualState = 'ASCEND';
+                        velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
+                        lConsumedByAction.current = true;
+                        preserveDoubleTapOnRelease.current = true;
+                    }
+                }
+
+                if (evadeTimer.current <= 0) {
+                    isEvading.current = false;
+                    velocity.current.set(0, 0, 0);
+                    if (isGrounded.current) {
+                        landingFrames.current = getLandingLag();
+                        visualLandingFrames.current = GLOBAL_CONFIG.LANDING_LAG_MAX + 10; 
+                    }
+                }
+            }
+            else if (isShooting.current && shootMode.current === 'STOP') {
+                nextVisualState = 'SHOOT';
+                velocity.current.set(0, 0, 0);
+            }
+            else if (landingFrames.current > 0) {
+                velocity.current.set(0, 0, 0);
+                landingFrames.current -= 1 * timeScale; 
+                if (landingFrames.current <= 0) { 
+                    landingFrames.current = 0;
+                    refillBoost();
+                    if (dashBuffer.current) {
+                        if (dashCooldownTimer.current <= 0) {
+                            startDashAction();
+                            dashBuffer.current = false;
+                        }
+                    }
+                }
+            } 
+            else {
+                if (isDashing.current) {
+                    if ((isOverheated || boost <= 0) && dashReleaseTime.current === null) {
+                        dashReleaseTime.current = now;
+                    }
+                    if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
+                        dashReleaseTime.current = now;
+                    }
+                    if (dashReleaseTime.current !== null) {
+                        if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
+                            isDashing.current = false;
+                        }
+                    }
+                }
+
+                const effectiveAscent = isAscentInput && !isVisualLock; 
+                const isDashBursting = dashBurstTimer.current > 0;
+
+                if (isDashing.current) {
+                    const isCoasting = dashReleaseTime.current !== null;
+                        let canSustain = isCoasting;
+                        if (!isCoasting) {
+                            const paid = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale);
+                            if (paid) {
+                                canSustain = true;
+                            } else {
+                                const checkState = useGameStore.getState();
+                                if (checkState.isOverheated || checkState.boost <= 0) {
+                                    dashReleaseTime.current = now;
+                                    canSustain = true; 
+                                } else {
+                                    canSustain = false; 
+                                }
+                            }
+                        }
+                    if (canSustain) {
+                        nextVisualState = 'DASH';
+                        currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
+                        
+                        if (moveDir && dashReleaseTime.current === null) {
+                            const angle = moveDir.angleTo(dashDirection.current);
+                            const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
+                            const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
+                            dashDirection.current.applyAxisAngle(axis, rotateAmount);
+                            dashDirection.current.normalize();
+                        }
+                        
+                        velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
+                        velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
+                        velocity.current.y *= 0.85; 
+                    } else {
+                        isDashing.current = false;
+                    }
+                }
+                else if (effectiveAscent && !isOverheated && !isDashBursting) {
+                    let canAscend = true;
+                    if (isAscentInput) {
+                        canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
+                        if (canAscend) {
+                            lConsumedByAction.current = true;
+                            if (visualState !== 'ASCEND') {
+                                playBoostSound();
+                            }
+                        }
+                    }
+
+                    if (canAscend) {
+                        nextVisualState = 'ASCEND';
+                        velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
+                        velocity.current.x *= Math.pow(0.995, timeScale);
+                        velocity.current.z *= Math.pow(0.995, timeScale);
+                        if (moveDir) {
+                            const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                            const projectedSpeed = currentHVel.dot(moveDir);
+                            if (projectedSpeed < GLOBAL_CONFIG.ASCENT_MAX_HORIZONTAL_SPEED) {
+                                velocity.current.x += moveDir.x * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                                velocity.current.z += moveDir.z * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                            }
+                        }
+                    }
+                }
+                else {
+                    if (isGrounded.current) {
+                        if (moveDir && !isVisualLock) {
+                            nextVisualState = 'WALK';
+                            const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                            const speed = currentVel.length();
+                            let effectiveDir = currentVel.clone();
+                            if (speed < 0.01) {
+                                effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
+                                effectiveDir.y = 0;
+                            }
+                            effectiveDir.normalize();
+
+                            const angle = moveDir.angleTo(effectiveDir);
+                            if (angle > 0.001) {
+                                let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
+                                if (axis.lengthSq() < 0.01) axis = new Vector3(0, 1, 0);
+                                const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
+                                const rotateAmount = Math.min(angle, turnRate);
+                                effectiveDir.applyAxisAngle(axis, rotateAmount);
+                                currentVel.copy(effectiveDir);
+                            } else {
+                                currentVel.copy(effectiveDir);
+                            }
+                            
+                            currentVel.normalize().multiplyScalar(GLOBAL_CONFIG.WALK_SPEED);
+                            velocity.current.x = currentVel.x;
+                            velocity.current.z = currentVel.z;
+                        } else {
+                            velocity.current.x = 0;
+                            velocity.current.z = 0;
+                        }
+                    } else {
+                        if (moveDir) {
+                            velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
+                        }
+                    }
+                }
+
+                const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
+                const frictionFactor = Math.pow(friction, timeScale);
+                
+                if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') {
+                    nextVisualState = 'ASCEND';
+                }
+                
+                if (nextVisualState !== 'ASCEND') {
+                    velocity.current.x *= frictionFactor;
+                    velocity.current.z *= frictionFactor;
+                }
+                
+                if (!isDashing.current) {
+                    velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
+                }
+            }
             
-            const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
-            const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
-            const recovery = shootMode.current === 'STOP' 
+            position.current.add(velocity.current.clone().multiplyScalar(timeScale));
+        }
+
+        const maxRadius = GLOBAL_CONFIG.BOUNDARY_LIMIT - 1.0;
+        const currentRadiusSq = position.current.x * position.current.x + position.current.z * position.current.z;
+
+        if (currentRadiusSq > maxRadius * maxRadius) {
+            const angle = Math.atan2(position.current.z, position.current.x);
+            position.current.x = Math.cos(angle) * maxRadius;
+            position.current.z = Math.sin(angle) * maxRadius;
+        }
+
+        if (position.current.y <= 0) {
+            position.current.y = 0;
+            if (!isGrounded.current) {
+                isGrounded.current = true;
+                if (!stunned && !isDashing.current && nextVisualState !== 'EVADE' && nextVisualState !== 'MELEE') {
+                    landingFrames.current = getLandingLag(); 
+                    visualLandingFrames.current = GLOBAL_CONFIG.LANDING_VISUAL_DURATION; 
+                    playDropSound(); 
+                }
+                if (isDashing.current) isDashing.current = false; 
+                if (isEvading.current) isEvading.current = false;
+            }
+            if (velocity.current.y < 0) velocity.current.y = 0;
+        } else {
+            isGrounded.current = false;
+        }
+
+        if (visualLandingFrames.current > 0) {
+            visualLandingFrames.current -= 1 * timeScale;
+            if (nextVisualState !== 'DASH' && nextVisualState !== 'EVADE' && nextVisualState !== 'ASCEND' && nextVisualState !== 'MELEE') {
+                nextVisualState = 'LANDING';
+            }
+            if (visualLandingFrames.current <= 0) visualLandingFrames.current = 0;
+        }
+
+        setVisualState(nextVisualState);
+        setPlayerPos(position.current.clone());
+        meshRef.current.position.copy(position.current);
+
+        if (isGrounded.current && nextVisualState === 'WALK') {
+            const speed = new Vector3(velocity.current.x, 0, velocity.current.z).length();
+            if (speed > 0.05) {
+                lastWalkCycle.current = walkCycle.current;
+                walkCycle.current += delta * 9.5; 
+                const prevStep = Math.floor(lastWalkCycle.current / Math.PI);
+                const currStep = Math.floor(walkCycle.current / Math.PI);
+                if (currStep !== prevStep) {
+                    playFootSound();
+                }
+            }
+        }
+
+        const isIdlePose = isGrounded.current && 
+                        nextVisualState === 'IDLE' && 
+                        !isShooting.current && 
+                        !isStunned &&
+                        landingFrames.current <= 0;
+
+        if (!stunned) {
+            if (meleeState.current === 'LUNGE') {
+                if (velocity.current.lengthSq() > 0.01) {
+                    const lookPos = position.current.clone().add(velocity.current);
+                    if (isMeleeGroundedStart.current) lookPos.y = position.current.y;
+                    meshRef.current.lookAt(lookPos);
+                }
+            } else if (meleeState.current === 'STARTUP' || meleeState.current === 'SLASH' || meleeState.current === 'RECOVERY') {
+                // Green Lock / Stationary Melee: NO ROTATION UPDATES.
+                // The character maintains its previous facing.
+            }
+            else if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
+                const dirToTarget = currentTarget.position.clone().sub(meshRef.current.position);
+                dirToTarget.y = 0; 
+                dirToTarget.normalize();
+                if (dirToTarget.lengthSq() > 0.001) {
+                    const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), dirToTarget);
+                    meshRef.current.quaternion.slerp(targetQuat, 0.1 * timeScale);
+                }
+            }
+            else if (isDashing.current) {
+                const lookPos = position.current.clone().add(dashDirection.current);
+                meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+            }
+            else if (nextVisualState === 'ASCEND') {
+                if (moveDir) {
+                    const targetLookAt = position.current.clone().sub(moveDir);
+                    const m = new Matrix4();
+                    m.lookAt(position.current, targetLookAt, new Vector3(0,1,0));
+                    const targetQuat = new Quaternion();
+                    targetQuat.setFromRotationMatrix(m);
+                    meshRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
+                }
+            }
+            else if (nextVisualState === 'WALK'){
+                const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                if (horizVel.lengthSq() > 0.001) { 
+                    const lookPos = position.current.clone().add(horizVel);
+                    meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+                }
+            }
+            meshRef.current.updateMatrixWorld(true);
+
+            // --- ANIMATION MIXER ---
+            if (gunArmRef.current) {
+                let targetArmEuler = new Euler(0.35, -0.3, 0); 
+                const useIdleArmPose = isGrounded.current && (
+                    nextVisualState === 'IDLE' || 
+                    (nextVisualState === 'SHOOT' && shootMode.current === 'STOP') ||
+                    (nextVisualState === 'WALK' && velocity.current.lengthSq() < 0.01)
+                );
+
+                if (useIdleArmPose) {
+                    targetArmEuler.set(
+                        IDLE_POSE.LEFT_ARM.SHOULDER.x,
+                        IDLE_POSE.LEFT_ARM.SHOULDER.y,
+                        IDLE_POSE.LEFT_ARM.SHOULDER.z
+                    );
+                }
+                
+                const targetArmQuat = new Quaternion().setFromEuler(targetArmEuler);
+
+                if (meleeState.current !== 'NONE') {
+                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
+                        const pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.SHOULDER;
+                        const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
+                        gunArmRef.current.quaternion.slerp(q, 0.2 * timeScale);
+                    } else if (meleeState.current === 'SLASH') {
+                        const pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.SHOULDER;
+                        const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
+                        gunArmRef.current.quaternion.slerp(q, 0.4 * timeScale);
+                    } else {
+                        const lerpSpeed = 0.1 * timeScale;
+                        gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, targetArmEuler.x, lerpSpeed);
+                        gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, targetArmEuler.y, lerpSpeed);
+                        gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, targetArmEuler.z, lerpSpeed);
+                    }
+                }
+                else if (isShooting.current && currentTarget) {
+                    const shoulderPos = new Vector3();
+                    gunArmRef.current.getWorldPosition(shoulderPos);
+                    const targetPos = currentTarget.position.clone();
+                    const dirToTarget = targetPos.sub(shoulderPos).normalize();
+                    const bodyInverseQuat = meshRef.current.quaternion.clone().invert();
+                    const localDir = dirToTarget.applyQuaternion(bodyInverseQuat);
+                    const defaultForward = new Vector3(0, -1, 0.2).normalize();
+                    const targetQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
+                    
+                    const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
+                    const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
+                    const recovery = shootMode.current === 'STOP' 
+                        ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                        : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                    
+                    const identity = new Quaternion();
+
+                    if (shootTimer.current < startup) {
+                        if (shootTimer.current < aiming) {
+                            const t = shootTimer.current / aiming;
+                            const smoothT = 1 - Math.pow(1 - t, 3);
+                            gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
+                        } else {
+                            gunArmRef.current.quaternion.copy(targetQuat);
+                        }
+                    } else {
+                        const t = (shootTimer.current - startup) / recovery;
+                        gunArmRef.current.quaternion.slerpQuaternions(targetQuat, targetArmQuat, t);
+                    }
+                } else {
+                    const lerpSpeed = 0.1 * timeScale;
+                    gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, targetArmEuler.x, lerpSpeed);
+                    gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, targetArmEuler.y, lerpSpeed);
+                    gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, targetArmEuler.z, lerpSpeed);
+                }
+            }
+            
+            if (leftForeArmRef.current) {
+                let targetX = -0.65;
+                let targetY = 0.3;
+                let targetZ = 0;
+
+                if (meleeState.current !== 'NONE') {
+                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
+                        const pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.ELBOW;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    } else if (meleeState.current === 'SLASH') {
+                        const pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.ELBOW;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    }
+                } else if (isIdlePose) {
+                    targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
+                    targetY = IDLE_POSE.LEFT_ARM.ELBOW.y;
+                    targetZ = IDLE_POSE.LEFT_ARM.ELBOW.z;
+                }
+
+                const lerpSpeed = (meleeState.current === 'SLASH' ? 0.4 : 0.1) * timeScale;
+                leftForeArmRef.current.rotation.x = MathUtils.lerp(leftForeArmRef.current.rotation.x, targetX, lerpSpeed);
+                leftForeArmRef.current.rotation.y = MathUtils.lerp(leftForeArmRef.current.rotation.y, targetY, lerpSpeed);
+                leftForeArmRef.current.rotation.z = MathUtils.lerp(leftForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+            }
+
+            if (rightArmRef.current) {
+                let targetX = 0.35;
+                let targetY = 0.3;
+                let targetZ = 0;
+
+                if (meleeState.current !== 'NONE') {
+                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
+                        const pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.SHOULDER;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    } else if (meleeState.current === 'SLASH') {
+                        const pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.SHOULDER;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    }
+                } else if (isDashing.current) {
+                    targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
+                    targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
+                    targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
+                } 
+                else if (isIdlePose) {
+                    targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
+                    targetY = IDLE_POSE.RIGHT_ARM.SHOULDER.y;
+                    targetZ = IDLE_POSE.RIGHT_ARM.SHOULDER.z;
+                }
+
+                const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.2 : 0.1) * timeScale;
+                rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, targetX, lerpSpeed);
+                rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, targetY, lerpSpeed);
+                rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, targetZ, lerpSpeed);
+            }
+
+            if (rightForeArmRef.current) {
+                let targetX = -0.65;
+                let targetY = -0.3;
+                let targetZ = 0;
+                
+                if (meleeState.current !== 'NONE') {
+                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
+                        const pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.ELBOW;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    } else if (meleeState.current === 'SLASH') {
+                        const pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.ELBOW;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    }
+                } else if (isDashing.current) {
+                    targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
+                    targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
+                    targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
+                }
+                else if (isIdlePose) {
+                    targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
+                    targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
+                    targetZ = IDLE_POSE.RIGHT_ARM.ELBOW.z;
+                }
+
+                const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.2 : 0.1) * timeScale;
+                rightForeArmRef.current.rotation.x = MathUtils.lerp(rightForeArmRef.current.rotation.x, targetX, lerpSpeed);
+                rightForeArmRef.current.rotation.y = MathUtils.lerp(rightForeArmRef.current.rotation.y, targetY, lerpSpeed);
+                rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
+            }
+
+            if (shieldRef.current) {
+                let targetPos = { x: 0, y: -0.5, z: 0.1 };
+                let targetRot = { x: -0.2, y: 0, z: 0 };
+
+                if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
+                    targetPos = DASH_POSE.SHIELD.POSITION;
+                    targetRot = DASH_POSE.SHIELD.ROTATION;
+                }
+
+                const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.15 : 0.1) * timeScale;
+                
+                shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
+                shieldRef.current.position.y = MathUtils.lerp(shieldRef.current.position.y, targetPos.y, lerpSpeed);
+                shieldRef.current.position.z = MathUtils.lerp(shieldRef.current.position.z, targetPos.z, lerpSpeed);
+
+                shieldRef.current.rotation.x = MathUtils.lerp(shieldRef.current.rotation.x, targetRot.x, lerpSpeed);
+                shieldRef.current.rotation.y = MathUtils.lerp(shieldRef.current.rotation.y, targetRot.y, lerpSpeed);
+                shieldRef.current.rotation.z = MathUtils.lerp(shieldRef.current.rotation.z, targetRot.z, lerpSpeed);
+            }
+            
+            if (headRef.current) {
+                const t = targets[currentTargetIndex];
+                let shouldLook = false;
+                
+                if (t && meleeState.current === 'NONE') { 
+                    const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                    const dirToT = t.position.clone().sub(position.current).normalize();
+                    if (fwd.dot(dirToT) > 0) { 
+                        shouldLook = true;
+                        const startQuat = headRef.current.quaternion.clone();
+                        const lookAtTarget = t.position.clone().add(new Vector3(0, 1.7, 0));
+                        headRef.current.lookAt(lookAtTarget);
+                        const targetQuat = headRef.current.quaternion.clone();
+                        headRef.current.quaternion.copy(startQuat);
+                        headRef.current.quaternion.slerp(targetQuat, 0.1);
+                    }
+                }
+                
+                if (!shouldLook) {
+                    let targetX = 0;
+                    let targetY = 0;
+                    let targetZ = 0;
+                    
+                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
+                        const pose = MELEE_POSE_DATA.STARTUP.HEAD;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    } else if (meleeState.current === 'SLASH') {
+                        const pose = MELEE_POSE_DATA.SLASH.HEAD;
+                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
+                    } else if (isIdlePose) {
+                        targetX = IDLE_POSE.HEAD.x;
+                        targetY = IDLE_POSE.HEAD.y;
+                    }
+                    
+                    if (nextVisualState === 'WALK') {
+                        const t = walkCycle.current;
+                        targetY =  -Math.sin(t + 0.25) * 0.32; 
+                    }
+                    
+                    const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, targetZ));
+                    headRef.current.quaternion.slerp(q, 0.05 * timeScale);
+                }
+            }
+
+            if (legsRef.current) {
+                const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE' && nextVisualState !== 'MELEE';
+                
+                if (isFalling && !wasFallingRef.current) {
+                    const vy = velocity.current.y; 
+                    const h = position.current.y;
+                    const g = GLOBAL_CONFIG.GRAVITY;
+                    
+                    const discriminant = vy * vy + 2 * g * h;
+                    if (discriminant >= 0 && g > 0) {
+                        totalPredictedFallFrames.current = (vy + Math.sqrt(discriminant)) / g;
+                    } else {
+                        totalPredictedFallFrames.current = 60; 
+                    }
+                    currentFallTime.current = 0;
+                }
+                wasFallingRef.current = isFalling;
+
+                let animWeight = 0;
+                if (isFalling) {
+                    currentFallTime.current += timeScale;
+                    const total = Math.max(totalPredictedFallFrames.current, 1);
+                    const progress = Math.min(currentFallTime.current / total, 1.0);
+                    const ratio = GLOBAL_CONFIG.FALL_ANIM_RATIO;
+                    
+                    if (progress < ratio) {
+                        animWeight = progress / ratio;
+                    } else {
+                        animWeight = 1 - ((progress - ratio) / (1 - ratio));
+                    }
+                } else {
+                    animWeight = 0;
+                    currentFallTime.current = 0;
+                }
+
+                const invRot = meshRef.current.quaternion.clone().invert();
+                const localVel = velocity.current.clone().applyQuaternion(invRot);
+                
+                const enableInertiaSway = nextVisualState === 'EVADE';
+                
+                const targetPitch = (enableInertiaSway && !isFalling) ? localVel.z * 1.5 : 0; 
+                const targetRoll = (enableInertiaSway && !isFalling) ? -localVel.x * 1.5 : 0;
+                
+                legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
+                legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
+
+                let targetRightThigh = { x: 0, y: 0, z: 0 };
+                let targetLeftThigh = { x: 0, y: 0, z: 0 };
+                
+                let targetRightKneeX = 0.2; 
+                let targetLeftKneeX = 0.2;  
+                
+                let targetRightAnkle = { x: -0.2, y: 0, z: 0 };
+                let targetLeftAnkle = { x: -0.2, y: 0, z: 0 };
+                
+                let targetBodyTilt = 0;
+                let targetBodyTwist = 0; 
+                let targetBodyRoll = 0; 
+
+                let lerpSpeed = 0.2 * timeScale; 
+
+                if (nextVisualState === 'WALK') {
+                    const t = walkCycle.current;
+                    const sin = Math.sin(t);
+                    const cos = Math.cos(t);
+
+                    targetRightThigh.x = -sin * 0.9; 
+                    targetLeftThigh.x = sin * 0.9;
+
+                    targetRightKneeX = Math.max(0, cos) * 1.8 + 0.7;
+                    targetLeftKneeX = Math.max(0, -cos) * 1.8 + 0.7;
+
+                    targetRightAnkle.x = (targetRightKneeX * 0.1) - (sin * 0.6);
+                    targetLeftAnkle.x = (targetLeftKneeX * 0.1) + (sin * 0.6);
+
+                    targetBodyTilt = 0.5; 
+                    
+                    if (upperBodyRef.current) {
+                        upperBodyRef.current.position.y = 0.55 + Math.abs(cos) * 0.08; 
+                        upperBodyRef.current.rotation.y = sin * 0.22; 
+                        upperBodyRef.current.rotation.z = cos * 0.1; 
+                    }
+                    
+                    lerpSpeed = 0.25 * timeScale; 
+                }
+                else if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
+                    // Default Dashing/Lunge Legs
+                    targetRightThigh.x = -1; 
+                    targetRightKneeX = 2.6; 
+                    targetLeftKneeX = 0.3; 
+                    targetLeftThigh.x = 1.1; 
+                    targetLeftThigh.y = -0.5; 
+                    targetLeftThigh.z = -0.2; 
+                    targetLeftAnkle.x = 0.25; 
+                    targetRightAnkle.x = 0.8; 
+                    targetBodyTilt = 0.65; 
+                    lerpSpeed = 0.15 * timeScale;
+                    
+                    if (meleeState.current !== 'NONE') {
+                        // Override if Melee Data exists (specifically Torso/Head, legs usually keep movement logic)
+                        const pose = MELEE_POSE_DATA.STARTUP;
+                        targetBodyTilt = pose.TORSO.x; // Use editor value for tilt
+                        targetBodyTwist = pose.TORSO.y; 
+                        targetBodyRoll = pose.TORSO.z;
+                    } else {
+                        upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
+                        upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
+                    }
+
+                } else if (meleeState.current === 'SLASH') {
+                    // Use data from Editor for slash
+                    const pose = MELEE_POSE_DATA.SLASH;
+                    
+                    targetRightThigh = pose.RIGHT_LEG.THIGH;
+                    targetLeftThigh = pose.LEFT_LEG.THIGH;
+                    targetRightKneeX = pose.RIGHT_LEG.KNEE;
+                    targetLeftKneeX = pose.LEFT_LEG.KNEE;
+                    targetRightAnkle = pose.RIGHT_LEG.ANKLE;
+                    targetLeftAnkle = pose.LEFT_LEG.ANKLE;
+                    
+                    targetBodyTilt = pose.TORSO.x;
+                    targetBodyTwist = pose.TORSO.y;
+                    targetBodyRoll = pose.TORSO.z;
+                    
+                    lerpSpeed = 0.4 * timeScale;
+
+                } else if (isFalling) {
+                    targetRightThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
+                    targetLeftThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
+                    targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
+                    targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
+                    targetRightThigh.z = 0.05 + GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+                    targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
+                    targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
+                    lerpSpeed = 0.25 * timeScale;
+                } else if (visualState === 'LANDING') {
+                    const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
+                    const current = visualLandingFrames.current; 
+                    const progress = 1 - (current / total); 
+                    let w = 0;
+                    const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
+                    if (progress < r) {
+                        w = progress / r;
+                    } else {
+                        w = 1 - ((progress - r) / (1 - r));
+                    }
+                    targetRightThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
+                    targetLeftThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
+                    targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
+                    targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
+                    targetRightAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
+                    targetLeftAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
+                    targetRightThigh.z = 0.05 + GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+                    targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
+                    targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
+                    meshRef.current.position.y -= (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
+                    lerpSpeed = 0.25 * timeScale;
+                } else {
+                    lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
+                    if (isIdlePose) {
+                        targetRightThigh.x = IDLE_POSE.RIGHT_LEG.THIGH.x;
+                        targetRightThigh.y = IDLE_POSE.RIGHT_LEG.THIGH.y;
+                        targetRightThigh.z = IDLE_POSE.RIGHT_LEG.THIGH.z;
+                        targetLeftThigh.x = IDLE_POSE.LEFT_LEG.THIGH.x;
+                        targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
+                        targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
+                        targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
+                        targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
+                        targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
+                        targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;
+                        targetRightAnkle.z = IDLE_POSE.RIGHT_LEG.ANKLE.z;
+                        targetLeftAnkle.x = IDLE_POSE.LEFT_LEG.ANKLE.x;
+                        targetLeftAnkle.y = IDLE_POSE.LEFT_LEG.ANKLE.y;
+                        targetLeftAnkle.z = IDLE_POSE.LEFT_LEG.ANKLE.z;
+                        targetBodyTilt = IDLE_POSE.TORSO.x;
+                        targetBodyTwist = IDLE_POSE.TORSO.y;
+                        targetBodyRoll = IDLE_POSE.TORSO.z;
+                    } else {
+                        targetRightThigh.z = 0.05;
+                        targetLeftThigh.z = -0.05;
+                    }
+
+                    if (upperBodyRef.current) {
+                        upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
+                        upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetBodyTwist, 0.1);
+                        upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetBodyRoll, 0.1);
+                    }
+                }
+                
+                if (rightLegRef.current) {
+                    rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThigh.x, lerpSpeed);
+                    rightLegRef.current.rotation.y = MathUtils.lerp(rightLegRef.current.rotation.y, targetRightThigh.y, lerpSpeed);
+                    rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, targetRightThigh.z, lerpSpeed);
+                }
+                if (leftLegRef.current) {
+                    leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThigh.x, lerpSpeed);
+                    leftLegRef.current.rotation.y = MathUtils.lerp(leftLegRef.current.rotation.y, targetLeftThigh.y, lerpSpeed);
+                    leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, targetLeftThigh.z, lerpSpeed);
+                }
+                if (rightLowerLegRef.current) {
+                    rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
+                }
+                if (leftLowerLegRef.current) {
+                    leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
+                }
+                if (rightFootRef.current) {
+                    rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightAnkle.x, lerpSpeed);
+                    rightFootRef.current.rotation.y = MathUtils.lerp(rightFootRef.current.rotation.y, targetRightAnkle.y, lerpSpeed);
+                    rightFootRef.current.rotation.z = MathUtils.lerp(rightFootRef.current.rotation.z, targetRightAnkle.z, lerpSpeed);
+                }
+                if (leftFootRef.current) {
+                    leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftAnkle.x, lerpSpeed);
+                    leftFootRef.current.rotation.y = MathUtils.lerp(leftFootRef.current.rotation.y, targetLeftAnkle.y, lerpSpeed);
+                    leftFootRef.current.rotation.z = MathUtils.lerp(leftFootRef.current.rotation.z, targetLeftAnkle.z, lerpSpeed);
+                }
+
+                currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
+                if (torsoRef.current) {
+                    torsoRef.current.rotation.x = currentUpperBodyTilt.current;
+                }
+            }
+        }
+
+        if (!stunned && isShooting.current) {
+            shootTimer.current += 1 * timeScale; 
+            
+            const currentRecovery = shootMode.current === 'STOP' 
                 ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
                 : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+            const totalShotFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
             
-            const identity = new Quaternion();
+            if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
+                hasFired.current = true;
+                playShootSound();
+                setShowMuzzleFlash(true);
+                setTimeout(() => setShowMuzzleFlash(false), 100);
 
-            if (shootTimer.current < startup) {
-                // PHASE 1: Raise Gun
-                if (shootTimer.current < aiming) {
-                    const t = shootTimer.current / aiming;
-                    // Ease out cubic
-                    const smoothT = 1 - Math.pow(1 - t, 3);
-                    gunArmRef.current.quaternion.slerpQuaternions(identity, targetQuat, smoothT);
-                } 
-                // PHASE 2: Hold Gun (Locked on Target)
-                else {
-                    gunArmRef.current.quaternion.copy(targetQuat);
+                const spawnPos = new Vector3();
+                if (muzzleRef.current) {
+                    muzzleRef.current.getWorldPosition(spawnPos);
+                } else {
+                    spawnPos.copy(position.current).add(new Vector3(0, 2, 0));
                 }
-            } else {
-                 // PHASE 3: Recoil / Recovery
-                 const t = (shootTimer.current - startup) / recovery;
-                 
-                 // FIX: Slerp back to the DYNAMIC targetArmQuat (Idle or Air), preventing snap
-                 gunArmRef.current.quaternion.slerpQuaternions(targetQuat, targetArmQuat, t);
+
+                const targetEntity = targets[currentTargetIndex];
+                let direction: Vector3;
+
+                if (targetEntity) {
+                    direction = targetEntity.position.clone().sub(spawnPos).normalize();
+                } else {
+                    if (muzzleRef.current) {
+                        const fwd = new Vector3(0,0,1);
+                        muzzleRef.current.getWorldDirection(fwd); 
+                        direction = fwd.normalize();
+                    } else {
+                        direction = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+                    }
+                }
+                
+                const forwardDir = direction.clone();
+                
+                spawnProjectile({
+                    id: `proj-${Date.now()}`,
+                    ownerId: 'player',
+                    targetId: targetEntity ? targetEntity.id : null,
+                    position: spawnPos,
+                    velocity: direction.multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED),
+                    forwardDirection: forwardDir,
+                    isHoming: lockState === LockState.RED,
+                    team: Team.BLUE,
+                    ttl: 300
+                });
             }
-        } else {
-             if (nextVisualState === 'WALK') {
-                 // Walking Arm Swing (Left Arm) - Optional, currently disabled
-                 // const t = walkCycle.current;
-                 // const sin = Math.sin(t + Math.PI); 
-                 // gunArmRef.current.rotation.set(0.35 + sin * 0.5, -0.3, 0);
-                 
-                 // For now, fall through to standard lerp below
-             } 
-             
-             // Standard Smooth Transition to Target Pose (Idle or Air)
-             const lerpSpeed = 0.1 * timeScale;
-             gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, targetArmEuler.x, lerpSpeed);
-             gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, targetArmEuler.y, lerpSpeed);
-             gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, targetArmEuler.z, lerpSpeed);
-        }
-    }
-    
-    // Right Arm Swing (Shield Arm)
-    if (rightArmRef.current) {
-        let targetX = 0.35;
-        let targetY = 0.3;
-        let targetZ = 0;
 
-        // PRIORITY 1: DASH (Shield Guard)
-        if (isDashing.current) {
-            targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
-            targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
-            targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
-        } 
-        // PRIORITY 2: IDLE POSE
-        else if (isIdlePose) {
-            targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
-            targetY = IDLE_POSE.RIGHT_ARM.SHOULDER.y;
-            targetZ = IDLE_POSE.RIGHT_ARM.SHOULDER.z;
-        }
-        // PRIORITY 3: WALKING SWING
-        else if (nextVisualState === 'WALK') {
-            // const t = walkCycle.current;
-            // const sin = Math.sin(t); 
-            // targetX = 0.35 + sin * 0.5; // Walking swing
-        }
-        // DEFAULT FALLBACK
-        else {
-             // Standard fallback already set in defaults
-        }
-
-        const lerpSpeed = (isDashing.current ? 0.2 : 0.1) * timeScale;
-        rightArmRef.current.rotation.x = MathUtils.lerp(rightArmRef.current.rotation.x, targetX, lerpSpeed);
-        rightArmRef.current.rotation.y = MathUtils.lerp(rightArmRef.current.rotation.y, targetY, lerpSpeed);
-        rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, targetZ, lerpSpeed);
-    }
-
-    // Forearm Animation (New: Handled via refs now)
-    if (rightForeArmRef.current) {
-        let targetX = -0.65;
-        let targetY = -0.3;
-        let targetZ = 0;
-        
-        // PRIORITY 1: DASH (Shield Guard)
-        if (isDashing.current) {
-            targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
-            targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
-            targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
-        }
-        // PRIORITY 2: IDLE POSE
-        else if (isIdlePose) {
-            targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
-            targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
-            targetZ = IDLE_POSE.RIGHT_ARM.ELBOW.z;
-        }
-
-        const lerpSpeed = (isDashing.current ? 0.2 : 0.1) * timeScale;
-        rightForeArmRef.current.rotation.x = MathUtils.lerp(rightForeArmRef.current.rotation.x, targetX, lerpSpeed);
-        rightForeArmRef.current.rotation.y = MathUtils.lerp(rightForeArmRef.current.rotation.y, targetY, lerpSpeed);
-        rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
-    }
-
-    // [NEW] INDEPENDENT SHIELD ANIMATION
-    if (shieldRef.current) {
-        // Default Resting State (Mounted on Arm)
-        // Corresponds to JSX defaults: position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}
-        let targetPos = { x: 0, y: -0.5, z: 0.1 };
-        let targetRot = { x: -0.2, y: 0, z: 0 };
-
-        if (isDashing.current) {
-            // Apply DASH_POSE config
-            targetPos = DASH_POSE.SHIELD.POSITION;
-            targetRot = DASH_POSE.SHIELD.ROTATION;
-        }
-
-        const lerpSpeed = (isDashing.current ? 0.15 : 0.1) * timeScale;
-        
-        shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
-        shieldRef.current.position.y = MathUtils.lerp(shieldRef.current.position.y, targetPos.y, lerpSpeed);
-        shieldRef.current.position.z = MathUtils.lerp(shieldRef.current.position.z, targetPos.z, lerpSpeed);
-
-        shieldRef.current.rotation.x = MathUtils.lerp(shieldRef.current.rotation.x, targetRot.x, lerpSpeed);
-        shieldRef.current.rotation.y = MathUtils.lerp(shieldRef.current.rotation.y, targetRot.y, lerpSpeed);
-        shieldRef.current.rotation.z = MathUtils.lerp(shieldRef.current.rotation.z, targetRot.z, lerpSpeed);
-    }
-    
-    if (leftForeArmRef.current) {
-        let targetX = -0.65;
-        let targetY = 0.3;
-        let targetZ = 0;
-
-        if (isIdlePose) {
-             targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
-             targetY = IDLE_POSE.LEFT_ARM.ELBOW.y;
-             targetZ = IDLE_POSE.LEFT_ARM.ELBOW.z;
-        }
-
-        const lerpSpeed = 0.1 * timeScale;
-        leftForeArmRef.current.rotation.x = MathUtils.lerp(leftForeArmRef.current.rotation.x, targetX, lerpSpeed);
-        leftForeArmRef.current.rotation.y = MathUtils.lerp(leftForeArmRef.current.rotation.y, targetY, lerpSpeed);
-        leftForeArmRef.current.rotation.z = MathUtils.lerp(leftForeArmRef.current.rotation.z, targetZ, lerpSpeed);
-    }
-
-
-    // 3. Head Tracking
-    if (headRef.current) {
-         const t = targets[currentTargetIndex];
-         let shouldLook = false;
-         
-         // Only track if target exists AND isn't just standing idle (optional stylistic choice, here we keep tracking if target exists)
-         if (t) {
-             const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
-             const dirToT = t.position.clone().sub(position.current).normalize();
-             if (fwd.dot(dirToT) > 0) { 
-                 shouldLook = true;
-                const startQuat = headRef.current.quaternion.clone();
-                // Look at HEAD height (approx 1.7m up from base) to avoid looking at feet
-                const lookAtTarget = t.position.clone().add(new Vector3(0, 1.7, 0));
-                headRef.current.lookAt(lookAtTarget);
-                const targetQuat = headRef.current.quaternion.clone();
-                headRef.current.quaternion.copy(startQuat);
-                headRef.current.quaternion.slerp(targetQuat, 0.1);
-             }
-         }
-         
-         if (!shouldLook) {
-             // Revert to Idle pose or Neutral
-             let targetX = 0;
-             let targetY = 0;
-             if (isIdlePose) {
-                 targetX = IDLE_POSE.HEAD.x;
-                 targetY = IDLE_POSE.HEAD.y;
-             }
-             
-             // NEW: Stabilize Head during Walk (Counter-rotate body sway)
-             if (nextVisualState === 'WALK') {
-                 const t = walkCycle.current;
-                 //const sin = Math.sin(t);
-                 // Body rotates sin * 0.32, so head rotates -sin * 0.32 to stay forward
-                 targetY =  -Math.sin(t + 0.25) * 0.32; 
-             }
-             
-             // Manually lerp Euler if not tracking
-             const lerpSpeed = 0.1 * timeScale;
-             // Simplest way to blend back to Euler control:
-             // 1. Create target Quaternion from Euler
-             const q = new Quaternion().setFromEuler(new Euler(targetX, targetY, 0));
-             headRef.current.quaternion.slerp(q, 0.05 * timeScale);
-         }
-    }
-// 4. Leg Inertia Sway & Animation Logic
-    if (legsRef.current) {
-         // Determine if falling
-         const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE';
-         
-         // --- PREDICTIVE FALL ANIMATION LOGIC ---
-         if (isFalling && !wasFallingRef.current) {
-             // Just entered fall state: Calculate predicted time to impact
-             const vy = velocity.current.y; // likely negative or 0
-             const h = position.current.y;
-             const g = GLOBAL_CONFIG.GRAVITY;
-             
-             // Solve quadratic: 0 = h + vy*t - 0.5*g*t^2
-             // 0.5gt^2 - vy*t - h = 0
-             // t = (vy + sqrt(vy^2 + 2gh)) / g
-             const discriminant = vy * vy + 2 * g * h;
-             if (discriminant >= 0 && g > 0) {
-                 totalPredictedFallFrames.current = (vy + Math.sqrt(discriminant)) / g;
-             } else {
-                 totalPredictedFallFrames.current = 60; // Fallback
-             }
-             currentFallTime.current = 0;
-         }
-         wasFallingRef.current = isFalling;
-
-         // Calculate Animation Weight (0 to 1)
-         let animWeight = 0;
-         if (isFalling) {
-             currentFallTime.current += timeScale;
-             // Protect against zero division or extreme values
-             const total = Math.max(totalPredictedFallFrames.current, 1);
-             const progress = Math.min(currentFallTime.current / total, 1.0);
-             const ratio = GLOBAL_CONFIG.FALL_ANIM_RATIO;
-             
-             if (progress < ratio) {
-                 // Entry Phase: 0 -> 1
-                 animWeight = progress / ratio;
-             } else {
-                 // Exit Phase: 1 -> 0
-                 // Normalized progress in exit phase: (progress - ratio) / (1 - ratio)
-                 animWeight = 1 - ((progress - ratio) / (1 - ratio));
-             }
-         } else {
-             animWeight = 0;
-             currentFallTime.current = 0;
-         }
-
-         const invRot = meshRef.current.quaternion.clone().invert();
-         const localVel = velocity.current.clone().applyQuaternion(invRot);
-         
-         // NEW: Only allow sway in EVADE state
-         const enableInertiaSway = nextVisualState === 'EVADE';
-         
-         const targetPitch = (enableInertiaSway && !isFalling) ? localVel.z * 1.5 : 0; 
-         const targetRoll = (enableInertiaSway && !isFalling) ? -localVel.x * 1.5 : 0;
-         
-         legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, targetPitch, 0.1);
-         legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, targetRoll, 0.1);
-
-         // Animation Logic: Falling vs Dashing vs Idle vs Landing
-         
-         // Initialize targets with default 0s
-         let targetRightThigh = { x: 0, y: 0, z: 0 };
-         let targetLeftThigh = { x: 0, y: 0, z: 0 };
-         
-         let targetRightKneeX = 0.2; // Idle default
-         let targetLeftKneeX = 0.2;  // Idle default
-         
-         let targetRightAnkle = { x: -0.2, y: 0, z: 0 };
-         let targetLeftAnkle = { x: -0.2, y: 0, z: 0 };
-         
-         let targetBodyTilt = 0;
-         let targetBodyTwist = 0; // New: Y rotation
-         let targetBodyRoll = 0; // New: Z rotation
-
-         let lerpSpeed = 0.2 * timeScale; // Smoothness factor for the weight application
-
-         if (nextVisualState === 'WALK') {
-             // --- WALKING ANIMATION (OPTIMIZED BOW/CYCLOID STEP) ---
-             const t = walkCycle.current;
-             const sin = Math.sin(t);
-             const cos = Math.cos(t);
-
-             // Thighs: Simple Sine Wave (Negative = Forward)
-             targetRightThigh.x = -sin * 0.9; 
-             targetLeftThigh.x = sin * 0.9;
-
-             // Knees: Lift (Bend) when passing under body (Cos peak)
-             // Cos > 0 means leg is crossing center (mid-swing)
-             targetRightKneeX = Math.max(0, cos) * 1.8 + 0.7;
-             targetLeftKneeX = Math.max(0, -cos) * 1.8 + 0.7;
-
-             // Ankles: Compensate Knee + Heel Strike/Toe Off
-             // 1. Compensate Knee Bend (keep foot flat-ish) -> -Knee * 0.5
-             // 2. Heel Strike (Leg Fwd/Sin=1) -> Toes Up (Neg)
-             // 3. Toe Off (Leg Back/Sin=-1) -> Toes Down (Pos)
-             targetRightAnkle.x = (targetRightKneeX * 0.1) - (sin * 0.6);
-             targetLeftAnkle.x = (targetLeftKneeX * 0.1) + (sin * 0.6);
-
-             // Bobbing & Sway
-             targetBodyTilt = 0.5; // Slight forward lean
-             
-             // Apply body bob/sway directly to groups
-             if (upperBodyRef.current) {
-                 upperBodyRef.current.position.y = 0.55 + Math.abs(cos) * 0.08; // Bob up at mid-step
-                 upperBodyRef.current.rotation.y = sin * 0.22; // Twist torso into the step
-                 upperBodyRef.current.rotation.z = cos * 0.1; // Slight sway
-             }
-             
-             lerpSpeed = 0.25 * timeScale; // Snappier for walking
-         }
-         else if (isDashing.current) {
-             targetRightThigh.x = -1; // Lift Right Leg
-             targetRightKneeX = 2.6; // Bend Right Knee (Kick)
-             targetLeftKneeX = 0.3; // Bend Right Knee (Kick)
-             targetLeftThigh.x = 1.1; // Drag Left Leg
-             targetLeftThigh.y = -0.5; // 调节 Y 轴：大腿的左右旋转 (正值向外旋/内旋，视坐标系而定)
-             targetLeftThigh.z = -0.2; // 调节 Z 轴：大腿的向外张开程度 
-             targetLeftAnkle.x = 0.25; // Left Foot Backward
-             targetRightAnkle.x = 0.8; 
-             targetBodyTilt = 0.65; // Forward Lean
-             lerpSpeed = 0.15 * timeScale;
-             upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
-             upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
-         } else if (isFalling) {
-             // Falling
-             targetRightThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT * animWeight;
-             targetLeftThigh.x = GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT * animWeight;
-             
-             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT - 0.2) * animWeight;
-             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT - 0.2) * animWeight;
-             
-             // Spread
-             targetRightThigh.z = 0.05 + GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
-             targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.FALL_LEG_SPREAD * animWeight;
-
-             targetBodyTilt = GLOBAL_CONFIG.FALL_BODY_TILT * animWeight; 
-             lerpSpeed = 0.25 * timeScale;
-         } else if (visualState === 'LANDING') {
-             // --- LANDING ANIMATION ---
-             const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
-             const current = visualLandingFrames.current; 
-             const progress = 1 - (current / total); 
-             let w = 0;
-             const r = GLOBAL_CONFIG.LANDING_ANIM_RATIO;
-             if (progress < r) {
-                 w = progress / r;
-             } else {
-                 w = 1 - ((progress - r) / (1 - r));
-             }
-             
-             targetRightThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w;
-             targetLeftThigh.x = GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w;
-             
-             targetRightKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w;
-             targetLeftKneeX = 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w;
-             
-             targetRightAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w;
-             targetLeftAnkle.x = -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w;
-             
-             // Spread
-             targetRightThigh.z = 0.05 + GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
-             targetLeftThigh.z = -0.05 - GLOBAL_CONFIG.LANDING_LEG_SPLAY * w;
-
-             targetBodyTilt = GLOBAL_CONFIG.LANDING_BODY_TILT * w;
-             meshRef.current.position.y -= (GLOBAL_CONFIG.LANDING_HIP_DIP * w);
-             lerpSpeed = 0.25 * timeScale;
-         } else {
-             // --- IDLE / RECOVERY ---
-             lerpSpeed = GLOBAL_CONFIG.FALL_ANIM_EXIT_SPEED * timeScale;
-
-             if (isIdlePose) {
-                 // Use the custom IDLE_POSE values
-                 targetRightThigh.x = IDLE_POSE.RIGHT_LEG.THIGH.x;
-                 targetRightThigh.y = IDLE_POSE.RIGHT_LEG.THIGH.y;
-                 targetRightThigh.z = IDLE_POSE.RIGHT_LEG.THIGH.z;
-                 
-                 targetLeftThigh.x = IDLE_POSE.LEFT_LEG.THIGH.x;
-                 targetLeftThigh.y = IDLE_POSE.LEFT_LEG.THIGH.y;
-                 targetLeftThigh.z = IDLE_POSE.LEFT_LEG.THIGH.z;
-                 
-                 targetRightKneeX = IDLE_POSE.RIGHT_LEG.KNEE.x;
-                 targetLeftKneeX = IDLE_POSE.LEFT_LEG.KNEE.x;
-                 
-                 targetRightAnkle.x = IDLE_POSE.RIGHT_LEG.ANKLE.x;
-                 targetRightAnkle.y = IDLE_POSE.RIGHT_LEG.ANKLE.y;
-                 targetRightAnkle.z = IDLE_POSE.RIGHT_LEG.ANKLE.z;
-                 
-                 targetLeftAnkle.x = IDLE_POSE.LEFT_LEG.ANKLE.x;
-                 targetLeftAnkle.y = IDLE_POSE.LEFT_LEG.ANKLE.y;
-                 targetLeftAnkle.z = IDLE_POSE.LEFT_LEG.ANKLE.z;
-                 
-                 targetBodyTilt = IDLE_POSE.TORSO.x;
-                 targetBodyTwist = IDLE_POSE.TORSO.y;
-                 targetBodyRoll = IDLE_POSE.TORSO.z;
-
-             } else {
-                 // Default standing defaults if not technically "Idle" but falling out of loop (shouldn't happen much)
-                 targetRightThigh.z = 0.05;
-                 targetLeftThigh.z = -0.05;
-             }
-
-             // Reset Torso Bob/Sway from walking to IDLE settings
-             if (upperBodyRef.current) {
-                 upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
-                 // We combine the IDLE_POSE twist/roll with the UpperBody ref
-                 upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetBodyTwist, 0.1);
-                 upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetBodyRoll, 0.1);
-             }
-         }
-         
-         // Apply Rotations
-         if (rightLegRef.current) {
-             rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThigh.x, lerpSpeed);
-             rightLegRef.current.rotation.y = MathUtils.lerp(rightLegRef.current.rotation.y, targetRightThigh.y, lerpSpeed);
-             rightLegRef.current.rotation.z = MathUtils.lerp(rightLegRef.current.rotation.z, targetRightThigh.z, lerpSpeed);
-         }
-         if (leftLegRef.current) {
-             leftLegRef.current.rotation.x = MathUtils.lerp(leftLegRef.current.rotation.x, targetLeftThigh.x, lerpSpeed);
-             leftLegRef.current.rotation.y = MathUtils.lerp(leftLegRef.current.rotation.y, targetLeftThigh.y, lerpSpeed);
-             leftLegRef.current.rotation.z = MathUtils.lerp(leftLegRef.current.rotation.z, targetLeftThigh.z, lerpSpeed);
-         }
-         if (rightLowerLegRef.current) {
-             rightLowerLegRef.current.rotation.x = MathUtils.lerp(rightLowerLegRef.current.rotation.x, targetRightKneeX, lerpSpeed);
-         }
-         if (leftLowerLegRef.current) {
-             leftLowerLegRef.current.rotation.x = MathUtils.lerp(leftLowerLegRef.current.rotation.x, targetLeftKneeX, lerpSpeed);
-         }
-         
-         // Ankle Animation
-         if (rightFootRef.current) {
-             rightFootRef.current.rotation.x = MathUtils.lerp(rightFootRef.current.rotation.x, targetRightAnkle.x, lerpSpeed);
-             rightFootRef.current.rotation.y = MathUtils.lerp(rightFootRef.current.rotation.y, targetRightAnkle.y, lerpSpeed);
-             rightFootRef.current.rotation.z = MathUtils.lerp(rightFootRef.current.rotation.z, targetRightAnkle.z, lerpSpeed);
-         }
-         if (leftFootRef.current) {
-             leftFootRef.current.rotation.x = MathUtils.lerp(leftFootRef.current.rotation.x, targetLeftAnkle.x, lerpSpeed);
-             leftFootRef.current.rotation.y = MathUtils.lerp(leftFootRef.current.rotation.y, targetLeftAnkle.y, lerpSpeed);
-             leftFootRef.current.rotation.z = MathUtils.lerp(leftFootRef.current.rotation.z, targetLeftAnkle.z, lerpSpeed);
-         }
-
-         // Upper Body Tilt (Applied to Torso for Waist + Chest lean)
-         currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
-         if (torsoRef.current) {
-            torsoRef.current.rotation.x = currentUpperBodyTilt.current;
-            // Note: y and z rotation are handled in upperBodyRef above for twist/sway
-         }
-    }
-}
-
-// Re-inserting Action Logic below to ensure full file integrity
-if (!stunned && isShooting.current) {
-    shootTimer.current += 1 * timeScale; 
-    
-    const currentRecovery = shootMode.current === 'STOP' 
-        ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
-        : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
-    const totalShotFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
-    
-    if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
-        hasFired.current = true;
-        playShootSound();
-        setShowMuzzleFlash(true);
-        setTimeout(() => setShowMuzzleFlash(false), 100);
-
-        const spawnPos = new Vector3();
-        if (muzzleRef.current) {
-            muzzleRef.current.getWorldPosition(spawnPos);
-        } else {
-             spawnPos.copy(position.current).add(new Vector3(0, 2, 0));
-        }
-
-        const targetEntity = targets[currentTargetIndex];
-        let direction: Vector3;
-
-        if (targetEntity) {
-             direction = targetEntity.position.clone().sub(spawnPos).normalize();
-        } else {
-            if (muzzleRef.current) {
-                 const fwd = new Vector3(0,0,1);
-                 muzzleRef.current.getWorldDirection(fwd); 
-                 direction = fwd.normalize();
-            } else {
-                 direction = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
+            if (shootTimer.current >= totalShotFrames) {
+                isShooting.current = false;
+                shootTimer.current = 0;
+                if (isGrounded.current && shootMode.current === 'STOP') {
+                    landingFrames.current = getLandingLag();
+                }
             }
         }
-        
-        const forwardDir = direction.clone();
-        
-        spawnProjectile({
-            id: `proj-${Date.now()}`,
-            ownerId: 'player',
-            targetId: targetEntity ? targetEntity.id : null,
-            position: spawnPos,
-            velocity: direction.multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED),
-            forwardDirection: forwardDir,
-            isHoming: lockState === LockState.RED,
-            team: Team.BLUE,
-            ttl: 300
-        });
-    }
 
-    if (shootTimer.current >= totalShotFrames) {
-        isShooting.current = false;
-        shootTimer.current = 0;
-        if (isGrounded.current && shootMode.current === 'STOP') {
-            landingFrames.current = getLandingLag();
-            // FIX: Removed visualLandingFrames setting here to prevent the "Screen Stutter" / Crouch animation
-            // The landing frames logic still exists for gameplay balance (cannot move),
-            // but we don't force the camera to dip down.
+        let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
+        let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
+
+        if (currentTarget) {
+            const pToT = new Vector3().subVectors(currentTarget.position, position.current);
+            const dir = pToT.normalize();
+            const camOffsetDist = 10;
+            targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, 6, 0));
+            targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3);
+            targetLookAt.y += 2.0; 
+        } else {
+            targetCamPos = position.current.clone().add(new Vector3(0, 6, 10));
+            targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
         }
-    }
-}
 
-let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
-let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
+        if (stunned) {
+            const shakeAmount = 0.1;
+            targetCamPos.x += (Math.random() - 0.5) * shakeAmount;
+            targetCamPos.y += (Math.random() - 0.5) * shakeAmount;
+            targetCamPos.z += (Math.random() - 0.5) * shakeAmount;
+        }
 
-if (currentTarget) {
-    const pToT = new Vector3().subVectors(currentTarget.position, position.current);
-    const dir = pToT.normalize();
-    const camOffsetDist = 10;
-    targetCamPos = position.current.clone().add(dir.multiplyScalar(-camOffsetDist)).add(new Vector3(0, 6, 0));
-    targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3);
-    targetLookAt.y += 2.0; 
-} else {
-    targetCamPos = position.current.clone().add(new Vector3(0, 6, 10));
-    targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
-}
+        camera.position.lerp(targetCamPos, 0.1 * timeScale);
+        camera.lookAt(targetLookAt);
+    });
 
-if (stunned) {
-    const shakeAmount = 0.1;
-    targetCamPos.x += (Math.random() - 0.5) * shakeAmount;
-    targetCamPos.y += (Math.random() - 0.5) * shakeAmount;
-    targetCamPos.z += (Math.random() - 0.5) * shakeAmount;
-}
+    const armorColor = '#eeeeee';
+    const chestColor = '#2244aa';
+    const feetColor = '#aa2222';
+    const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND' || visualState === 'MELEE';
+    const isAscending = visualState === 'ASCEND';
+    const isThrusting = isDashingOrAscending;
+    const speedLinesRef = useRef<Group>(null);
+    useFrame(() => {
+        if (speedLinesRef.current && isEvading.current) {
+            const vel = velocity.current.clone().normalize();
+            if (vel.lengthSq() > 0) {
+                speedLinesRef.current.position.copy(position.current);
+                speedLinesRef.current.lookAt(position.current.clone().sub(vel));
+            }
+        }
+    })
 
-camera.position.lerp(targetCamPos, 0.1 * timeScale);
-camera.lookAt(targetLookAt);
-});
-
-// --- COLORS ---
-// Fixed colors, removing stun/overheat/landing visual overrides per user request
-const armorColor = '#eeeeee';
-const engineColor = visualState === 'DASH' ? '#00ffff' : (visualState === 'ASCEND' ? '#ffaa00' : '#333');
-const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND';
-const isAscending = visualState === 'ASCEND';
-const isThrusting = isDashingOrAscending;
-const speedLinesRef = useRef<Group>(null);
-useFrame(() => {
-if (speedLinesRef.current && isEvading.current) {
-const vel = velocity.current.clone().normalize();
-if (vel.lengthSq() > 0) {
-speedLinesRef.current.position.copy(position.current);
-speedLinesRef.current.lookAt(position.current.clone().sub(vel));
-}
-}
-})
-const chestColor = '#2244aa';
-const feetColor = '#aa2222';
-const eyeColor = '#00ff00';
-
-return (
-<group>
-<mesh ref={meshRef} castShadow>
-<group position={[0, 2.0, 0]}>
-{/* TORSO GROUP (Waist + Chest) for shared tilt */}
-<group ref={torsoRef}>
-    {/* WAIST */}
-    <mesh position={[0, 0, 0]} castShadow receiveShadow>
-    <boxGeometry args={[0.6, 0.5, 0.5]} />
-    <meshToonMaterial color="#ff0000" />
-    <Edges threshold={15} color="black" />
-    </mesh>
-    {/* CHEST */}
-        <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                <mesh castShadow receiveShadow>
-                    <boxGeometry args={[0.9, 0.7, 0.7]} />
-                    <meshToonMaterial color={chestColor} /> 
-                    <Edges threshold={15} color="black" />
-                </mesh>
-                {/* Vents */}
-                <group position={[0.28, 0.1, 0.36]}>
-                    <mesh castShadow>
-                        <boxGeometry args={[0.35, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    {[...Array(5)].map((_, index) => (
-                        <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                            <boxGeometry args={[0.33, 0.02, 0.02]} />
-                            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                        </mesh>
-                    ))}
-                </group>
-                <group position={[-0.28, 0.1, 0.36]}>
-                    <mesh castShadow>
-                        <boxGeometry args={[0.35, 0.25, 0.05]} />
-                        <meshToonMaterial color="#ffaa00" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    {[...Array(5)].map((_, index) => (
-                        <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                            <boxGeometry args={[0.33, 0.02, 0.02]} />
-                            <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                        </mesh>
-                    ))}
-                </group>
-
-                {/* REPLACED HEAD WITH MECHA HEAD COMPONENT */}
-                <group ref={headRef}>
-                    <MechaHead mainColor={armorColor} />
-                </group>
-
-                {/* ARMS */}
-                {/* Right Shoulder & Arm (Holding SHIELD) */}
-                <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
-                    <mesh castShadow receiveShadow>
-                        <boxGeometry args={[0.5, 0.5, 0.5]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    {/* FOREARM */}
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
-                        {/* 1. Inner Skeleton */}
-                        <mesh castShadow receiveShadow>
-                            <boxGeometry args={[0.25, 0.6, 0.3]} />
-                            <meshToonMaterial color="#444" />
+    return (
+        <group>
+            <mesh ref={meshRef} castShadow>
+                <group position={[0, 2.0, 0]}>
+                    <group ref={torsoRef}>
+                        {/* WAIST */}
+                        <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                            <boxGeometry args={[0.6, 0.5, 0.5]} />
+                            <meshToonMaterial color="#ff0000" />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        
-                        {/* 2. Outer Forearm Armor (Separated from Shield Group) */}
-                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                        {/* CHEST */}
+                        <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                             <mesh castShadow receiveShadow>
-                                <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                <meshToonMaterial color={armorColor} />
+                                <boxGeometry args={[0.9, 0.7, 0.7]} />
+                                <meshToonMaterial color={chestColor} /> 
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                        </group>
-
-                        {/* 3. Shield Group (Independent Animation) */}
-                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
-                                <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                    <mesh position={[0, 0.2, 0]} castShadow receiveShadow>
-                                        <boxGeometry args={[0.1, 1.7, 0.7]} />
-                                        <meshToonMaterial color={armorColor} />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
-                                    <mesh position={[0.06, 0.2, 0]}>
-                                        <boxGeometry args={[0.05, 1.5, 0.5]} />
-                                        <meshToonMaterial color="#ff0000" />
-                                    </mesh>
-                                </group>
-                        </group>
-                    </group>
-                </group>
-
-                {/* Left Shoulder & Arm (Holding GUN) */}
-                <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
-                    <mesh castShadow receiveShadow>
-                        <boxGeometry args={[0.5, 0.5, 0.5]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    {/* FOREARM */}
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
-                        <mesh castShadow receiveShadow>
-                            <boxGeometry args={[0.25, 0.6, 0.3]} />
-                            <meshToonMaterial color="#444" />
-                            <Edges threshold={15} color="black" />
-                        </mesh>
-                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                <mesh castShadow receiveShadow>
-                                <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                <meshToonMaterial color={armorColor} />
-                                <Edges threshold={15} color="black" />
+                            <group position={[0.28, 0.1, 0.36]}>
+                                <mesh castShadow>
+                                    <boxGeometry args={[0.35, 0.25, 0.05]} />
+                                    <meshToonMaterial color="#ffaa00" />
+                                    <Edges threshold={15} color="black" />
                                 </mesh>
-                                <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                    <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
-                                        <boxGeometry args={[0.1, 0.2, 0.15]} />
-                                        <meshToonMaterial color="#222" />
+                                {[...Array(5)].map((_, index) => (
+                                    <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                        <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                        <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
                                     </mesh>
-                                    <mesh position={[0, 0.2, 0.4]} castShadow>
-                                        <boxGeometry args={[0.15, 0.25, 1.0]} />
+                                ))}
+                            </group>
+                            <group position={[-0.28, 0.1, 0.36]}>
+                                <mesh castShadow>
+                                    <boxGeometry args={[0.35, 0.25, 0.05]} />
+                                    <meshToonMaterial color="#ffaa00" />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                {[...Array(5)].map((_, index) => (
+                                    <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
+                                        <boxGeometry args={[0.33, 0.02, 0.02]} />
+                                        <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
+                                    </mesh>
+                                ))}
+                            </group>
+
+                            <group ref={headRef}>
+                                <MechaHead mainColor={armorColor} />
+                            </group>
+
+                            {/* Right Shoulder & Arm */}
+                            <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
+                                <mesh castShadow receiveShadow>
+                                    <boxGeometry args={[0.5, 0.5, 0.5]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                {/* FOREARM */}
+                                <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
+                                    <mesh castShadow receiveShadow>
+                                        <boxGeometry args={[0.25, 0.6, 0.3]} />
                                         <meshToonMaterial color="#444" />
                                         <Edges threshold={15} color="black" />
                                     </mesh>
-                                    <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow>
-                                        <cylinderGeometry args={[0.04, 0.04, 0.6]} />
-                                        <meshToonMaterial color="#222" />
+                                    
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <mesh castShadow receiveShadow>
+                                            <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        {/* Right Fist */}
+                                        <mesh position={[0, -0.35, 0]} castShadow>
+                                            <boxGeometry args={[0.25, 0.3, 0.25]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+                                    </group>
+
+                                    {/* Shield Group */}
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
+                                            <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+                                                <mesh position={[0, 0.2, 0]} castShadow receiveShadow>
+                                                    <boxGeometry args={[0.1, 1.7, 0.7]} />
+                                                    <meshToonMaterial color={armorColor} />
+                                                    <Edges threshold={15} color="black" />
+                                                </mesh>
+                                                <mesh position={[0.06, 0.2, 0]}>
+                                                    <boxGeometry args={[0.05, 1.5, 0.5]} />
+                                                    <meshToonMaterial color="#ff0000" />
+                                                </mesh>
+                                            </group>
+                                    </group>
+                                </group>
+                            </group>
+
+                            {/* Left Shoulder & Arm */}
+                            <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
+                                <mesh castShadow receiveShadow>
+                                    <boxGeometry args={[0.5, 0.5, 0.5]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                {/* FOREARM */}
+                                <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
+                                    <mesh castShadow receiveShadow>
+                                        <boxGeometry args={[0.25, 0.6, 0.3]} />
+                                        <meshToonMaterial color="#444" />
+                                        <Edges threshold={15} color="black" />
                                     </mesh>
-                                    <mesh position={[0.05, 0.35, 0.2]}>
-                                        <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
+                                    
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        
+                                        <mesh castShadow receiveShadow>
+                                            <boxGeometry args={[0.28, 0.6, 0.35]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                        
+                                        {/* Left Fist */}
+                                        <mesh position={[0, -0.35, 0]} castShadow>
+                                            <boxGeometry args={[0.25, 0.3, 0.25]} />
+                                            <meshToonMaterial color="#222" />
+                                        </mesh>
+
+                                        {/* Beam Saber */}
+                                        <group visible={activeWeapon === 'SABER'} position={[0, -0.35, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
+                                            <BeamSaber active={activeWeapon === 'SABER'} />
+                                        </group>
+
+                                        {/* Gun Model */}
+                                        <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                                <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
+                                                    <boxGeometry args={[0.1, 0.2, 0.15]} />
+                                                    <meshToonMaterial color="#222" />
+                                                </mesh>
+                                                <mesh position={[0, 0.2, 0.4]} castShadow>
+                                                    <boxGeometry args={[0.15, 0.25, 1.0]} />
+                                                    <meshToonMaterial color="#444" />
+                                                    <Edges threshold={15} color="black" />
+                                                </mesh>
+                                                <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow>
+                                                    <cylinderGeometry args={[0.04, 0.04, 0.6]} />
+                                                    <meshToonMaterial color="#222" />
+                                                </mesh>
+                                                <mesh position={[0.05, 0.35, 0.2]}>
+                                                    <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
+                                                    <meshToonMaterial color="#222" />
+                                                    <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
+                                                        <circleGeometry args={[0.06]} />
+                                                        <meshBasicMaterial color="#00ff00" />
+                                                    </mesh>
+                                                </mesh>
+                                                <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
+                                                    <MuzzleFlash active={showMuzzleFlash} />
+                                                </group>
+                                        </group>
+                                    </group>
+                                </group>
+                            </group>
+
+                            {/* BACKPACK */}
+                            <group position={[0, 0.2, -0.4]}>
+                                <mesh castShadow receiveShadow>
+                                    <boxGeometry args={[0.7, 0.8, 0.4]} />
+                                    <meshToonMaterial color="#333" />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                                        <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                        <meshToonMaterial color="white" />
+                                        <Edges threshold={15} color="black" />
+                                </mesh>
+                                <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                                        <cylinderGeometry args={[0.04, 0.04, 0.5]} />
+                                        <meshToonMaterial color="white" />
+                                        <Edges threshold={15} color="black" />
+                                </mesh>
+                                
+                                <group position={[0.25, -0.9, -0.4]}>
+                                        <cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                         <meshToonMaterial color="#222" />
-                                        <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
-                                            <circleGeometry args={[0.06]} />
-                                            <meshBasicMaterial color="#00ff00" />
+                                        <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                                </group>
+                                <group position={[-0.25, -0.9, -0.4]}>
+                                        <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                                        <meshToonMaterial color="#222" />
+                                        <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
+                                </group>
+                                
+                                <BoostBurst triggerTime={dashTriggerTime} />
+                            </group>
+                        </group>
+                    </group>
+
+                    <group ref={legsRef}>
+                        <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                                        <boxGeometry args={[0.35, 0.8, 0.45]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
+                                        <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                            <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
                                         </mesh>
                                     </mesh>
-                                    <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
-                                        <MuzzleFlash active={showMuzzleFlash} />
-                                    </group>
+                                    <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                                            <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                            <meshToonMaterial color={feetColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                    </mesh>
+                                </group>
+                        </group>
+
+                        <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
+                                    <meshToonMaterial color={armorColor} />
+                                    <Edges threshold={15} color="black" />
+                                </mesh>
+                                <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                                        <boxGeometry args={[0.35, 0.8, 0.45]} />
+                                        <meshToonMaterial color={armorColor} />
+                                        <Edges threshold={15} color="black" />
+                                        <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                            <boxGeometry args={[0.25, 0.3, 0.1]} />
+                                            <meshToonMaterial color={armorColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                    </mesh>
+                                    <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                                            <boxGeometry args={[0.32, 0.2, 0.7]} />
+                                            <meshToonMaterial color={feetColor} />
+                                            <Edges threshold={15} color="black" />
+                                        </mesh>
+                                    </mesh>
                                 </group>
                         </group>
                     </group>
                 </group>
-
-                {/* BACKPACK */}
-                <group position={[0, 0.2, -0.4]}>
-                    <mesh castShadow receiveShadow>
-                        <boxGeometry args={[0.7, 0.8, 0.4]} />
-                        <meshToonMaterial color="#333" />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
-                            <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                            <meshToonMaterial color="white" />
-                            <Edges threshold={15} color="black" />
-                    </mesh>
-                    <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
-                            <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                            <meshToonMaterial color="white" />
-                            <Edges threshold={15} color="black" />
-                    </mesh>
-                    
-                    <group position={[0.25, -0.9, -0.4]}>
-                            <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                            <meshToonMaterial color="#222" />
-                            <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
-                    </group>
-                    <group position={[-0.25, -0.9, -0.4]}>
-                            <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                            <meshToonMaterial color="#222" />
-                            <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
-                    </group>
-                    
-                    {/* BOOST BURST EFFECT */}
-                    <BoostBurst triggerTime={dashTriggerTime} />
-
-                </group>
-        </group>
-        </group>
-
-        {/* LEGS GROUP */}
-        <group ref={legsRef}>
-            <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                        <boxGeometry args={[0.35, 0.7, 0.4]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                            <boxGeometry args={[0.35, 0.8, 0.45]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                <meshToonMaterial color={armorColor} />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
-                        </mesh>
-                        <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
-                                <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                <meshToonMaterial color={feetColor} />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
-                        </group>
-                    </group>
-            </group>
-
-            <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                        <boxGeometry args={[0.35, 0.7, 0.4]} />
-                        <meshToonMaterial color={armorColor} />
-                        <Edges threshold={15} color="black" />
-                    </mesh>
-                    <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                            <boxGeometry args={[0.35, 0.8, 0.45]} />
-                            <meshToonMaterial color={armorColor} />
-                            <Edges threshold={15} color="black" />
-                            <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                <meshToonMaterial color={armorColor} />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
-                        </mesh>
-                        <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
-                                <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                <meshToonMaterial color={feetColor} />
-                                <Edges threshold={15} color="black" />
-                            </mesh>
-                        </group>
-                    </group>
+            </mesh>
+            <group ref={speedLinesRef}>
+                <SpeedLines visible={visualState === 'EVADE'} />
             </group>
         </group>
-        
-      </group>
-  </mesh>
-  
-  <group ref={speedLinesRef}>
-      <SpeedLines visible={visualState === 'EVADE'} />
-  </group>
-</group>
-);
+    );
 }

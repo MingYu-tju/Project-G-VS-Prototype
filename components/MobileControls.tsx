@@ -1,4 +1,6 @@
 
+
+
 import React, { useEffect, useRef, useState } from 'react';
 
 // Helper to dispatch keyboard events that Player.tsx can hear
@@ -199,14 +201,16 @@ export const MobileControls: React.FC = () => {
 
             {/* RIGHT BUTTONS AREA */}
             <div className="absolute bottom-8 right-8 w-48 h-48 pointer-events-auto">
+                {/* SWITCH TARGET (Top Right) */}
                 <ActionButton 
                     label="TGT" 
                     kKey=" " 
                     color="bg-yellow-600/60" 
-                    posClass="top-1/2 right-0 -translate-y-1/2" 
+                    posClass="top-0 right-0" 
                     sizeClass="w-14 h-14"
                 />
 
+                {/* BOOST (Bottom) */}
                 <ActionButton 
                     label="BOOST" 
                     kKey="l" 
@@ -214,12 +218,22 @@ export const MobileControls: React.FC = () => {
                     posClass="bottom-0 left-1/2 -translate-x-1/2" 
                 />
 
+                {/* SHOOT (Left) */}
                 <ActionButton 
                     label="SHT" 
                     kKey="j" 
                     color="bg-red-600/60" 
                     posClass="top-1/2 left-0 -translate-y-1/2" 
-                    sizeClass="w-20 h-20" 
+                    sizeClass="w-16 h-16" 
+                />
+
+                {/* MELEE (Top Center / Right) */}
+                <ActionButton 
+                    label="⚔" 
+                    kKey="k" 
+                    color="bg-orange-600/60" 
+                    posClass="top-1/2 right-0 -translate-y-1/2" 
+                    sizeClass="w-16 h-16" 
                 />
             </div>
         </div>

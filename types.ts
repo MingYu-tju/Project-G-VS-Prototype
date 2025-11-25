@@ -1,5 +1,4 @@
 
-
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -70,6 +69,59 @@ export interface Projectile {
   ttl: number; // Time To Live (frames)
 }
 
+// --- POSE DATA INTERFACE ---
+export interface RotationVector {
+    x: number;
+    y: number;
+    z: number;
+}
+
+export interface MechPose {
+    TORSO: RotationVector;
+    HEAD: RotationVector;
+    LEFT_ARM: {
+        SHOULDER: RotationVector;
+        ELBOW: RotationVector;
+    };
+    RIGHT_ARM: {
+        SHOULDER: RotationVector;
+        ELBOW: RotationVector;
+    };
+    LEFT_LEG: {
+        THIGH: RotationVector;
+        KNEE: number; // Knees usually only bend on X axis
+        ANKLE: RotationVector;
+    };
+    RIGHT_LEG: {
+        THIGH: RotationVector;
+        KNEE: number;
+        ANKLE: RotationVector;
+    };
+}
+
+export const DEFAULT_MECH_POSE: MechPose = {
+    TORSO: { x: 0, y: 0, z: 0 },
+    HEAD: { x: 0, y: 0, z: 0 },
+    LEFT_ARM: {
+        SHOULDER: { x: 0, y: 0, z: 0 },
+        ELBOW: { x: 0, y: 0, z: 0 }
+    },
+    RIGHT_ARM: {
+        SHOULDER: { x: 0, y: 0, z: 0 },
+        ELBOW: { x: 0, y: 0, z: 0 }
+    },
+    LEFT_LEG: {
+        THIGH: { x: 0, y: 0, z: 0 },
+        KNEE: 0,
+        ANKLE: { x: 0, y: 0, z: 0 }
+    },
+    RIGHT_LEG: {
+        THIGH: { x: 0, y: 0, z: 0 },
+        KNEE: 0,
+        ANKLE: { x: 0, y: 0, z: 0 }
+    }
+};
+
 
 // --- GLOBAL CONFIGURATION ---
 export const GLOBAL_CONFIG = {
@@ -136,6 +188,15 @@ export const GLOBAL_CONFIG = {
     EVADE_BOOST_COST: 10,       // Costly maneuver
     DOUBLE_TAP_WINDOW: 250,     // ms
 
+    // Melee (N-Melee Phase 1)
+    MELEE_LUNGE_SPEED: 0.65,    // Fast tracking speed
+    MELEE_BOOST_CONSUMPTION: 0.4, // Per frame during lunge
+    MELEE_MAX_LUNGE_TIME: 40,   // Max frames to chase (approx 0.6s)
+    MELEE_STARTUP_FRAMES: 10,   // Windup time (Green lock only, Red lock lunges immediately)
+    MELEE_ATTACK_FRAMES: 15,    // Duration of the slash animation/active frames
+    MELEE_RECOVERY_FRAMES: 18,  // End lag
+    MELEE_RANGE: 1.5,           // Distance to trigger hit (Collision size)
+    
     // Input Configuration (New)
     INPUT_ASCENT_HOLD_THRESHOLD: 115, // ms: Time to hold L to trigger ascent
     INPUT_DASH_WINDOW: 210,      // ms: Time window for double tap L to trigger dash
@@ -173,8 +234,8 @@ export const GLOBAL_CONFIG = {
     SHOT_RECOVERY_FRAMES_STOP: 25,  // NEW: Recovery for Stop Shot (Usually faster or distinct)
     
     // Hit Response
-    KNOCKBACK_DURATION: 350, // ms
-    KNOCKBACK_SPEED: 0.2,
+    KNOCKBACK_DURATION: 500, // ms - Increased for melee feel
+    KNOCKBACK_SPEED: 0.3,    // Increased for impact
     
     // Landing Lag (Frames - Gameplay Impact)
     LANDING_LAG_MIN: 12,
@@ -184,7 +245,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.0, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
