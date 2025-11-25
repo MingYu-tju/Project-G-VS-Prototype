@@ -481,7 +481,7 @@ return (
 
 // --- NEW: MECHA HEAD COMPONENT (GLB Loader via gltfjsx structure) ---
 // Using absolute path to models to ensure correct resolution on custom domain
-const MODEL_PATH = '/models/head.glb';
+const MODEL_PATH = './models/head.glb';
 useGLTF.preload(MODEL_PATH);
 
 const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
