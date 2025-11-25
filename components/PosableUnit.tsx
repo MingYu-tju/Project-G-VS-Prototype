@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { DoubleSide, AdditiveBlending } from 'three';
 import { Edges, useGLTF } from '@react-three/drei';
@@ -60,26 +59,24 @@ interface PosableUnitProps {
     weapon: 'GUN' | 'SABER';
 }
 
-// Mirrors the structure of Player.tsx EXACTLY, but uses props instead of ref/state physics
 export const PosableUnit: React.FC<PosableUnitProps> = ({ pose, weapon }) => {
     const armorColor = '#eeeeee';
     const chestColor = '#2244aa';
     const feetColor = '#aa2222';
 
     return (
-        <group position={[0, -1, 0]}> {/* Center vertically roughly */}
+        <group position={[0, -1, 0]}> {/* Center vertically */}
             <group position={[0, 2.0, 0]}>
-                {/* TORSO GROUP */}
+                {/* WAIST / TORSO BASE */}
                 <group rotation={[pose.TORSO.x, pose.TORSO.y, pose.TORSO.z]}>
-                    {/* WAIST */}
                     <mesh position={[0, 0, 0]} castShadow receiveShadow>
                         <boxGeometry args={[0.6, 0.5, 0.5]} />
                         <meshToonMaterial color="#ff0000" />
                         <Edges threshold={15} color="black" />
                     </mesh>
                     
-                    {/* UPPER BODY */}
-                    <group position={[0, 0.65, 0]}>
+                    {/* CHEST / UPPER BODY */}
+                    <group position={[0, 0.65, 0]} rotation={[pose.CHEST.x, pose.CHEST.y, pose.CHEST.z]}>
                         <mesh castShadow receiveShadow>
                             <boxGeometry args={[0.9, 0.7, 0.7]} />
                             <meshToonMaterial color={chestColor} /> 
@@ -100,56 +97,76 @@ export const PosableUnit: React.FC<PosableUnitProps> = ({ pose, weapon }) => {
                             <MechaHead mainColor={armorColor} />
                         </group>
 
-                        {/* RIGHT ARM */}
+                        {/* RIGHT ARM CHAIN */}
                         <group position={[0.65, 0.1, 0]} rotation={[pose.RIGHT_ARM.SHOULDER.x, pose.RIGHT_ARM.SHOULDER.y, pose.RIGHT_ARM.SHOULDER.z]}>
+                            {/* Shoulder */}
                             <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                            {/* FOREARM */}
+                            
+                            {/* Elbow */}
                             <group position={[0, -0.4, 0]} rotation={[pose.RIGHT_ARM.ELBOW.x, pose.RIGHT_ARM.ELBOW.y, pose.RIGHT_ARM.ELBOW.z]}>
+                                {/* Inner Skeleton */}
                                 <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
-                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    {/* Right Fist */}
-                                    <mesh position={[0, -0.35, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
-                                </group>
-                                {/* Shield */}
-                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                        <mesh position={[0, 0.2, 0]} castShadow receiveShadow><boxGeometry args={[0.1, 1.7, 0.7]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                        <mesh position={[0.06, 0.2, 0]}><boxGeometry args={[0.05, 1.5, 0.5]} /><meshToonMaterial color="#ff0000" /></mesh>
+                                
+                                {/* Forearm Twist */}
+                                <group rotation={[pose.RIGHT_ARM.FOREARM.x, pose.RIGHT_ARM.FOREARM.y, pose.RIGHT_ARM.FOREARM.z]}>
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                        
+                                        {/* Wrist / Fist */}
+                                        <group position={[0, -0.35, 0]} rotation={[pose.RIGHT_ARM.WRIST.x, pose.RIGHT_ARM.WRIST.y, pose.RIGHT_ARM.WRIST.z]}>
+                                            <mesh castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
+                                        </group>
+                                    </group>
+
+                                    {/* Shield (Bound to Forearm) */}
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+                                            <mesh position={[0, 0.2, 0]} castShadow receiveShadow><boxGeometry args={[0.1, 1.7, 0.7]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                            <mesh position={[0.06, 0.2, 0]}><boxGeometry args={[0.05, 1.5, 0.5]} /><meshToonMaterial color="#ff0000" /></mesh>
+                                        </group>
                                     </group>
                                 </group>
                             </group>
                         </group>
 
-                        {/* LEFT ARM */}
+                        {/* LEFT ARM CHAIN */}
                         <group position={[-0.65, 0.1, 0]} rotation={[pose.LEFT_ARM.SHOULDER.x, pose.LEFT_ARM.SHOULDER.y, pose.LEFT_ARM.SHOULDER.z]}>
+                            {/* Shoulder */}
                             <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                            {/* FOREARM */}
+                            
+                            {/* Elbow */}
                             <group position={[0, -0.4, 0]} rotation={[pose.LEFT_ARM.ELBOW.x, pose.LEFT_ARM.ELBOW.y, pose.LEFT_ARM.ELBOW.z]}>
+                                {/* Inner Skeleton */}
                                 <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
-                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    {/* Left Fist */}
-                                    <mesh position={[0, -0.35, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
-                                    
-                                    {/* Beam Saber */}
-                                    {weapon === 'SABER' && (
-                                        <group position={[0, -0.35, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
-                                            <BeamSaber active={true} />
+                                
+                                {/* Forearm Twist */}
+                                <group rotation={[pose.LEFT_ARM.FOREARM.x, pose.LEFT_ARM.FOREARM.y, pose.LEFT_ARM.FOREARM.z]}>
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                        <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                        
+                                        {/* Wrist / Fist */}
+                                        <group position={[0, -0.35, 0]} rotation={[pose.LEFT_ARM.WRIST.x, pose.LEFT_ARM.WRIST.y, pose.LEFT_ARM.WRIST.z]}>
+                                            <mesh castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
+                                            {/* Beam Saber - Held in Fist */}
+                                            {weapon === 'SABER' && (
+                                                <group position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
+                                                    <BeamSaber active={true} />
+                                                </group>
+                                            )}
                                         </group>
-                                    )}
 
-                                    {/* Gun */}
-                                    {weapon === 'GUN' && (
-                                        <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow><boxGeometry args={[0.1, 0.2, 0.15]} /><meshToonMaterial color="#222" /></mesh>
-                                            <mesh position={[0, 0.2, 0.4]} castShadow><boxGeometry args={[0.15, 0.25, 1.0]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
-                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.6]} /><meshToonMaterial color="#222" /></mesh>
-                                            <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><meshToonMaterial color="#222" />
-                                                <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
-                                            </mesh>
-                                        </group>
-                                    )}
+                                        {/* Gun - Bound to Forearm */}
+                                        {weapon === 'GUN' && (
+                                            <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                                <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow><boxGeometry args={[0.1, 0.2, 0.15]} /><meshToonMaterial color="#222" /></mesh>
+                                                <mesh position={[0, 0.2, 0.4]} castShadow><boxGeometry args={[0.15, 0.25, 1.0]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
+                                                <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.6]} /><meshToonMaterial color="#222" /></mesh>
+                                                <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><meshToonMaterial color="#222" />
+                                                    <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
+                                                </mesh>
+                                            </group>
+                                        )}
+                                    </group>
                                 </group>
                             </group>
                         </group>
@@ -165,7 +182,7 @@ export const PosableUnit: React.FC<PosableUnitProps> = ({ pose, weapon }) => {
                     </group>
                 </group>
 
-                {/* LEGS GROUP - Correctly parented to rotate independently */}
+                {/* LEGS GROUP */}
                 <group>
                     <group position={[0.25, -0.3, 0]} rotation={[pose.RIGHT_LEG.THIGH.x, pose.RIGHT_LEG.THIGH.y, pose.RIGHT_LEG.THIGH.z]}>
                         <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>

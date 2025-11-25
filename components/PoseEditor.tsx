@@ -170,19 +170,24 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     <section>
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Core</h3>
                         <VectorControl label="HEAD" vector={pose.HEAD} onChange={(a, v) => updatePose(['HEAD'], a, v)} />
-                        <VectorControl label="TORSO" vector={pose.TORSO} onChange={(a, v) => updatePose(['TORSO'], a, v)} />
+                        <VectorControl label="TORSO (WAIST)" vector={pose.TORSO} onChange={(a, v) => updatePose(['TORSO'], a, v)} />
+                        <VectorControl label="CHEST (UPPER)" vector={pose.CHEST} onChange={(a, v) => updatePose(['CHEST'], a, v)} />
                     </section>
                     
                     <section>
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Right Arm</h3>
                         <VectorControl label="SHOULDER" vector={pose.RIGHT_ARM.SHOULDER} onChange={(a, v) => updatePose(['RIGHT_ARM', 'SHOULDER'], a, v)} />
                         <VectorControl label="ELBOW" vector={pose.RIGHT_ARM.ELBOW} onChange={(a, v) => updatePose(['RIGHT_ARM', 'ELBOW'], a, v)} />
+                        <VectorControl label="FOREARM (TWIST)" vector={pose.RIGHT_ARM.FOREARM} onChange={(a, v) => updatePose(['RIGHT_ARM', 'FOREARM'], a, v)} />
+                        <VectorControl label="WRIST (HAND)" vector={pose.RIGHT_ARM.WRIST} onChange={(a, v) => updatePose(['RIGHT_ARM', 'WRIST'], a, v)} />
                     </section>
 
                     <section>
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Left Arm</h3>
                         <VectorControl label="SHOULDER" vector={pose.LEFT_ARM.SHOULDER} onChange={(a, v) => updatePose(['LEFT_ARM', 'SHOULDER'], a, v)} />
                         <VectorControl label="ELBOW" vector={pose.LEFT_ARM.ELBOW} onChange={(a, v) => updatePose(['LEFT_ARM', 'ELBOW'], a, v)} />
+                        <VectorControl label="FOREARM (TWIST)" vector={pose.LEFT_ARM.FOREARM} onChange={(a, v) => updatePose(['LEFT_ARM', 'FOREARM'], a, v)} />
+                        <VectorControl label="WRIST (HAND)" vector={pose.LEFT_ARM.WRIST} onChange={(a, v) => updatePose(['LEFT_ARM', 'WRIST'], a, v)} />
                     </section>
 
                     <section>

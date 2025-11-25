@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color } from 'three';
@@ -23,7 +22,6 @@ type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH' | 'RECOVERY';
 // --- POSE CONFIGURATIONS ---
 
 // Default Idle values from old config (mapped to MechPose structure)
-// We use a partial update logic in Player usually, but here we define the bases.
 const IDLE_POSE = {
     TORSO: { x: 0.25, y: 0, z: 0.0 },
     HEAD: { x: -0.25, y: 0.25 },
@@ -58,42 +56,51 @@ const DASH_POSE = {
     }
 };
 
-// MELEE POSES - Using full MechPose structure so they can be replaced by Editor JSON
+// MELEE POSES - Updated with new structure
 const MELEE_POSE_DATA: { STARTUP: MechPose, SLASH: MechPose } = {
     STARTUP: {
         ...DEFAULT_MECH_POSE,
         TORSO: { x: 0.1, y: 0.8, z: 0 },
+        CHEST: { x: 0, y: 0, z: 0 }, // Default
         HEAD: { x: 0, y: 0, z: 0 },
         LEFT_ARM: {
             SHOULDER: { x: -1.2, y: 0.5, z: -0.8 }, 
-            ELBOW: { x: -2.0, y: 0, z: 0 }
+            ELBOW: { x: -2.0, y: 0, z: 0 },
+            FOREARM: { x: 0, y: 0, z: 0 },
+            WRIST: { x: 0, y: 0, z: 0 }
         },
         RIGHT_ARM: {
-            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, // Idle-ish
-            ELBOW: { x: -1, y: -0.4, z: 0 }
+            SHOULDER: { x: 0.4, y: 0.3, z: 0.15 }, 
+            ELBOW: { x: -1, y: -0.4, z: 0 },
+            FOREARM: { x: 0, y: 0, z: 0 },
+            WRIST: { x: 0, y: 0, z: 0 }
         },
-        // Legs will be overridden by movement logic mostly, but defined here for completeness
         LEFT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
         RIGHT_LEG: { THIGH: {x:0,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
     },
     SLASH: {
         ...DEFAULT_MECH_POSE,
         TORSO: { x: 0.2, y: -0.8, z: 0 },
+        CHEST: { x: 0, y: 0, z: 0 }, // Default
         HEAD: { x: 0, y: 0, z: 0 },
         LEFT_ARM: {
             SHOULDER: { x: 0.2, y: -0.8, z: 0.8 }, 
-            ELBOW: { x: -0.1, y: 0, z: 0 }
+            ELBOW: { x: -0.1, y: 0, z: 0 },
+            FOREARM: { x: 0, y: 0, z: 0 },
+            WRIST: { x: 0, y: 0, z: 0 }
         },
         RIGHT_ARM: {
             SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-            ELBOW: { x: -1, y: -0.4, z: 0 }
+            ELBOW: { x: -1, y: -0.4, z: 0 },
+            FOREARM: { x: 0, y: 0, z: 0 },
+            WRIST: { x: 0, y: 0, z: 0 }
         },
         LEFT_LEG: { THIGH: {x:0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
         RIGHT_LEG: { THIGH: {x:-0.5,y:0,z:0}, KNEE: 0.2, ANKLE: {x:0,y:0,z:0} },
     }
 };
 
-// --- AUDIO MANAGER ---
+// ... Audio Manager code omitted for brevity (same as before) ...
 let globalAudioCtx: AudioContext | null = null;
 let boostAudioBuffer: AudioBuffer | null = null;
 let shootAudioBuffer: AudioBuffer | null = null;
@@ -253,7 +260,7 @@ export const playHitSound = (distance: number) => {
     playSoundBuffer(hitAudioBuffer, vol * 0.4, 0.2);
 };
 
-// --- VISUAL EFFECTS ---
+// --- VISUAL EFFECTS (Unchanged) ---
 const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
     const groupRef = useRef<Group>(null);
     const DURATION = 0.4; 
@@ -455,7 +462,7 @@ export const Player: React.FC = () => {
     const meshRef = useRef<Mesh>(null);
     const headRef = useRef<Group>(null);
     const torsoRef = useRef<Group>(null); 
-    const upperBodyRef = useRef<Group>(null); 
+    const upperBodyRef = useRef<Group>(null); // Chest
     const legsRef = useRef<Group>(null);
     const rightLegRef = useRef<Group>(null);
     const leftLegRef = useRef<Group>(null);
@@ -464,11 +471,18 @@ export const Player: React.FC = () => {
     const rightFootRef = useRef<Group>(null);
     const leftFootRef = useRef<Group>(null);
 
-    const gunArmRef = useRef<Group>(null);
+    const gunArmRef = useRef<Group>(null); // Left Shoulder
+    const rightArmRef = useRef<Group>(null); // Right Shoulder
+    const leftForeArmRef = useRef<Group>(null); // Left Elbow Container
+    const rightForeArmRef = useRef<Group>(null); // Right Elbow Container
+    
+    // NEW REFS for expanded articulation
+    const leftForearmTwistRef = useRef<Group>(null);
+    const rightForearmTwistRef = useRef<Group>(null);
+    const leftWristRef = useRef<Group>(null);
+    const rightWristRef = useRef<Group>(null);
+
     const gunMeshRef = useRef<Group>(null); 
-    const rightArmRef = useRef<Group>(null); 
-    const leftForeArmRef = useRef<Group>(null); 
-    const rightForeArmRef = useRef<Group>(null); 
     const shieldRef = useRef<Group>(null); 
     const muzzleRef = useRef<Group>(null);
     const { camera } = useThree();
@@ -493,7 +507,7 @@ export const Player: React.FC = () => {
         isGameStarted
     } = useGameStore();
 
-    // Physics State
+    // ... Physics/Input State (same as before) ...
     const velocity = useRef(new Vector3(0, 0, 0));
     const position = useRef(new Vector3(0, 0, 0));
     const isGrounded = useRef(true);
@@ -560,6 +574,7 @@ export const Player: React.FC = () => {
         loadAllSounds();
     }, []);
 
+    // ... Input Handling Methods (getDirectionFromKey, etc. same as before) ...
     const getDirectionFromKey = (key: string) => {
         const input = new Vector3(0,0,0);
         if (key === 'w') input.z -= 1;
@@ -648,6 +663,7 @@ export const Player: React.FC = () => {
         }
     };
 
+    // ... useEffect for keyboard listeners (same as before) ...
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!useGameStore.getState().isGameStarted) return;
@@ -731,8 +747,6 @@ export const Player: React.FC = () => {
 
                         if (isGrounded.current) {
                             isGrounded.current = false;
-                            // Give upward velocity to ensure we can fall later to trigger landing lag
-                            // Match dash hop speed
                             velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY; 
                             isMeleeGroundedStart.current = true;
                         } else {
@@ -818,6 +832,7 @@ export const Player: React.FC = () => {
     };
 
     useFrame((state, delta) => {
+        // ... Physics update logic omitted for brevity, mostly unchanged ...
         if (!meshRef.current) return;
         const timeScale = delta * 60;
         const now = Date.now();
@@ -951,20 +966,14 @@ export const Player: React.FC = () => {
                     let dist = 999;
                     if (currentTarget) {
                         dist = position.current.distanceTo(currentTarget.position);
-                        
-                        // Lunge Tracking Logic
                         const targetPos = currentTarget.position.clone();
                         const dir = targetPos.sub(position.current).normalize();
-                        
                         velocity.current.x = dir.x * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
                         velocity.current.z = dir.z * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                        
-                        // Height Logic for Grounded Lunge
                         if (!isMeleeGroundedStart.current) {
                             velocity.current.y = dir.y * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
                             meshRef.current.lookAt(currentTarget.position);
                         } else {
-                            // If grounded start, only rotate horizontally
                             meshRef.current.lookAt(currentTarget.position.x, position.current.y, currentTarget.position.z);
                         }
                         
@@ -982,8 +991,6 @@ export const Player: React.FC = () => {
                     if (dist < GLOBAL_CONFIG.MELEE_RANGE || meleeTimer.current <= 0 || !paid) {
                         meleeState.current = 'SLASH';
                         meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
-                        // Don't zero velocity immediately if grounded to preserve hop arc? 
-                        // Actually better to zero it for the slash impact feel, gravity will take over in recovery.
                         velocity.current.set(0,0,0); 
                     }
                 }
@@ -1013,11 +1020,8 @@ export const Player: React.FC = () => {
                     }
                 }
                 
-                // Apply gravity during Startup/Lunge if grounded start to allow the hop
                 if (isMeleeGroundedStart.current && (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE')) {
                     velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
-                    
-                    // CEILING CLAMP: Don't fly too high during ground melee
                     if (position.current.y > 0.5) {
                         position.current.y = 0.5;
                         if (velocity.current.y > 0) velocity.current.y = 0;
@@ -1274,7 +1278,6 @@ export const Player: React.FC = () => {
                 }
             } else if (meleeState.current === 'STARTUP' || meleeState.current === 'SLASH' || meleeState.current === 'RECOVERY') {
                 // Green Lock / Stationary Melee: NO ROTATION UPDATES.
-                // The character maintains its previous facing.
             }
             else if (isShooting.current && currentTarget && shootMode.current === 'STOP') {
                 const dirToTarget = currentTarget.position.clone().sub(meshRef.current.position);
@@ -1309,6 +1312,7 @@ export const Player: React.FC = () => {
             meshRef.current.updateMatrixWorld(true);
 
             // --- ANIMATION MIXER ---
+            // Left Arm (Gun)
             if (gunArmRef.current) {
                 let targetArmEuler = new Euler(0.35, -0.3, 0); 
                 const useIdleArmPose = isGrounded.current && (
@@ -1328,20 +1332,14 @@ export const Player: React.FC = () => {
                 const targetArmQuat = new Quaternion().setFromEuler(targetArmEuler);
 
                 if (meleeState.current !== 'NONE') {
-                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
-                        const pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.SHOULDER;
-                        const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
-                        gunArmRef.current.quaternion.slerp(q, 0.2 * timeScale);
-                    } else if (meleeState.current === 'SLASH') {
-                        const pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.SHOULDER;
-                        const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
-                        gunArmRef.current.quaternion.slerp(q, 0.4 * timeScale);
-                    } else {
-                        const lerpSpeed = 0.1 * timeScale;
-                        gunArmRef.current.rotation.x = MathUtils.lerp(gunArmRef.current.rotation.x, targetArmEuler.x, lerpSpeed);
-                        gunArmRef.current.rotation.y = MathUtils.lerp(gunArmRef.current.rotation.y, targetArmEuler.y, lerpSpeed);
-                        gunArmRef.current.rotation.z = MathUtils.lerp(gunArmRef.current.rotation.z, targetArmEuler.z, lerpSpeed);
+                    // Melee overrides aiming
+                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.SHOULDER;
+                    if (meleeState.current === 'SLASH') {
+                        pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.SHOULDER;
                     }
+                    const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
+                    const lerpSpeed = meleeState.current === 'SLASH' ? 0.4 : 0.2;
+                    gunArmRef.current.quaternion.slerp(q, lerpSpeed * timeScale);
                 }
                 else if (isShooting.current && currentTarget) {
                     const shoulderPos = new Vector3();
@@ -1381,19 +1379,16 @@ export const Player: React.FC = () => {
                 }
             }
             
+            // Left Elbow
             if (leftForeArmRef.current) {
                 let targetX = -0.65;
                 let targetY = 0.3;
                 let targetZ = 0;
 
                 if (meleeState.current !== 'NONE') {
-                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
-                        const pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.ELBOW;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    } else if (meleeState.current === 'SLASH') {
-                        const pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.ELBOW;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    }
+                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM.ELBOW;
+                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.LEFT_ARM.ELBOW;
+                    targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isIdlePose) {
                     targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
                     targetY = IDLE_POSE.LEFT_ARM.ELBOW.y;
@@ -1406,19 +1401,16 @@ export const Player: React.FC = () => {
                 leftForeArmRef.current.rotation.z = MathUtils.lerp(leftForeArmRef.current.rotation.z, targetZ, lerpSpeed);
             }
 
+            // Right Shoulder
             if (rightArmRef.current) {
                 let targetX = 0.35;
                 let targetY = 0.3;
                 let targetZ = 0;
 
                 if (meleeState.current !== 'NONE') {
-                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
-                        const pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.SHOULDER;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    } else if (meleeState.current === 'SLASH') {
-                        const pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.SHOULDER;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    }
+                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.SHOULDER;
+                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.SHOULDER;
+                    targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
                     targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
                     targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
@@ -1436,19 +1428,16 @@ export const Player: React.FC = () => {
                 rightArmRef.current.rotation.z = MathUtils.lerp(rightArmRef.current.rotation.z, targetZ, lerpSpeed);
             }
 
+            // Right Elbow
             if (rightForeArmRef.current) {
                 let targetX = -0.65;
                 let targetY = -0.3;
                 let targetZ = 0;
                 
                 if (meleeState.current !== 'NONE') {
-                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
-                        const pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.ELBOW;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    } else if (meleeState.current === 'SLASH') {
-                        const pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.ELBOW;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    }
+                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM.ELBOW;
+                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM.ELBOW;
+                    targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
                     targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
                     targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
@@ -1466,6 +1455,49 @@ export const Player: React.FC = () => {
                 rightForeArmRef.current.rotation.z = MathUtils.lerp(rightForeArmRef.current.rotation.z, targetZ, lerpSpeed);
             }
 
+            // --- NEW ARTICULATION ANIMATIONS ---
+            
+            // Left Forearm Twist & Wrist
+            if (leftForearmTwistRef.current && leftWristRef.current) {
+                let twist = { x: 0, y: 0, z: 0 };
+                let wrist = { x: 0, y: 0, z: 0 };
+                if (meleeState.current !== 'NONE') {
+                    let pose = MELEE_POSE_DATA.STARTUP.LEFT_ARM;
+                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.LEFT_ARM;
+                    twist = pose.FOREARM;
+                    wrist = pose.WRIST;
+                }
+                const speed = 0.2 * timeScale;
+                leftForearmTwistRef.current.rotation.x = MathUtils.lerp(leftForearmTwistRef.current.rotation.x, twist.x, speed);
+                leftForearmTwistRef.current.rotation.y = MathUtils.lerp(leftForearmTwistRef.current.rotation.y, twist.y, speed);
+                leftForearmTwistRef.current.rotation.z = MathUtils.lerp(leftForearmTwistRef.current.rotation.z, twist.z, speed);
+                
+                leftWristRef.current.rotation.x = MathUtils.lerp(leftWristRef.current.rotation.x, wrist.x, speed);
+                leftWristRef.current.rotation.y = MathUtils.lerp(leftWristRef.current.rotation.y, wrist.y, speed);
+                leftWristRef.current.rotation.z = MathUtils.lerp(leftWristRef.current.rotation.z, wrist.z, speed);
+            }
+
+            // Right Forearm Twist & Wrist
+            if (rightForearmTwistRef.current && rightWristRef.current) {
+                let twist = { x: 0, y: 0, z: 0 };
+                let wrist = { x: 0, y: 0, z: 0 };
+                if (meleeState.current !== 'NONE') {
+                    let pose = MELEE_POSE_DATA.STARTUP.RIGHT_ARM;
+                    if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.RIGHT_ARM;
+                    twist = pose.FOREARM;
+                    wrist = pose.WRIST;
+                }
+                const speed = 0.2 * timeScale;
+                rightForearmTwistRef.current.rotation.x = MathUtils.lerp(rightForearmTwistRef.current.rotation.x, twist.x, speed);
+                rightForearmTwistRef.current.rotation.y = MathUtils.lerp(rightForearmTwistRef.current.rotation.y, twist.y, speed);
+                rightForearmTwistRef.current.rotation.z = MathUtils.lerp(rightForearmTwistRef.current.rotation.z, twist.z, speed);
+                
+                rightWristRef.current.rotation.x = MathUtils.lerp(rightWristRef.current.rotation.x, wrist.x, speed);
+                rightWristRef.current.rotation.y = MathUtils.lerp(rightWristRef.current.rotation.y, wrist.y, speed);
+                rightWristRef.current.rotation.z = MathUtils.lerp(rightWristRef.current.rotation.z, wrist.z, speed);
+            }
+
+            // Shield (Same as before, but now parented inside twist)
             if (shieldRef.current) {
                 let targetPos = { x: 0, y: -0.5, z: 0.1 };
                 let targetRot = { x: -0.2, y: 0, z: 0 };
@@ -1476,11 +1508,9 @@ export const Player: React.FC = () => {
                 }
 
                 const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.15 : 0.1) * timeScale;
-                
                 shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
                 shieldRef.current.position.y = MathUtils.lerp(shieldRef.current.position.y, targetPos.y, lerpSpeed);
                 shieldRef.current.position.z = MathUtils.lerp(shieldRef.current.position.z, targetPos.z, lerpSpeed);
-
                 shieldRef.current.rotation.x = MathUtils.lerp(shieldRef.current.rotation.x, targetRot.x, lerpSpeed);
                 shieldRef.current.rotation.y = MathUtils.lerp(shieldRef.current.rotation.y, targetRot.y, lerpSpeed);
                 shieldRef.current.rotation.z = MathUtils.lerp(shieldRef.current.rotation.z, targetRot.z, lerpSpeed);
@@ -1509,11 +1539,9 @@ export const Player: React.FC = () => {
                     let targetY = 0;
                     let targetZ = 0;
                     
-                    if (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE') {
-                        const pose = MELEE_POSE_DATA.STARTUP.HEAD;
-                        targetX = pose.x; targetY = pose.y; targetZ = pose.z;
-                    } else if (meleeState.current === 'SLASH') {
-                        const pose = MELEE_POSE_DATA.SLASH.HEAD;
+                    if (meleeState.current !== 'NONE') {
+                        let pose = MELEE_POSE_DATA.STARTUP.HEAD;
+                        if (meleeState.current === 'SLASH') pose = MELEE_POSE_DATA.SLASH.HEAD;
                         targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                     } else if (isIdlePose) {
                         targetX = IDLE_POSE.HEAD.x;
@@ -1531,6 +1559,7 @@ export const Player: React.FC = () => {
             }
 
             if (legsRef.current) {
+                // ... Falling Physics Calculation (Same) ...
                 const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE' && nextVisualState !== 'MELEE';
                 
                 if (isFalling && !wasFallingRef.current) {
@@ -1565,11 +1594,10 @@ export const Player: React.FC = () => {
                     currentFallTime.current = 0;
                 }
 
+                // Inertia Sway
                 const invRot = meshRef.current.quaternion.clone().invert();
                 const localVel = velocity.current.clone().applyQuaternion(invRot);
-                
                 const enableInertiaSway = nextVisualState === 'EVADE';
-                
                 const targetPitch = (enableInertiaSway && !isFalling) ? localVel.z * 1.5 : 0; 
                 const targetRoll = (enableInertiaSway && !isFalling) ? -localVel.x * 1.5 : 0;
                 
@@ -1588,6 +1616,7 @@ export const Player: React.FC = () => {
                 let targetBodyTilt = 0;
                 let targetBodyTwist = 0; 
                 let targetBodyRoll = 0; 
+                let targetChest = { x: 0, y: 0, z: 0 }; // NEW
 
                 let lerpSpeed = 0.2 * timeScale; 
 
@@ -1609,14 +1638,14 @@ export const Player: React.FC = () => {
                     
                     if (upperBodyRef.current) {
                         upperBodyRef.current.position.y = 0.55 + Math.abs(cos) * 0.08; 
-                        upperBodyRef.current.rotation.y = sin * 0.22; 
-                        upperBodyRef.current.rotation.z = cos * 0.1; 
+                        // Procedural Chest Animation
+                        targetChest.y = sin * 0.22;
+                        targetChest.z = cos * 0.1;
                     }
-                    
                     lerpSpeed = 0.25 * timeScale; 
                 }
                 else if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
-                    // Default Dashing/Lunge Legs
+                    // Default Dashing Legs
                     targetRightThigh.x = -1; 
                     targetRightKneeX = 2.6; 
                     targetLeftKneeX = 0.3; 
@@ -1629,31 +1658,25 @@ export const Player: React.FC = () => {
                     lerpSpeed = 0.15 * timeScale;
                     
                     if (meleeState.current !== 'NONE') {
-                        // Override if Melee Data exists (specifically Torso/Head, legs usually keep movement logic)
+                        // Override from Melee Data
                         const pose = MELEE_POSE_DATA.STARTUP;
-                        targetBodyTilt = pose.TORSO.x; // Use editor value for tilt
+                        targetBodyTilt = pose.TORSO.x;
                         targetBodyTwist = pose.TORSO.y; 
                         targetBodyRoll = pose.TORSO.z;
-                    } else {
-                        upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, 0, 0.2);
-                        upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, 0, 0.2);
-                    }
-
+                        targetChest = pose.CHEST; // Use Melee Chest
+                    } 
                 } else if (meleeState.current === 'SLASH') {
-                    // Use data from Editor for slash
                     const pose = MELEE_POSE_DATA.SLASH;
-                    
                     targetRightThigh = pose.RIGHT_LEG.THIGH;
                     targetLeftThigh = pose.LEFT_LEG.THIGH;
                     targetRightKneeX = pose.RIGHT_LEG.KNEE;
                     targetLeftKneeX = pose.LEFT_LEG.KNEE;
                     targetRightAnkle = pose.RIGHT_LEG.ANKLE;
                     targetLeftAnkle = pose.LEFT_LEG.ANKLE;
-                    
                     targetBodyTilt = pose.TORSO.x;
                     targetBodyTwist = pose.TORSO.y;
                     targetBodyRoll = pose.TORSO.z;
-                    
+                    targetChest = pose.CHEST; // Use Melee Chest
                     lerpSpeed = 0.4 * timeScale;
 
                 } else if (isFalling) {
@@ -1714,11 +1737,10 @@ export const Player: React.FC = () => {
 
                     if (upperBodyRef.current) {
                         upperBodyRef.current.position.y = MathUtils.lerp(upperBodyRef.current.position.y, 0.65, 0.1);
-                        upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetBodyTwist, 0.1);
-                        upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetBodyRoll, 0.1);
                     }
                 }
                 
+                // Apply Leg Rotations
                 if (rightLegRef.current) {
                     rightLegRef.current.rotation.x = MathUtils.lerp(rightLegRef.current.rotation.x, targetRightThigh.x, lerpSpeed);
                     rightLegRef.current.rotation.y = MathUtils.lerp(rightLegRef.current.rotation.y, targetRightThigh.y, lerpSpeed);
@@ -1746,13 +1768,23 @@ export const Player: React.FC = () => {
                     leftFootRef.current.rotation.z = MathUtils.lerp(leftFootRef.current.rotation.z, targetLeftAnkle.z, lerpSpeed);
                 }
 
+                // Apply Body/Chest Rotations
                 currentUpperBodyTilt.current = MathUtils.lerp(currentUpperBodyTilt.current, targetBodyTilt, lerpSpeed);
                 if (torsoRef.current) {
                     torsoRef.current.rotation.x = currentUpperBodyTilt.current;
+                    torsoRef.current.rotation.y = MathUtils.lerp(torsoRef.current.rotation.y, targetBodyTwist, lerpSpeed);
+                    torsoRef.current.rotation.z = MathUtils.lerp(torsoRef.current.rotation.z, targetBodyRoll, lerpSpeed);
+                }
+                if (upperBodyRef.current) {
+                    // Blend procedural walking chest motion with Melee Chest Pose
+                    upperBodyRef.current.rotation.x = MathUtils.lerp(upperBodyRef.current.rotation.x, targetChest.x, lerpSpeed);
+                    upperBodyRef.current.rotation.y = MathUtils.lerp(upperBodyRef.current.rotation.y, targetChest.y, lerpSpeed);
+                    upperBodyRef.current.rotation.z = MathUtils.lerp(upperBodyRef.current.rotation.z, targetChest.z, lerpSpeed);
                 }
             }
         }
 
+        // ... Shooting logic omitted (same) ...
         if (!stunned && isShooting.current) {
             shootTimer.current += 1 * timeScale; 
             
@@ -1813,6 +1845,7 @@ export const Player: React.FC = () => {
             }
         }
 
+        // ... Camera logic omitted (same) ...
         let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
         let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
 
@@ -1860,14 +1893,15 @@ export const Player: React.FC = () => {
         <group>
             <mesh ref={meshRef} castShadow>
                 <group position={[0, 2.0, 0]}>
+                    {/* WAIST/TORSO */}
                     <group ref={torsoRef}>
-                        {/* WAIST */}
                         <mesh position={[0, 0, 0]} castShadow receiveShadow>
                             <boxGeometry args={[0.6, 0.5, 0.5]} />
                             <meshToonMaterial color="#ff0000" />
                             <Edges threshold={15} color="black" />
                         </mesh>
-                        {/* CHEST */}
+                        
+                        {/* CHEST/UPPER BODY */}
                         <group ref={upperBodyRef} position={[0, 0.65, 0]}>
                             <mesh castShadow receiveShadow>
                                 <boxGeometry args={[0.9, 0.7, 0.7]} />
@@ -1875,141 +1909,83 @@ export const Player: React.FC = () => {
                                 <Edges threshold={15} color="black" />
                             </mesh>
                             <group position={[0.28, 0.1, 0.36]}>
-                                <mesh castShadow>
-                                    <boxGeometry args={[0.35, 0.25, 0.05]} />
-                                    <meshToonMaterial color="#ffaa00" />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {[...Array(5)].map((_, index) => (
-                                    <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                                        <boxGeometry args={[0.33, 0.02, 0.02]} />
-                                        <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                                    </mesh>
-                                ))}
+                                <mesh castShadow><boxGeometry args={[0.35, 0.25, 0.05]} /><meshToonMaterial color="#ffaa00" /><Edges threshold={15} color="black" /></mesh>
+                                {[...Array(5)].map((_, index) => ( <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}><boxGeometry args={[0.33, 0.02, 0.02]} /><meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} /></mesh> ))}
                             </group>
                             <group position={[-0.28, 0.1, 0.36]}>
-                                <mesh castShadow>
-                                    <boxGeometry args={[0.35, 0.25, 0.05]} />
-                                    <meshToonMaterial color="#ffaa00" />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {[...Array(5)].map((_, index) => (
-                                    <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}>
-                                        <boxGeometry args={[0.33, 0.02, 0.02]} />
-                                        <meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} />
-                                    </mesh>
-                                ))}
+                                <mesh castShadow><boxGeometry args={[0.35, 0.25, 0.05]} /><meshToonMaterial color="#ffaa00" /><Edges threshold={15} color="black" /></mesh>
+                                {[...Array(5)].map((_, index) => ( <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}><boxGeometry args={[0.33, 0.02, 0.02]} /><meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} /></mesh> ))}
                             </group>
 
                             <group ref={headRef}>
                                 <MechaHead mainColor={armorColor} />
                             </group>
 
-                            {/* Right Shoulder & Arm */}
+                            {/* RIGHT ARM CHAIN */}
                             <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
-                                <mesh castShadow receiveShadow>
-                                    <boxGeometry args={[0.5, 0.5, 0.5]} />
-                                    <meshToonMaterial color={armorColor} />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {/* FOREARM */}
+                                <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                
+                                {/* Forearm Group (Elbow) */}
                                 <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
-                                    <mesh castShadow receiveShadow>
-                                        <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                        <meshToonMaterial color="#444" />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
+                                    <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
                                     
-                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                        <mesh castShadow receiveShadow>
-                                            <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        {/* Right Fist */}
-                                        <mesh position={[0, -0.35, 0]} castShadow>
-                                            <boxGeometry args={[0.25, 0.3, 0.25]} />
-                                            <meshToonMaterial color="#222" />
-                                        </mesh>
-                                    </group>
-
-                                    {/* Shield Group */}
-                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
-                                            <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                                <mesh position={[0, 0.2, 0]} castShadow receiveShadow>
-                                                    <boxGeometry args={[0.1, 1.7, 0.7]} />
-                                                    <meshToonMaterial color={armorColor} />
-                                                    <Edges threshold={15} color="black" />
-                                                </mesh>
-                                                <mesh position={[0.06, 0.2, 0]}>
-                                                    <boxGeometry args={[0.05, 1.5, 0.5]} />
-                                                    <meshToonMaterial color="#ff0000" />
-                                                </mesh>
+                                    {/* Twist Group */}
+                                    <group ref={rightForearmTwistRef}>
+                                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                            <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                            
+                                            {/* Wrist/Fist */}
+                                            <group ref={rightWristRef} position={[0, -0.35, 0]}>
+                                                <mesh castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
                                             </group>
+                                        </group>
+
+                                        {/* Shield */}
+                                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
+                                                <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+                                                    <mesh position={[0, 0.2, 0]} castShadow receiveShadow><boxGeometry args={[0.1, 1.7, 0.7]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                                    <mesh position={[0.06, 0.2, 0]}><boxGeometry args={[0.05, 1.5, 0.5]} /><meshToonMaterial color="#ff0000" /></mesh>
+                                                </group>
+                                        </group>
                                     </group>
                                 </group>
                             </group>
 
-                            {/* Left Shoulder & Arm */}
+                            {/* LEFT ARM CHAIN */}
                             <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
-                                <mesh castShadow receiveShadow>
-                                    <boxGeometry args={[0.5, 0.5, 0.5]} />
-                                    <meshToonMaterial color={armorColor} />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {/* FOREARM */}
+                                <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                
+                                {/* Forearm Group (Elbow) */}
                                 <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
-                                    <mesh castShadow receiveShadow>
-                                        <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                        <meshToonMaterial color="#444" />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
+                                    <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
                                     
-                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                        
-                                        <mesh castShadow receiveShadow>
-                                            <boxGeometry args={[0.28, 0.6, 0.35]} />
-                                            <meshToonMaterial color={armorColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
-                                        
-                                        {/* Left Fist */}
-                                        <mesh position={[0, -0.35, 0]} castShadow>
-                                            <boxGeometry args={[0.25, 0.3, 0.25]} />
-                                            <meshToonMaterial color="#222" />
-                                        </mesh>
-
-                                        {/* Beam Saber */}
-                                        <group visible={activeWeapon === 'SABER'} position={[0, -0.35, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
-                                            <BeamSaber active={activeWeapon === 'SABER'} />
-                                        </group>
-
-                                        {/* Gun Model */}
-                                        <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                                <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
-                                                    <boxGeometry args={[0.1, 0.2, 0.15]} />
-                                                    <meshToonMaterial color="#222" />
-                                                </mesh>
-                                                <mesh position={[0, 0.2, 0.4]} castShadow>
-                                                    <boxGeometry args={[0.15, 0.25, 1.0]} />
-                                                    <meshToonMaterial color="#444" />
-                                                    <Edges threshold={15} color="black" />
-                                                </mesh>
-                                                <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow>
-                                                    <cylinderGeometry args={[0.04, 0.04, 0.6]} />
-                                                    <meshToonMaterial color="#222" />
-                                                </mesh>
-                                                <mesh position={[0.05, 0.35, 0.2]}>
-                                                    <cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/>
-                                                    <meshToonMaterial color="#222" />
-                                                    <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
-                                                        <circleGeometry args={[0.06]} />
-                                                        <meshBasicMaterial color="#00ff00" />
-                                                    </mesh>
-                                                </mesh>
-                                                <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
-                                                    <MuzzleFlash active={showMuzzleFlash} />
+                                    {/* Twist Group */}
+                                    <group ref={leftForearmTwistRef}>
+                                        <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
+                                            <mesh castShadow receiveShadow><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                            
+                                            {/* Wrist/Fist */}
+                                            <group ref={leftWristRef} position={[0, -0.35, 0]}>
+                                                <mesh castShadow><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
+                                                
+                                                {/* Beam Saber - In Hand */}
+                                                <group visible={activeWeapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
+                                                    <BeamSaber active={activeWeapon === 'SABER'} />
                                                 </group>
+                                            </group>
+
+                                            {/* Gun - Bound to Forearm */}
+                                            <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                                    <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow><boxGeometry args={[0.1, 0.2, 0.15]} /><meshToonMaterial color="#222" /></mesh>
+                                                    <mesh position={[0, 0.2, 0.4]} castShadow><boxGeometry args={[0.15, 0.25, 1.0]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
+                                                    <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.6]} /><meshToonMaterial color="#222" /></mesh>
+                                                    <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><meshToonMaterial color="#222" />
+                                                        <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
+                                                    </mesh>
+                                                    <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
+                                                        <MuzzleFlash active={showMuzzleFlash} />
+                                                    </group>
+                                            </group>
                                         </group>
                                     </group>
                                 </group>
@@ -2017,33 +1993,11 @@ export const Player: React.FC = () => {
 
                             {/* BACKPACK */}
                             <group position={[0, 0.2, -0.4]}>
-                                <mesh castShadow receiveShadow>
-                                    <boxGeometry args={[0.7, 0.8, 0.4]} />
-                                    <meshToonMaterial color="#333" />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
-                                        <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                                        <meshToonMaterial color="white" />
-                                        <Edges threshold={15} color="black" />
-                                </mesh>
-                                <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
-                                        <cylinderGeometry args={[0.04, 0.04, 0.5]} />
-                                        <meshToonMaterial color="white" />
-                                        <Edges threshold={15} color="black" />
-                                </mesh>
-                                
-                                <group position={[0.25, -0.9, -0.4]}>
-                                        <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                                        <meshToonMaterial color="#222" />
-                                        <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
-                                </group>
-                                <group position={[-0.25, -0.9, -0.4]}>
-                                        <cylinderGeometry args={[0.1, 0.15, 0.2]} />
-                                        <meshToonMaterial color="#222" />
-                                        <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} />
-                                </group>
-                                
+                                <mesh castShadow receiveShadow><boxGeometry args={[0.7, 0.8, 0.4]} /><meshToonMaterial color="#333" /><Edges threshold={15} color="black" /></mesh>
+                                <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.5]} /><meshToonMaterial color="white" /><Edges threshold={15} color="black" /></mesh>
+                                <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.5]} /><meshToonMaterial color="white" /><Edges threshold={15} color="black" /></mesh>
+                                <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><meshToonMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
+                                <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><meshToonMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
                                 <BoostBurst triggerTime={dashTriggerTime} />
                             </group>
                         </group>
@@ -2052,62 +2006,24 @@ export const Player: React.FC = () => {
                     <group ref={legsRef}>
                         {/* RIGHT LEG */}
                         <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
-                                    <meshToonMaterial color={armorColor} />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {/* LOWER LEG GROUP */}
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
                                 <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                                    {/* Shin */}
-                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                                        <boxGeometry args={[0.35, 0.8, 0.45]} />
-                                        <meshToonMaterial color={armorColor} />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
-                                    {/* Knee Pad (Sibling, not child of mesh) */}
-                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                        <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                        <meshToonMaterial color={armorColor} />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
+                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
                                     <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
-                                            <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                            <meshToonMaterial color={feetColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
+                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
                                     </group>
                                 </group>
                         </group>
 
                         {/* LEFT LEG */}
                         <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
-                                    <meshToonMaterial color={armorColor} />
-                                    <Edges threshold={15} color="black" />
-                                </mesh>
-                                {/* LOWER LEG GROUP */}
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
                                 <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                                    {/* Shin */}
-                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
-                                        <boxGeometry args={[0.35, 0.8, 0.45]} />
-                                        <meshToonMaterial color={armorColor} />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
-                                    {/* Knee Pad (Sibling) */}
-                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
-                                        <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                        <meshToonMaterial color={armorColor} />
-                                        <Edges threshold={15} color="black" />
-                                    </mesh>
+                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
                                     <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
-                                            <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                            <meshToonMaterial color={feetColor} />
-                                            <Edges threshold={15} color="black" />
-                                        </mesh>
+                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
                                     </group>
                                 </group>
                         </group>

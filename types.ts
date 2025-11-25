@@ -1,4 +1,3 @@
-
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -77,15 +76,20 @@ export interface RotationVector {
 }
 
 export interface MechPose {
-    TORSO: RotationVector;
+    TORSO: RotationVector; // Waist
+    CHEST: RotationVector; // Upper Body
     HEAD: RotationVector;
     LEFT_ARM: {
         SHOULDER: RotationVector;
         ELBOW: RotationVector;
+        FOREARM: RotationVector; // Twist
+        WRIST: RotationVector;   // Fist/Hand
     };
     RIGHT_ARM: {
         SHOULDER: RotationVector;
         ELBOW: RotationVector;
+        FOREARM: RotationVector; // Twist
+        WRIST: RotationVector;   // Fist/Hand
     };
     LEFT_LEG: {
         THIGH: RotationVector;
@@ -101,14 +105,19 @@ export interface MechPose {
 
 export const DEFAULT_MECH_POSE: MechPose = {
     TORSO: { x: 0, y: 0, z: 0 },
+    CHEST: { x: 0, y: 0, z: 0 },
     HEAD: { x: 0, y: 0, z: 0 },
     LEFT_ARM: {
         SHOULDER: { x: 0, y: 0, z: 0 },
-        ELBOW: { x: 0, y: 0, z: 0 }
+        ELBOW: { x: 0, y: 0, z: 0 },
+        FOREARM: { x: 0, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     RIGHT_ARM: {
         SHOULDER: { x: 0, y: 0, z: 0 },
-        ELBOW: { x: 0, y: 0, z: 0 }
+        ELBOW: { x: 0, y: 0, z: 0 },
+        FOREARM: { x: 0, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
         THIGH: { x: 0, y: 0, z: 0 },
