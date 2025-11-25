@@ -1,11 +1,28 @@
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useGameStore } from '../store';
 import { LockState } from '../types';
 
 export const HUD: React.FC = () => {
   const { boost, maxBoost, isOverheated, lockState, targets, currentTargetIndex, ammo, maxAmmo } = useGameStore();
   
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+      const checkMobile = () => {
+          const ua = navigator.userAgent;
+          const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+          const isSmallScreen = window.innerWidth < 1024;
+          const hasTouch = navigator.maxTouchPoints > 0;
+          
+          // Consider it mobile if it's a known mobile UA OR (has touch AND is small screen)
+          setIsMobile(isMobileDevice || (hasTouch && isSmallScreen));
+      };
+      
+      checkMobile();
+      window.addEventListener('resize', checkMobile);
+      return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const target = targets[currentTargetIndex];
 
   let barColor = 'bg-blue-500';
@@ -19,7 +36,7 @@ export const HUD: React.FC = () => {
   return (
     <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
       
-      {/* TARGET ALERT INDICATOR (Top Center) */}
+      {/* TARGET ALERT INDICATOR (Top Center) - Always Visible */}
       {isTargetingPlayer && (
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[220px] md:w-1/3 max-w-md h-24 z-50">
               <svg viewBox="0 0 400 80" className="w-full h-full drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]">
@@ -42,9 +59,9 @@ export const HUD: React.FC = () => {
           </div>
       )}
 
-      {/* Target Info (Top Right) - HIDDEN ON MOBILE */}
-      {target && (
-        <div className="hidden md:flex absolute top-8 right-8 flex-col items-end">
+      {/* Target Info (Top Right) - DESKTOP ONLY */}
+      {!isMobile && target && (
+        <div className="flex absolute top-8 right-8 flex-col items-end">
            <div className={`border-2 ${lockState === LockState.RED ? 'border-red-500 bg-red-900/30' : 'border-green-500 bg-green-900/30'} px-4 py-2 rounded-lg backdrop-blur-sm transition-colors duration-300`}>
                <h2 className="text-white font-mono text-xl font-bold tracking-widest">{target.name}</h2>
                <div className="flex items-center justify-end space-x-2 mt-1">
@@ -58,26 +75,36 @@ export const HUD: React.FC = () => {
         </div>
       )}
 
-      {/* Weapon Info - ADAPTIVE (Top Right on Mobile, Bottom Right on Desktop) */}
-      <div className="absolute top-4 right-4 md:top-auto md:left-auto md:bottom-8 md:right-8 w-32 md:w-60 transition-all duration-300">
+      {/* Weapon Info - ADAPTIVE */}
+      {/* On Mobile: Always Top Right, Small. On Desktop: Bottom Right, Large. */}
+      <div className={`absolute transition-all duration-300 ${
+          isMobile 
+            ? 'top-4 right-4 w-32' // Mobile Fixed
+            : 'top-4 right-4 md:top-auto md:left-auto md:bottom-8 md:right-8 w-32 md:w-60' // Desktop Responsive
+      }`}>
           <div className="flex items-end justify-between bg-black/40 p-2 rounded border-r-4 border-red-500">
-              <div className="text-red-400 font-mono text-[10px] md:text-sm">BEAM RIFLE</div>
-              <div className="text-white font-mono text-xl md:text-3xl font-bold">
-                  {ammo} <span className="text-xs md:text-lg text-gray-500">/ {maxAmmo}</span>
+              <div className={`text-red-400 font-mono ${isMobile ? 'text-[10px]' : 'text-[10px] md:text-sm'}`}>BEAM RIFLE</div>
+              <div className={`text-white font-mono font-bold ${isMobile ? 'text-xl' : 'text-xl md:text-3xl'}`}>
+                  {ammo} <span className={`text-gray-500 ${isMobile ? 'text-xs' : 'text-xs md:text-lg'}`}>/ {maxAmmo}</span>
               </div>
           </div>
       </div>
 
-      {/* Boost Gauge (Bottom Center) - NARROWER ON MOBILE */}
-      <div className="absolute bottom-20 md:bottom-12 left-1/2 -translate-x-1/2 w-60 md:w-96 transition-all duration-300">
-         <div className="flex justify-between text-white font-mono text-xs md:text-sm mb-1 shadow-black drop-shadow-md">
+      {/* Boost Gauge (Bottom Center) */}
+      {/* On Mobile: Always narrow width to fit between controls. */}
+      <div className={`absolute left-1/2 -translate-x-1/2 transition-all duration-300 ${
+          isMobile 
+            ? 'bottom-20 w-60' // Mobile: Higher up (above buttons), narrower
+            : 'bottom-20 md:bottom-12 w-60 md:w-96' // Desktop: Lower, wider
+      }`}>
+         <div className={`flex justify-between text-white font-mono mb-1 shadow-black drop-shadow-md ${isMobile ? 'text-xs' : 'text-xs md:text-sm'}`}>
             <span>THRUSTER</span>
             <span className={isOverheated ? 'text-red-500 font-bold' : 'text-cyan-300'}>
                 {isOverheated ? 'OVERHEAT' : `${Math.floor(boost)}%`}
             </span>
          </div>
          {/* Centered Bar Container */}
-         <div className="h-3 md:h-4 bg-gray-900/80 border border-gray-600 rounded skew-x-[-12deg] overflow-hidden p-0.5 relative">
+         <div className={`bg-gray-900/80 border border-gray-600 rounded skew-x-[-12deg] overflow-hidden p-0.5 relative ${isMobile ? 'h-3' : 'h-3 md:h-4'}`}>
              {/* Fill */}
              <div 
                className={`h-full ${barColor} transition-all duration-75 ease-linear`} 
@@ -86,15 +113,18 @@ export const HUD: React.FC = () => {
          </div>
       </div>
 
-      {/* Controls Helper (Bottom Left) - HIDDEN ON MOBILE */}
-      <div className="hidden md:block absolute bottom-8 left-8 text-white/50 font-mono text-xs bg-black/40 p-4 rounded border-l-2 border-white/20">
-         <p className="mb-1"><span className="text-white font-bold">WASD</span> : MOVE</p>
-         <p className="mb-1"><span className="text-white font-bold">DOUBLE TAP (WASD)</span> : STEP</p>
-         <p className="mb-1"><span className="text-white font-bold">L (HOLD)</span> : JUMP / ASCEND</p>
-         <p className="mb-1"><span className="text-white font-bold">L (DOUBLE TAP)</span> : BOOST DASH</p>
-         <p className="mb-1"><span className="text-white font-bold">J</span> : SHOOT</p>
-         <p><span className="text-white font-bold">SPACE</span> : SWITCH TARGET</p>
-      </div>
+      {/* Controls Helper (Bottom Left) - DESKTOP ONLY */}
+      {!isMobile && (
+          <div className="hidden md:block absolute bottom-8 left-8 text-white/50 font-mono text-xs bg-black/40 p-4 rounded border-l-2 border-white/20">
+             <p className="mb-1"><span className="text-white font-bold">WASD</span> : MOVE</p>
+             <p className="mb-1"><span className="text-white font-bold">DOUBLE TAP (WASD)</span> : STEP</p>
+             <p className="mb-1"><span className="text-white font-bold">L (HOLD)</span> : JUMP / ASCEND</p>
+             <p className="mb-1"><span className="text-white font-bold">L (DOUBLE TAP)</span> : BOOST DASH</p>
+             <p className="mb-1"><span className="text-white font-bold">J</span> : SHOOT</p>
+             <p className="mb-1"><span className="text-white font-bold">K</span> : MELEE</p>
+             <p><span className="text-white font-bold">SPACE</span> : SWITCH TARGET</p>
+          </div>
+      )}
 
     </div>
   );
