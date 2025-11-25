@@ -1,6 +1,4 @@
 
-
-
 import React, { useEffect, useRef, useState } from 'react';
 
 // Helper to dispatch keyboard events that Player.tsx can hear
@@ -49,9 +47,31 @@ const ActionButton: React.FC<{
     );
 };
 
+interface LayoutOffset {
+    x: number;
+    y: number;
+}
+
+interface LayoutConfig {
+    joystick: LayoutOffset;
+    buttons: LayoutOffset;
+}
+
+const DEFAULT_LAYOUT: LayoutConfig = {
+    joystick: { x: 0, y: 0 },
+    buttons: { x: 0, y: 0 }
+};
+
 export const MobileControls: React.FC = () => {
     const [isMobile, setIsMobile] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [layout, setLayout] = useState<LayoutConfig>(DEFAULT_LAYOUT);
     
+    // Dragging State
+    const dragStartRef = useRef<{ x: number, y: number } | null>(null);
+    const initialOffsetRef = useRef<{ x: number, y: number } | null>(null);
+    const activeDragTarget = useRef<'joystick' | 'buttons' | null>(null);
+
     // Joystick State
     const joystickRef = useRef<HTMLDivElement>(null);
     const knobRef = useRef<HTMLDivElement>(null);
@@ -66,12 +86,71 @@ export const MobileControls: React.FC = () => {
         };
         checkMobile();
         window.addEventListener('resize', checkMobile);
+        
+        // Load layout
+        const saved = localStorage.getItem('gvs_mobile_layout_v1');
+        if (saved) {
+            try {
+                setLayout(JSON.parse(saved));
+            } catch (e) {
+                console.error("Failed to load layout", e);
+            }
+        }
+
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    const saveLayout = (newLayout: LayoutConfig) => {
+        setLayout(newLayout);
+        localStorage.setItem('gvs_mobile_layout_v1', JSON.stringify(newLayout));
+    };
+
+    const resetLayout = () => {
+        saveLayout(DEFAULT_LAYOUT);
+    };
+
+    // --- DRAG LOGIC FOR EDIT MODE ---
+    const handleDragStart = (e: React.TouchEvent, target: 'joystick' | 'buttons') => {
+        if (!isEditing) return;
+        e.stopPropagation();
+        const touch = e.changedTouches[0];
+        dragStartRef.current = { x: touch.clientX, y: touch.clientY };
+        initialOffsetRef.current = { ...layout[target] };
+        activeDragTarget.current = target;
+    };
+
+    const handleDragMove = (e: React.TouchEvent) => {
+        if (!isEditing || !activeDragTarget.current || !dragStartRef.current || !initialOffsetRef.current) return;
+        e.stopPropagation();
+        e.preventDefault(); // Prevent scrolling
+
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - dragStartRef.current.x;
+        const dy = touch.clientY - dragStartRef.current.y;
+
+        const newLayout = { ...layout };
+        newLayout[activeDragTarget.current] = {
+            x: initialOffsetRef.current.x + dx,
+            y: initialOffsetRef.current.y + dy
+        };
+        setLayout(newLayout);
+    };
+
+    const handleDragEnd = () => {
+        if (isEditing && activeDragTarget.current) {
+            saveLayout(layout); // Persist on drop
+            activeDragTarget.current = null;
+            dragStartRef.current = null;
+            initialOffsetRef.current = null;
+        }
+    };
 
     // --- JOYSTICK LOGIC ---
     useEffect(() => {
         if (!isMobile) return;
+
+        // If editing, disable joystick logic
+        if (isEditing) return;
 
         const joystick = joystickRef.current;
         if (!joystick) return;
@@ -175,17 +254,50 @@ export const MobileControls: React.FC = () => {
             joystick.removeEventListener('touchend', handleEnd);
             joystick.removeEventListener('touchcancel', handleEnd);
         };
-    }, [isMobile]);
+    }, [isMobile, isEditing]); // Re-run when edit mode toggles
 
     if (!isMobile) return null;
 
     return (
-        <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
+        <div 
+            className="absolute inset-0 pointer-events-none z-50 overflow-hidden"
+            onTouchMove={isEditing ? handleDragMove : undefined}
+            onTouchEnd={isEditing ? handleDragEnd : undefined}
+        >
+            {/* EDIT MODE TOGGLE & CONTROLS */}
+            <div className="absolute top-4 right-4 pointer-events-auto flex flex-col items-end space-y-2">
+                <button 
+                    onClick={() => setIsEditing(!isEditing)}
+                    className={`px-3 py-1 rounded font-mono text-xs font-bold border ${isEditing ? 'bg-yellow-500 text-black border-yellow-400' : 'bg-black/50 text-gray-400 border-gray-600'}`}
+                >
+                    {isEditing ? 'DONE' : 'LAYOUT'}
+                </button>
+                
+                {isEditing && (
+                    <button 
+                        onClick={resetLayout}
+                        className="px-3 py-1 rounded font-mono text-xs font-bold bg-red-900/80 text-white border border-red-500"
+                    >
+                        RESET
+                    </button>
+                )}
+            </div>
+
+            {isEditing && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 text-yellow-400 font-mono text-xs bg-black/80 px-2 py-1 rounded border border-yellow-500 pointer-events-none">
+                    DRAG ZONES TO MOVE
+                </div>
+            )}
+
             {/* LEFT JOYSTICK AREA */}
-            <div className="absolute bottom-8 left-8 w-40 h-40 pointer-events-auto">
+            <div 
+                className={`absolute bottom-8 left-8 w-40 h-40 pointer-events-auto transition-none ${isEditing ? 'border-2 border-dashed border-yellow-400 bg-yellow-500/20' : ''}`}
+                style={{ transform: `translate(${layout.joystick.x}px, ${layout.joystick.y}px)` }}
+                onTouchStart={(e) => handleDragStart(e, 'joystick')}
+            >
                 <div 
                     ref={joystickRef}
-                    className="w-full h-full rounded-full bg-gray-900/40 border border-white/20 backdrop-blur-sm relative flex items-center justify-center"
+                    className={`w-full h-full rounded-full border backdrop-blur-sm relative flex items-center justify-center transition-colors ${isEditing ? 'bg-gray-800/50 border-gray-500' : 'bg-gray-900/40 border-white/20'}`}
                 >
                     <div 
                         ref={knobRef}
@@ -196,45 +308,55 @@ export const MobileControls: React.FC = () => {
                     <div className="absolute left-2 text-white/30 text-xs font-bold">◀</div>
                     <div className="absolute right-2 text-white/30 text-xs font-bold">▶</div>
                 </div>
-                <div className="text-center text-white/40 text-[10px] font-mono mt-2">MOVE / DOUBLE TAP TO EVADE</div>
+                {!isEditing && <div className="text-center text-white/40 text-[10px] font-mono mt-2">MOVE / DOUBLE TAP TO EVADE</div>}
             </div>
 
             {/* RIGHT BUTTONS AREA */}
-            <div className="absolute bottom-8 right-8 w-48 h-48 pointer-events-auto">
-                {/* SWITCH TARGET (Top Right) */}
-                <ActionButton 
-                    label="TGT" 
-                    kKey=" " 
-                    color="bg-yellow-600/60" 
-                    posClass="top-0 right-0" 
-                    sizeClass="w-14 h-14"
-                />
+            <div 
+                className={`absolute bottom-8 right-8 w-48 h-48 pointer-events-auto transition-none ${isEditing ? 'border-2 border-dashed border-yellow-400 bg-yellow-500/20' : ''}`}
+                style={{ transform: `translate(${layout.buttons.x}px, ${layout.buttons.y}px)` }}
+                onTouchStart={(e) => handleDragStart(e, 'buttons')}
+            >
+                {/* BUTTONS - Pass through clicks only if NOT editing */}
+                {/* DIAMOND LAYOUT */}
+                <div className={`${isEditing ? 'pointer-events-none opacity-50' : ''}`}>
+                    
+                    {/* TOP: MELEE (k) - Orange */}
+                    <ActionButton 
+                        label="⚔" 
+                        kKey="k" 
+                        color="bg-orange-600/60" 
+                        posClass="top-0 left-1/2 -translate-x-1/2" 
+                        sizeClass="w-16 h-16"
+                    />
 
-                {/* BOOST (Bottom) */}
-                <ActionButton 
-                    label="BOOST" 
-                    kKey="l" 
-                    color="bg-blue-600/60" 
-                    posClass="bottom-0 left-1/2 -translate-x-1/2" 
-                />
+                    {/* BOTTOM: BOOST (l) - Blue */}
+                    <ActionButton 
+                        label="BST" 
+                        kKey="l" 
+                        color="bg-blue-600/60" 
+                        posClass="bottom-0 left-1/2 -translate-x-1/2" 
+                        sizeClass="w-16 h-16"
+                    />
 
-                {/* SHOOT (Left) */}
-                <ActionButton 
-                    label="SHT" 
-                    kKey="j" 
-                    color="bg-red-600/60" 
-                    posClass="top-1/2 left-0 -translate-y-1/2" 
-                    sizeClass="w-16 h-16" 
-                />
+                    {/* LEFT: SHOOT (j) - Red */}
+                    <ActionButton 
+                        label="SHT" 
+                        kKey="j" 
+                        color="bg-red-600/60" 
+                        posClass="top-1/2 left-0 -translate-y-1/2" 
+                        sizeClass="w-16 h-16" 
+                    />
 
-                {/* MELEE (Top Center / Right) */}
-                <ActionButton 
-                    label="⚔" 
-                    kKey="k" 
-                    color="bg-orange-600/60" 
-                    posClass="top-1/2 right-0 -translate-y-1/2" 
-                    sizeClass="w-16 h-16" 
-                />
+                    {/* RIGHT: TARGET (Space) - Yellow */}
+                    <ActionButton 
+                        label="TGT" 
+                        kKey=" " 
+                        color="bg-yellow-600/60" 
+                        posClass="top-1/2 right-0 -translate-y-1/2" 
+                        sizeClass="w-16 h-16" 
+                    />
+                </div>
             </div>
         </div>
     );
