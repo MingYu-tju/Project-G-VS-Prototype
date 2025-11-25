@@ -5,7 +5,7 @@ import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaterni
 import { Trail, Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE } from '../types';
-import { IDLE_POSE, DASH_POSE, MELEE_STARTUP_POSE, MELEE_SLASH_POSE } from '../animations';
+import { IDLE_POSE, DASH_POSE_GUN, DASH_POSE_SABER, MELEE_STARTUP_POSE, MELEE_SLASH_POSE } from '../animations';
 import { 
     DASH_SFX_BASE64, 
     SHOOT_SFX_BASE64,
@@ -20,12 +20,7 @@ const FRAME_DURATION = 1 / 60;
 
 // --- MELEE CONFIGURATION ---
 type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH' | 'RECOVERY';
-
-// --- SHIELD CONFIG (Keeping procedural for now) ---
-const SHIELD_POSE_DATA = {
-    ROTATION: { x: -0.3, y: -1, z: -1.2 },
-    POSITION: { x: 0, y: -0.6, z: -0.1 }
-};
+const MELEE_EMPTY_BOOST_PENALTY = 0.5; // 50% speed and duration if out of boost
 
 // ... Audio Manager code omitted for brevity (same as before) ...
 let globalAudioCtx: AudioContext | null = null;
@@ -330,6 +325,7 @@ const BeamSaber: React.FC<{ active: boolean }> = ({ active }) => {
     
     useFrame(() => {
         if (groupRef.current) {
+            // Smooth scale for equipping
             const targetScale = active ? 1 : 0;
             groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, 0.3);
             groupRef.current.visible = groupRef.current.scale.y > 0.01;
@@ -489,7 +485,10 @@ export const Player: React.FC = () => {
     // MELEE STATE
     const meleeState = useRef<MeleePhase>('NONE');
     const meleeTimer = useRef(0);
+    const meleeStartupTimer = useRef(0); // NEW: Strict timer for windup animation
     const meleeLungeTargetPos = useRef<Vector3 | null>(null); 
+    const hasMeleeHitRef = useRef(false);
+    const isMeleePenaltyActive = useRef(false); // Track if we are in penalty mode
 
     // Visual State
     const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE'>('IDLE');
@@ -658,6 +657,7 @@ export const Player: React.FC = () => {
                 }
 
                 if (key === 'k') {
+                    // ALLOW MELEE EVEN IF OVERHEATED OR EMPTY
                     if (!isStunned && landingFrames.current <= 0 && meleeState.current === 'NONE' && !isShooting.current) {
                         const state = useGameStore.getState();
                         const target = state.targets[state.currentTargetIndex];
@@ -667,8 +667,10 @@ export const Player: React.FC = () => {
                         visualLandingFrames.current = 0;
 
                         let inRedLock = false;
+                        let dist = 9999;
+                        
                         if (target) {
-                            const dist = position.current.distanceTo(target.position);
+                            dist = position.current.distanceTo(target.position);
                             if (dist < RED_LOCK_DISTANCE) inRedLock = true;
                         }
 
@@ -679,10 +681,25 @@ export const Player: React.FC = () => {
                         } else {
                             isMeleeGroundedStart.current = false;
                         }
+                        
+                        // --- LUNGE LOGIC & PENALTY ---
+                        // Check boost status for penalty
+                        const hasBoost = !state.isOverheated && state.boost > 0;
+                        isMeleePenaltyActive.current = !hasBoost;
 
                         if (inRedLock) {
                             meleeState.current = 'LUNGE';
-                            meleeTimer.current = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME;
+                            
+                            // Apply Penalty to Lunge Time if empty boost
+                            let maxLungeTime = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME;
+                            if (isMeleePenaltyActive.current) {
+                                maxLungeTime *= MELEE_EMPTY_BOOST_PENALTY;
+                            }
+                            meleeTimer.current = maxLungeTime;
+                            
+                            // Force Startup Animation Timer
+                            meleeStartupTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES; 
+
                             if (target && meshRef.current) {
                                 const tPos = target.position.clone();
                                 tPos.y = position.current.y;
@@ -690,6 +707,7 @@ export const Player: React.FC = () => {
                                 meleeLungeTargetPos.current = target.position.clone();
                             }
                         } else {
+                            // Green lock -> Stationary Startup -> Whiff/Hit
                             meleeState.current = 'STARTUP';
                             meleeTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES;
                         }
@@ -876,6 +894,9 @@ export const Player: React.FC = () => {
                 if (isDashing.current || isEvading.current) {
                     meleeState.current = 'NONE';
                 }
+
+                // Apply Gravity during Melee Phases to allow hops to fall naturally
+                velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
                 
                 if (meleeState.current === 'STARTUP') {
                     velocity.current.x = 0;
@@ -886,53 +907,80 @@ export const Player: React.FC = () => {
                     if (meleeTimer.current <= 0) {
                         meleeState.current = 'SLASH';
                         meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                        hasMeleeHitRef.current = false; // Reset hit flag
                     }
                 } 
                 else if (meleeState.current === 'LUNGE') {
+                    // Try to consume boost, but allow movement if we can't pay
                     const paid = consumeBoost(GLOBAL_CONFIG.MELEE_BOOST_CONSUMPTION * timeScale);
+                    
                     let dist = 999;
                     if (currentTarget) {
                         dist = position.current.distanceTo(currentTarget.position);
                         const targetPos = currentTarget.position.clone();
                         const dir = targetPos.sub(position.current).normalize();
-                        velocity.current.x = dir.x * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                        velocity.current.z = dir.z * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                        if (!isMeleeGroundedStart.current) {
-                            velocity.current.y = dir.y * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                            meshRef.current.lookAt(currentTarget.position);
-                        } else {
-                            meshRef.current.lookAt(currentTarget.position.x, position.current.y, currentTarget.position.z);
-                        }
                         
+                        // APPLY PENALTY IF EMPTY BOOST
+                        let speed = GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        if (isMeleePenaltyActive.current) {
+                            speed *= MELEE_EMPTY_BOOST_PENALTY;
+                        }
+
+                        velocity.current.x = dir.x * speed;
+                        velocity.current.z = dir.z * speed;
+                        
+                        // FIX: Vertical Tracking (Induction)
+                        // Always track target vertically in lunge.
+                        // This effectively overrides the gravity applied above, which is desired during powered flight.
+                        velocity.current.y = dir.y * speed; 
+                        meshRef.current.lookAt(currentTarget.position);
+
                     } else {
                         const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
-                        velocity.current.x = fwd.x * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                        velocity.current.z = fwd.z * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
-                        if (!isMeleeGroundedStart.current) {
-                            velocity.current.y = fwd.y * GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                        let speed = GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                         if (isMeleePenaltyActive.current) {
+                            speed *= MELEE_EMPTY_BOOST_PENALTY;
                         }
+
+                        velocity.current.x = fwd.x * speed;
+                        velocity.current.z = fwd.z * speed;
+                        
+                        // Air lunge moves up/down based on aim
+                        // Ground lunge should also fly up if looking up (removed restriction)
+                        velocity.current.y = fwd.y * speed;
                     }
 
+                    // Decrease timers
                     meleeTimer.current -= timeScale;
+                    meleeStartupTimer.current -= timeScale;
 
-                    if (dist < GLOBAL_CONFIG.MELEE_RANGE || meleeTimer.current <= 0 || !paid) {
-                        meleeState.current = 'SLASH';
-                        meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
-                        velocity.current.set(0,0,0); 
+                    const isStartupComplete = meleeStartupTimer.current <= 0;
+                    
+                    if (isStartupComplete) {
+                         // Transition Condition: Collided OR Time ran out
+                         if (dist < GLOBAL_CONFIG.MELEE_RANGE || meleeTimer.current <= 0) {
+                             meleeState.current = 'SLASH';
+                             meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                             hasMeleeHitRef.current = false; // Reset hit flag
+                             velocity.current.set(0,0,0); // Stall in air
+                         }
                     }
                 }
                 else if (meleeState.current === 'SLASH') {
-                    velocity.current.set(0, 0, 0);
-                    if (Math.abs(meleeTimer.current - GLOBAL_CONFIG.MELEE_ATTACK_FRAMES) < timeScale * 2) {
+                    velocity.current.set(0, 0, 0); // Stall gravity
+                    // Check hit only if we haven't hit yet during this swing
+                    if (!hasMeleeHitRef.current) {
                         if (currentTarget) {
                             const dist = position.current.distanceTo(currentTarget.position);
                             if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 applyHit(currentTarget.id, knockback);
-                                playHitSound(0); 
+                                playHitSound(0);
+                                hasMeleeHitRef.current = true; // Mark as hit
                             }
                         }
                     }
+                    
                     meleeTimer.current -= timeScale;
                     if (meleeTimer.current <= 0) {
                         meleeState.current = 'RECOVERY';
@@ -940,20 +988,47 @@ export const Player: React.FC = () => {
                     }
                 }
                 else if (meleeState.current === 'RECOVERY') {
-                    velocity.current.set(0, 0, 0);
+                    velocity.current.set(0, 0, 0); // Stall gravity
                     meleeTimer.current -= timeScale;
                     if (meleeTimer.current <= 0) {
                         meleeState.current = 'NONE';
                     }
                 }
                 
-                if (isMeleeGroundedStart.current && (meleeState.current === 'STARTUP' || meleeState.current === 'LUNGE')) {
-                    velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
-                    if (position.current.y > 0.5) {
-                        position.current.y = 0.5;
-                        if (velocity.current.y > 0) velocity.current.y = 0;
+                // --- HOVER LOCK LOGIC (PHYSICS - NO TELEPORT) ---
+                // Keeps player floating at ~0.5m during ground melee without jittery snapping.
+                // UPDATED: Removed ceiling clamp to allow vertical tracking (Induction).
+                if (isMeleeGroundedStart.current && meleeState.current !== 'NONE') {
+                    const HOVER_TARGET = 0.5;
+
+                    // 1. Floor Limit (Spring Force)
+                    if (position.current.y < HOVER_TARGET) {
+                        const deltaY = HOVER_TARGET - position.current.y;
+                        velocity.current.y += (deltaY * 0.15 + GLOBAL_CONFIG.GRAVITY) * timeScale;
+                        if (velocity.current.y < 0) velocity.current.y *= 0.5;
+                    } 
+                    else {
+                        // 当前高度 >= 0.5。
+                        // 我们需要判断：现在的上升趋势是“弹簧惯性”造成的（需要消除），还是“诱导追踪”造成的（需要保留）？
+                        
+                        let isTrackingAir = false;
+
+                        // 只有在【突进阶段】且【有目标】且【目标明显在头顶上方】时，才被视为“对空诱导”
+                        if (meleeState.current === 'LUNGE' && currentTarget) {
+                            // 如果目标比我高出 2.0 以上，说明需要飞
+                            if (currentTarget.position.y > position.current.y + 2.0) {
+                                isTrackingAir = true;
+                            }
+                        }
+
+                        // 如果【不是】对空诱导，且机体还在上升（velocity.y > 0），说明这是弹簧带来的多余惯性
+                        // 此时强制抹消垂直速度，把机体“按”在 0.5 的高度平移
+                        if (!isTrackingAir && velocity.current.y > 0) {
+                            velocity.current.y = 0; 
+                        }
                     }
-                }
+                    // 2. Ceiling Limit REMOVED to allow tracking high targets
+                } 
             }
             else if (isEvading.current) {
                 nextVisualState = 'EVADE';
@@ -1236,6 +1311,26 @@ export const Player: React.FC = () => {
                     meshRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
                 }
             }
+            
+            // --- HORIZON ALIGNMENT (FIX X-AXIS ROTATION BUG) ---
+            // If we are recovering from melee (or just idling), smoothly align the mech upright
+            // to remove any residual pitch/roll from looking at airborne targets.
+            const shouldRealignHorizon = meleeState.current === 'RECOVERY' || (visualState === 'IDLE' && !isShooting.current);
+            
+            if (shouldRealignHorizon) {
+                 // 1. Get current forward direction projected on XZ plane
+                 const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
+                 fwd.y = 0;
+                 fwd.normalize();
+                 
+                 if (fwd.lengthSq() > 0.1) {
+                     // 2. Calculate target quaternion looking flat on ground
+                     const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), fwd);
+                     // 3. Smoothly slerp towards it
+                     meshRef.current.quaternion.slerp(targetQuat, 0.15 * timeScale);
+                 }
+            }
+            
             meshRef.current.updateMatrixWorld(true);
 
             // --- ANIMATION MIXER ---
@@ -1263,6 +1358,9 @@ export const Player: React.FC = () => {
                     let pose = MELEE_STARTUP_POSE.LEFT_ARM.SHOULDER;
                     if (meleeState.current === 'SLASH') {
                         pose = MELEE_SLASH_POSE.LEFT_ARM.SHOULDER;
+                    }
+                    if (meleeState.current === 'RECOVERY') {
+                        pose = IDLE_POSE.LEFT_ARM.SHOULDER;
                     }
                     const q = new Quaternion().setFromEuler(new Euler(pose.x, pose.y, pose.z));
                     const lerpSpeed = meleeState.current === 'SLASH' ? 0.4 : 0.2;
@@ -1315,6 +1413,7 @@ export const Player: React.FC = () => {
                 if (meleeState.current !== 'NONE') {
                     let pose = MELEE_STARTUP_POSE.LEFT_ARM.ELBOW;
                     if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.LEFT_ARM.ELBOW;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.LEFT_ARM.ELBOW;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isIdlePose) {
                     targetX = IDLE_POSE.LEFT_ARM.ELBOW.x;
@@ -1337,11 +1436,13 @@ export const Player: React.FC = () => {
                 if (meleeState.current !== 'NONE') {
                     let pose = MELEE_STARTUP_POSE.RIGHT_ARM.SHOULDER;
                     if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM.SHOULDER;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.RIGHT_ARM.SHOULDER;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
-                    targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
-                    targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
-                    targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
+                    const pose = activeWeapon === 'SABER' ? DASH_POSE_SABER : DASH_POSE_GUN;
+                    targetX = pose.RIGHT_ARM.SHOULDER.x;
+                    targetY = pose.RIGHT_ARM.SHOULDER.y;
+                    targetZ = pose.RIGHT_ARM.SHOULDER.z;
                 } 
                 else if (isIdlePose) {
                     targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
@@ -1364,11 +1465,13 @@ export const Player: React.FC = () => {
                 if (meleeState.current !== 'NONE') {
                     let pose = MELEE_STARTUP_POSE.RIGHT_ARM.ELBOW;
                     if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM.ELBOW;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.RIGHT_ARM.ELBOW;
                     targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                 } else if (isDashing.current) {
-                    targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
-                    targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
-                    targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
+                    const pose = activeWeapon === 'SABER' ? DASH_POSE_SABER : DASH_POSE_GUN;
+                    targetX = pose.RIGHT_ARM.ELBOW.x;
+                    targetY = pose.RIGHT_ARM.ELBOW.y;
+                    targetZ = pose.RIGHT_ARM.ELBOW.z;
                 }
                 else if (isIdlePose) {
                     targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
@@ -1391,6 +1494,7 @@ export const Player: React.FC = () => {
                 if (meleeState.current !== 'NONE') {
                     let pose = MELEE_STARTUP_POSE.LEFT_ARM;
                     if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.LEFT_ARM;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.LEFT_ARM;
                     twist = pose.FOREARM;
                     wrist = pose.WRIST;
                 }
@@ -1411,6 +1515,7 @@ export const Player: React.FC = () => {
                 if (meleeState.current !== 'NONE') {
                     let pose = MELEE_STARTUP_POSE.RIGHT_ARM;
                     if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.RIGHT_ARM;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.RIGHT_ARM;
                     twist = pose.FOREARM;
                     wrist = pose.WRIST;
                 }
@@ -1429,9 +1534,12 @@ export const Player: React.FC = () => {
                 let targetPos = { x: 0, y: -0.5, z: 0.1 };
                 let targetRot = { x: -0.2, y: 0, z: 0 };
 
-                if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
-                    targetPos = SHIELD_POSE_DATA.POSITION;
-                    targetRot = SHIELD_POSE_DATA.ROTATION;
+                if (isDashing.current) {
+                    const pose = activeWeapon === 'SABER' ? DASH_POSE_SABER : DASH_POSE_GUN;
+                    if (pose.SHIELD) {
+                        targetPos = pose.SHIELD.POSITION;
+                        targetRot = pose.SHIELD.ROTATION;
+                    }
                 }
 
                 const lerpSpeed = (isDashing.current || meleeState.current !== 'NONE' ? 0.15 : 0.1) * timeScale;
@@ -1469,6 +1577,7 @@ export const Player: React.FC = () => {
                     if (meleeState.current !== 'NONE') {
                         let pose = MELEE_STARTUP_POSE.HEAD;
                         if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE.HEAD;
+                        if (meleeState.current === 'RECOVERY') pose = IDLE_POSE.HEAD;
                         targetX = pose.x; targetY = pose.y; targetZ = pose.z;
                     } else if (isIdlePose) {
                         targetX = IDLE_POSE.HEAD.x;
@@ -1572,7 +1681,7 @@ export const Player: React.FC = () => {
                     }
                     lerpSpeed = 0.25 * timeScale; 
                 }
-                else if (isDashing.current || meleeState.current === 'LUNGE' || meleeState.current === 'STARTUP') {
+                else if (isDashing.current) {
                     // Default Dashing Legs
                     targetRightThigh.x = -1; 
                     targetRightKneeX = 2.6; 
@@ -1584,17 +1693,13 @@ export const Player: React.FC = () => {
                     targetRightAnkle.x = 0.8; 
                     targetBodyTilt = 0.65; 
                     lerpSpeed = 0.15 * timeScale;
-                    
-                    if (meleeState.current !== 'NONE') {
-                        // Override from Melee Data
-                        const pose = MELEE_STARTUP_POSE;
-                        targetBodyTilt = pose.TORSO.x;
-                        targetBodyTwist = pose.TORSO.y; 
-                        targetBodyRoll = pose.TORSO.z;
-                        targetChest = pose.CHEST; // Use Melee Chest
-                    } 
-                } else if (meleeState.current === 'SLASH') {
-                    const pose = MELEE_SLASH_POSE;
+                } 
+                else if (meleeState.current !== 'NONE') {
+                    // Full Body Melee Pose
+                    let pose = MELEE_STARTUP_POSE;
+                    if (meleeState.current === 'SLASH') pose = MELEE_SLASH_POSE;
+                    if (meleeState.current === 'RECOVERY') pose = IDLE_POSE;
+
                     targetRightThigh = pose.RIGHT_LEG.THIGH;
                     targetLeftThigh = pose.LEFT_LEG.THIGH;
                     targetRightKneeX = pose.RIGHT_LEG.KNEE;
@@ -1604,7 +1709,7 @@ export const Player: React.FC = () => {
                     targetBodyTilt = pose.TORSO.x;
                     targetBodyTwist = pose.TORSO.y;
                     targetBodyRoll = pose.TORSO.z;
-                    targetChest = pose.CHEST; // Use Melee Chest
+                    targetChest = pose.CHEST; 
                     lerpSpeed = 0.4 * timeScale;
 
                 } else if (isFalling) {
@@ -1712,8 +1817,8 @@ export const Player: React.FC = () => {
                 }
             }
         }
-
-        // ... Shooting logic omitted (same) ...
+        
+// ... Shooting logic omitted (same) ...
         if (!stunned && isShooting.current) {
             shootTimer.current += 1 * timeScale; 
             

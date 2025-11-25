@@ -5,15 +5,9 @@ import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, Additiv
 import { Text, Html, Edges, useGLTF } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE } from '../types';
 import { useGameStore } from '../store';
-import { IDLE_POSE, DASH_POSE } from '../animations';
+import { IDLE_POSE, DASH_POSE_GUN } from '../animations';
 
 const FRAME_DURATION = 1 / 60;
-
-// --- SHIELD POSE CONFIG (Keeping procedural for now) ---
-const SHIELD_POSE_DATA = {
-    ROTATION: { x: -0.3, y: -1, z: -1.2 },
-    POSITION: { x: 0, y: -0.6, z: -0.1 }
-};
 
 // --- VISUALS ---
 
@@ -764,9 +758,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         let targetZ = 0;
 
         if (aiState.current === 'DASHING') {
-            targetX = DASH_POSE.RIGHT_ARM.SHOULDER.x;
-            targetY = DASH_POSE.RIGHT_ARM.SHOULDER.y;
-            targetZ = DASH_POSE.RIGHT_ARM.SHOULDER.z;
+            targetX = DASH_POSE_GUN.RIGHT_ARM.SHOULDER.x;
+            targetY = DASH_POSE_GUN.RIGHT_ARM.SHOULDER.y;
+            targetZ = DASH_POSE_GUN.RIGHT_ARM.SHOULDER.z;
         } else if (isIdle) {
             targetX = IDLE_POSE.RIGHT_ARM.SHOULDER.x;
             targetY = IDLE_POSE.RIGHT_ARM.SHOULDER.y;
@@ -786,9 +780,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         let targetZ = 0;
         
         if (aiState.current === 'DASHING') {
-            targetX = DASH_POSE.RIGHT_ARM.ELBOW.x;
-            targetY = DASH_POSE.RIGHT_ARM.ELBOW.y;
-            targetZ = DASH_POSE.RIGHT_ARM.ELBOW.z;
+            targetX = DASH_POSE_GUN.RIGHT_ARM.ELBOW.x;
+            targetY = DASH_POSE_GUN.RIGHT_ARM.ELBOW.y;
+            targetZ = DASH_POSE_GUN.RIGHT_ARM.ELBOW.z;
         } else if (isIdle) {
             targetX = IDLE_POSE.RIGHT_ARM.ELBOW.x;
             targetY = IDLE_POSE.RIGHT_ARM.ELBOW.y;
@@ -806,10 +800,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         let targetPos = { x: 0, y: -0.5, z: 0.1 };
         let targetRot = { x: -0.2, y: 0, z: 0 };
 
-        if (aiState.current === 'DASHING') {
-            targetPos = SHIELD_POSE_DATA.POSITION;
-            targetRot = SHIELD_POSE_DATA.ROTATION;
-        }
+        // NOTE: DASH_POSE_GUN does not include shield rotation, so we skip applying specific pose data here,
+        // effectively using the default position defined above.
 
         const lerpSpeed = (aiState.current === 'DASHING' ? 0.15 : 0.1) * timeScale;
         
