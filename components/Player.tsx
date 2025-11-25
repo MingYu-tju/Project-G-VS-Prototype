@@ -480,10 +480,12 @@ return (
 }
 
 // --- NEW: MECHA HEAD COMPONENT (GLB Loader via gltfjsx structure) ---
-useGLTF.preload('/models/head.glb');
+// Using relative path with cache buster to force reload on deployment
+const MODEL_PATH = './models/head.glb?v=1';
+useGLTF.preload(MODEL_PATH);
 
 const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
-    const { nodes } = useGLTF('/models/head.glb') as any;
+    const { nodes } = useGLTF(MODEL_PATH) as any;
     
     // Common properties for all head meshes
     const meshProps = {
