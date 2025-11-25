@@ -94,7 +94,7 @@ export const HUD: React.FC = () => {
       {/* On Mobile: Always narrow width to fit between controls. */}
       <div className={`absolute left-1/2 -translate-x-1/2 transition-all duration-300 ${
           isMobile 
-            ? 'bottom-20 w-60' // Mobile: Higher up (above buttons), narrower
+            ? 'bottom-4 w-50' // Mobile: Higher up (above buttons), narrower
             : 'bottom-20 md:bottom-12 w-60 md:w-96' // Desktop: Lower, wider
       }`}>
          <div className={`flex justify-between text-white font-mono mb-1 shadow-black drop-shadow-md ${isMobile ? 'text-xs' : 'text-xs md:text-sm'}`}>
