@@ -166,8 +166,8 @@ const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
 };
 
 // --- NEW: MECHA HEAD COMPONENT (GLB Loader via gltfjsx structure) ---
-// Using relative path with cache buster to force reload on deployment
-const MODEL_PATH = './models/head.glb?v=1';
+// Using absolute path to models to ensure correct resolution on custom domain
+const MODEL_PATH = '/models/head.glb';
 useGLTF.preload(MODEL_PATH);
 
 const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
