@@ -1,9 +1,10 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, DoubleSide, AdditiveBlending } from 'three';
 import { Projectile as ProjectileType, Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
-import { playHitSound } from './Player'; // Import the new sound trigger
+import { playHitSound } from './Player'; 
 
 interface Props {
   data: ProjectileType;
@@ -20,8 +21,12 @@ export const Projectile: React.FC<Props> = ({ data }) => {
   const applyHit = useGameStore(state => state.applyHit);
   const targets = useGameStore(state => state.targets);
   const playerPos = useGameStore(state => state.playerPos);
+  const hitStop = useGameStore(state => state.hitStop);
 
   useFrame(() => {
+    // Hit Stop Check: Freeze scaling and movement
+    if (hitStop > 0) return;
+
     if (hit) {
         if (hitScale > 0) {
             setHitScale(prev => Math.max(0, prev - 0.08));
@@ -31,17 +36,13 @@ export const Projectile: React.FC<Props> = ({ data }) => {
 
     if (!meshRef.current) return;
     
-    // CHANGED: Look along the FIXED forward direction, not the drifting velocity vector
-    // This gives the "sliding/strafing" bullet effect common in mech games.
     const lookAtPos = data.position.clone().add(data.forwardDirection);
     meshRef.current.lookAt(lookAtPos);
 
     // --- COLLISION DETECTION ---
-    // Collision happens if distance < (Unit Radius + Bullet Radius)
     const HIT_THRESHOLD = GLOBAL_CONFIG.UNIT_HITBOX_RADIUS + GLOBAL_CONFIG.PROJECTILE_HITBOX_RADIUS;
 
     if (data.team === Team.BLUE) {
-        // BLUE Projectiles hit RED Targets (Enemies)
         for (const target of targets) {
             if (target.team === Team.RED && target.position.distanceTo(data.position) < HIT_THRESHOLD) {
                 triggerHit(target.id);
@@ -49,13 +50,9 @@ export const Projectile: React.FC<Props> = ({ data }) => {
             }
         }
     } else if (data.team === Team.RED) {
-        // RED Projectiles hit BLUE Targets (Player or Allies)
-        
-        // 1. Check Player
         if (playerPos.distanceTo(data.position) < HIT_THRESHOLD) {
              triggerHit('player');
         } 
-        // 2. Check Allies
         else {
              for (const target of targets) {
                 if (target.team === Team.BLUE && target.position.distanceTo(data.position) < HIT_THRESHOLD) {
@@ -73,9 +70,9 @@ export const Projectile: React.FC<Props> = ({ data }) => {
       setImpactPos(data.position.clone());
       
       const knockbackDir = data.velocity.clone().normalize();
-      applyHit(targetId, knockbackDir); 
+      // Bullets cause minor stun, no hit stop
+      applyHit(targetId, knockbackDir, 1.0, GLOBAL_CONFIG.KNOCKBACK_DURATION, 0);
       
-      // Trigger Hit Sound with Distance Calculation
       const distanceToPlayer = data.position.distanceTo(playerPos);
       playHitSound(distanceToPlayer);
   };
@@ -84,26 +81,19 @@ export const Projectile: React.FC<Props> = ({ data }) => {
 
   const renderPos = hit && impactPos ? impactPos : data.position;
 
-  // Beam Colors
   const isRed = data.team === Team.RED;
-  const glowColor = isRed ? "#ff2266" : "#00ffff"; // Pinkish Red vs Cyan
+  const glowColor = isRed ? "#ff2266" : "#00ffff"; 
   const coreColor = "#ffffff";
 
   return (
     <group position={renderPos}>
         {!hit ? (
             <mesh ref={meshRef}>
-                {/* The mesh looks at the target, so Z is forward.
-                    Cylinders are Y-up by default. We rotate them X=90 to lie on Z.
-                */}
-                
-                {/* 1. Core Beam (High Intensity White Center) */}
                 <mesh rotation={[Math.PI / 2, 0, 0]}>
                     <cylinderGeometry args={[0.08, 0.08, 7, 8]} />
                     <meshBasicMaterial color={coreColor} />
                 </mesh>
 
-                {/* 2. Beam Glow (Wide, Colored, Additive) */}
                 <mesh rotation={[Math.PI / 2, 0, 0]}>
                     <cylinderGeometry args={[0.4, 0.4, 7.5, 8]} />
                     <meshBasicMaterial 

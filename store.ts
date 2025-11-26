@@ -1,6 +1,7 @@
+
 import { create } from 'zustand';
 import { Vector3, MathUtils } from 'three';
-import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG } from './types';
+import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG, HitEffectData } from './types';
 
 interface GameState {
   // Game Lifecycle
@@ -13,13 +14,19 @@ interface GameState {
   
   // Player Hit State
   playerLastHitTime: number;
+  playerLastHitDuration: number; // New
   playerKnockbackDir: Vector3;
+  playerKnockbackPower: number;
 
   // Projectiles & Combat
   projectiles: Projectile[];
   ammo: number;
   maxAmmo: number;
   lastShotTime: number;
+  
+  // Global Effects
+  hitStop: number; // Frames to freeze simulation (Card Stop / Hit Stop)
+  hitEffects: HitEffectData[];
   
   // Lock-on System
   currentTargetIndex: number;
@@ -30,10 +37,13 @@ interface GameState {
   maxBoost: number;
   isOverheated: boolean;
   
+  // AI Control
+  areNPCsPaused: boolean;
+
   // Actions
   setPlayerPos: (pos: Vector3) => void;
   updateTargetPosition: (id: string, pos: Vector3) => void;
-  updateUnitTarget: (id: string, targetId: string | null) => void; // New Action
+  updateUnitTarget: (id: string, targetId: string | null) => void;
   cycleTarget: () => void;
   consumeBoost: (amount: number) => boolean;
   refillBoost: () => void;
@@ -41,20 +51,24 @@ interface GameState {
   
   // Combat Actions
   spawnProjectile: (projectile: Projectile) => void;
-  updateProjectiles: (delta: number) => void; // Accepts delta now
+  updateProjectiles: (delta: number) => void;
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
-  applyHit: (targetId: string, impactDirection: Vector3) => void;
+  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number) => void; // Updated signature
+  decrementHitStop: () => void; // New action to tick hitstop
   
   // New: Cut Tracking (Step)
   cutTracking: (targetId: string) => void;
+  
+  // AI Actions
+  toggleNPCsPaused: () => void;
 }
 
 // Initial Targets
 const initialTargets: GameEntity[] = [
-  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, targetId: null },
-  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, targetId: null },
-  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, targetId: null },
+  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
+  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
+  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -65,7 +79,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   targets: initialTargets,
   
   playerLastHitTime: 0,
+  playerLastHitDuration: 500,
   playerKnockbackDir: new Vector3(0, 0, 0),
+  playerKnockbackPower: 1,
 
   currentTargetIndex: 0,
   lockState: LockState.GREEN,
@@ -74,10 +90,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   ammo: GLOBAL_CONFIG.MAX_AMMO,
   maxAmmo: GLOBAL_CONFIG.MAX_AMMO,
   lastShotTime: 0,
+  
+  hitStop: 0,
+  hitEffects: [],
 
   boost: 100,
   maxBoost: 100,
   isOverheated: false,
+  
+  areNPCsPaused: false,
 
   setPlayerPos: (pos) => {
     set({ playerPos: pos });
@@ -162,6 +183,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   updateProjectiles: (delta: number) => {
+    // If hit stop is active, freeze projectiles
+    if (get().hitStop > 0) return;
+
     // Calculate Time Scale: 
     // If delta is 1/60 (16ms), timeScale is 1.
     const timeScale = delta * 60;
@@ -237,22 +261,67 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  applyHit: (targetId: string, impactDirection: Vector3) => {
+  applyHit: (targetId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0) => {
       set((state) => {
+          // Spawn VFX
+          // Need to calculate approximate impact point. 
+          // For simplicity, we'll place it at the target's position but slightly offset towards impact direction (reversed)
+          let impactPos = new Vector3();
           if (targetId === 'player') {
-              return {
-                  playerLastHitTime: Date.now(),
-                  playerKnockbackDir: impactDirection
-              };
+              impactPos.copy(state.playerPos).add(new Vector3(0, 1.5, 0));
           } else {
-              return {
-                  targets: state.targets.map(t => t.id === targetId ? { 
-                      ...t, 
-                      lastHitTime: Date.now(),
-                      knockbackDir: impactDirection 
-                  } : t)
-              };
+              const t = state.targets.find(t => t.id === targetId);
+              if (t) impactPos.copy(t.position).add(new Vector3(0, 1.5, 0));
           }
+          // Offset slightly towards where the hit came from
+          impactPos.sub(impactDirection.clone().multiplyScalar(0.5));
+
+          const newEffect: HitEffectData = {
+              id: `hit-${Date.now()}-${Math.random()}`,
+              position: impactPos,
+              startTime: Date.now(),
+              type: 'SLASH', // Or determine based on source
+              scale: force > 1.5 ? 1.5 : 1.0 // Big hits = big flash
+          };
+
+          const updates: Partial<GameState> = {
+              hitStop: hitStopFrames,
+              hitEffects: [...state.hitEffects, newEffect]
+          };
+
+          if (targetId === 'player') {
+              updates.playerLastHitTime = Date.now();
+              updates.playerLastHitDuration = stunDuration;
+              updates.playerKnockbackDir = impactDirection;
+              updates.playerKnockbackPower = force;
+          } else {
+              updates.targets = state.targets.map(t => t.id === targetId ? { 
+                  ...t, 
+                  lastHitTime: Date.now(),
+                  lastHitDuration: stunDuration,
+                  knockbackDir: impactDirection,
+                  knockbackPower: force
+              } : t);
+          }
+          return updates;
+      });
+  },
+
+  decrementHitStop: () => {
+      set(state => {
+          if (state.hitStop > 0) {
+              return { hitStop: Math.max(0, state.hitStop - 1) };
+          }
+          
+          // Clean up old effects occasionally if list gets huge? 
+          // For now, GameScene renders based on time, so stale effects just invisible.
+          // Let's filter out very old effects (older than 1s) to keep memory clean
+          const now = Date.now();
+          if (state.hitEffects.length > 0 && now - state.hitEffects[0].startTime > 1000) {
+               return { hitEffects: state.hitEffects.filter(e => now - e.startTime < 1000) };
+          }
+          
+          return {};
       });
   },
 
@@ -262,5 +331,9 @@ export const useGameStore = create<GameState>((set, get) => ({
               p.targetId === targetId ? { ...p, isHoming: false } : p
           )
       }));
+  },
+  
+  toggleNPCsPaused: () => {
+      set(state => ({ areNPCsPaused: !state.areNPCsPaused }));
   }
 }));

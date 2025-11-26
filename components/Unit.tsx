@@ -172,10 +172,12 @@ interface UnitProps {
   name: string;
   isTargeted: boolean;
   lastHitTime: number;
+  lastHitDuration?: number; // New prop for dynamic stun duration
   knockbackDir?: Vector3;
+  knockbackPower?: number; // New Prop
 }
 
-export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, knockbackDir }) => {
+export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, lastHitDuration = GLOBAL_CONFIG.KNOCKBACK_DURATION, knockbackDir, knockbackPower = 1.0 }) => {
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
@@ -237,10 +239,17 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
   
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
+  const hitStop = useGameStore(state => state.hitStop); // Global Hit Stop
+  const areNPCsPaused = useGameStore(state => state.areNPCsPaused); // Global AI Pause
   const clockRef = useRef(0);
 
   useFrame((state, delta) => {
     if (!groupRef.current || !rotateGroupRef.current) return;
+
+    // --- HIT STOP CHECK ---
+    if (hitStop > 0) {
+        return; // Freeze all updates
+    }
 
     clockRef.current += delta;
     const timeScale = delta * 60;
@@ -251,7 +260,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
 
     const now = Date.now();
-    const stunned = now - lastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
+    // Use the dynamic lastHitDuration passed from the store
+    const stunned = now - lastHitTime < lastHitDuration;
     setIsStunned(stunned);
 
     // --- INTERRUPT ANIMATION ---
@@ -265,18 +275,23 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         
         // 1. Apply Knockback Physics
         if (knockbackDir) {
-             position.current.add(knockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
+             // Use knockbackPower to scale the hit
+             const force = GLOBAL_CONFIG.KNOCKBACK_SPEED * knockbackPower;
+             // Only apply horizontal force
+             const horizontalDir = knockbackDir.clone();
+             horizontalDir.y = 0; 
+             if (horizontalDir.lengthSq() > 0) horizontalDir.normalize();
+             
+             position.current.add(horizontalDir.multiplyScalar(force * timeScale));
         }
-        velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
-        position.current.y += velocity.current.y * timeScale;
+        
         if (position.current.y <= 0) {
             position.current.y = 0;
-            velocity.current.y = 0;
         }
 
         // 2. Specific Stun Animation (Overrides Procedural)
         // Forced Backward Tilt + Head Recoil
-        const progress = (now - lastHitTime) / GLOBAL_CONFIG.KNOCKBACK_DURATION;
+        const progress = (now - lastHitTime) / lastHitDuration;
         // Curve: Fast recoil (0-0.2), Slow recovery (0.2-1.0)
         let animVal = 0;
         if (progress < 0.2) {
@@ -349,97 +364,108 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return t ? t.position.clone() : null;
     };
 
-    shootCooldown.current -= delta;
-    
-    // AI LOGIC - Simple State Machine
-    if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
-        if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
-             
-             const tPos = getTargetPos();
-             let isFrontal = true;
-             if (tPos && rotateGroupRef.current) {
-                  const fwd = new Vector3();
-                  rotateGroupRef.current.getWorldDirection(fwd);
-                  fwd.y = 0; fwd.normalize();
-                  
-                  const toTarget = tPos.clone().sub(position.current);
-                  toTarget.y = 0; toTarget.normalize();
-                  
-                  if (fwd.dot(toTarget) < 0) isFrontal = false;
-             }
-             shootMode.current = isFrontal ? 'MOVE' : 'STOP';
-
-             aiState.current = 'SHOOTING';
-             shootSequence.current = 0;
-             
-             const currentRecovery = shootMode.current === 'STOP' 
-                ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
-                : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
-             const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
-             
-             aiTimer.current = (totalFrames / 60) * 1000; 
-             shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
+    // AI PAUSE LOGIC
+    // If paused, we prevent state changes and force IDLE if previously active
+    if (areNPCsPaused) {
+        if (aiState.current === 'DASHING' || aiState.current === 'ASCENDING' || aiState.current === 'SHOOTING') {
+             aiState.current = 'IDLE';
+             setIsThrusting(false);
+             moveInput.current.set(0,0,0);
+             dashDirection.current.set(0,0,0);
         }
-    }
+    } else {
+        // Normal AI Logic Updates
+        shootCooldown.current -= delta;
+        
+        if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
+            if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
+                 
+                 const tPos = getTargetPos();
+                 let isFrontal = true;
+                 if (tPos && rotateGroupRef.current) {
+                      const fwd = new Vector3();
+                      rotateGroupRef.current.getWorldDirection(fwd);
+                      fwd.y = 0; fwd.normalize();
+                      
+                      const toTarget = tPos.clone().sub(position.current);
+                      toTarget.y = 0; toTarget.normalize();
+                      
+                      if (fwd.dot(toTarget) < 0) isFrontal = false;
+                 }
+                 shootMode.current = isFrontal ? 'MOVE' : 'STOP';
 
-    aiTimer.current -= delta * 1000; 
+                 aiState.current = 'SHOOTING';
+                 shootSequence.current = 0;
+                 
+                 const currentRecovery = shootMode.current === 'STOP' 
+                    ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP 
+                    : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
+                 const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
+                 
+                 aiTimer.current = (totalFrames / 60) * 1000; 
+                 shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
+            }
+        }
 
-    if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
-        aiState.current = 'IDLE';
-        aiTimer.current = 500; 
-        shootSequence.current = 0;
-    }
+        aiTimer.current -= delta * 1000; 
 
-    if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
-      // STATE TRANSITION LOGIC
-      // Important: Reset physics inputs when leaving a movement state
-      
-      if (aiState.current === 'DASHING') {
-          // Reset input to stop infinite air drift
-          moveInput.current.set(0, 0, 0); 
+        if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
+            aiState.current = 'IDLE';
+            aiTimer.current = 500; 
+            shootSequence.current = 0;
+        }
+
+        if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
+          // STATE TRANSITION LOGIC
+          // Important: Reset physics inputs when leaving a movement state
           
-          if (Math.random() > 0.3) {
-              aiState.current = 'ASCENDING';
-              aiTimer.current = MathUtils.randInt(400, 800); 
-          } else {
-              aiState.current = 'FALLING';
-              aiTimer.current = MathUtils.randInt(500, 1000);
-          }
-      } else if (aiState.current === 'ASCENDING') {
-          moveInput.current.set(0, 0, 0); // Reset
-          aiState.current = 'FALLING';
-          aiTimer.current = MathUtils.randInt(1000, 2000);
-      } else {
-          if (boost.current > 20) {
-              aiState.current = 'DASHING';
-              setDashTriggerTime(Date.now()); // TRIGGER BOOST FX
+          if (aiState.current === 'DASHING') {
+              // Reset input to stop infinite air drift
+              moveInput.current.set(0, 0, 0); 
               
-              const biasCenter = new Vector3(0,0,0).sub(position.current).normalize().multiplyScalar(0.5);
-              const randDir = new Vector3((Math.random()-0.5), 0, (Math.random()-0.5)).normalize();
-              const dir = randDir.add(biasCenter).normalize();
-              
-              dashDirection.current.copy(dir);
-              currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
-              moveInput.current = dir;
-              
-              velocity.current.x = dir.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              velocity.current.z = dir.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
-              
-              // Sync Ground Hop with Player: Pop up if grounded
-              if (isGrounded.current || position.current.y < 1.5) {
-                  velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
-                  isGrounded.current = false;
+              if (Math.random() > 0.3) {
+                  aiState.current = 'ASCENDING';
+                  aiTimer.current = MathUtils.randInt(400, 800); 
               } else {
-                  velocity.current.y = 0;
+                  aiState.current = 'FALLING';
+                  aiTimer.current = MathUtils.randInt(500, 1000);
               }
-              
-              boost.current -= 15;
-              aiTimer.current = MathUtils.randInt(300, 600); 
+          } else if (aiState.current === 'ASCENDING') {
+              moveInput.current.set(0, 0, 0); // Reset
+              aiState.current = 'FALLING';
+              aiTimer.current = MathUtils.randInt(1000, 2000);
           } else {
-              aiState.current = 'IDLE'; 
-              aiTimer.current = 500;
+              if (boost.current > 20) {
+                  aiState.current = 'DASHING';
+                  setDashTriggerTime(Date.now()); // TRIGGER BOOST FX
+                  
+                  const biasCenter = new Vector3(0,0,0).sub(position.current).normalize().multiplyScalar(0.5);
+                  const randDir = new Vector3((Math.random()-0.5), 0, (Math.random()-0.5)).normalize();
+                  const dir = randDir.add(biasCenter).normalize();
+                  
+                  dashDirection.current.copy(dir);
+                  currentDashSpeed.current = GLOBAL_CONFIG.DASH_BURST_SPEED;
+                  moveInput.current = dir;
+                  
+                  velocity.current.x = dir.x * GLOBAL_CONFIG.DASH_BURST_SPEED;
+                  velocity.current.z = dir.z * GLOBAL_CONFIG.DASH_BURST_SPEED;
+                  
+                  // Sync Ground Hop with Player: Pop up if grounded
+                  if (isGrounded.current || position.current.y < 1.5) {
+                      velocity.current.y = GLOBAL_CONFIG.DASH_GROUND_HOP_VELOCITY;
+                      isGrounded.current = false;
+                  } else {
+                      velocity.current.y = 0;
+                  }
+                  
+                  boost.current -= 15;
+                  aiTimer.current = MathUtils.randInt(300, 600); 
+              } else {
+                  aiState.current = 'IDLE'; 
+                  aiTimer.current = 500;
+              }
           }
-      }
+        }
     }
 
     if (isGrounded.current && landingFrames.current <= 0) {
@@ -797,9 +823,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         let targetPos = { x: 0, y: -0.5, z: 0.1 };
         let targetRot = { x: -0.2, y: 0, z: 0 };
 
-        // NOTE: DASH_POSE_GUN does not include shield rotation, so we skip applying specific pose data here,
-        // effectively using the default position defined above.
-
         const lerpSpeed = (aiState.current === 'DASHING' ? 0.15 : 0.1) * timeScale;
         
         shieldRef.current.position.x = MathUtils.lerp(shieldRef.current.position.x, targetPos.x, lerpSpeed);
@@ -846,8 +869,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              currentFallTime.current = 0;
          }
 
-         // REMOVED INERTIA SWAY FOR NPC
-         // We ensure the legs container is straight (0,0,0) locally
          legsRef.current.rotation.x = MathUtils.lerp(legsRef.current.rotation.x, 0, 0.1);
          legsRef.current.rotation.z = MathUtils.lerp(legsRef.current.rotation.z, 0, 0.1);
 
@@ -1020,7 +1041,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
          <group position={[0, 2.0, 0]}>
-            
+            {/* TORSO + CHEST + HEAD + LIMBS structure ... (Same as before) */}
             {/* TORSO GROUP (Waist + Chest) */}
             <group ref={torsoRef}>
                 {/* WAIST */}
@@ -1199,8 +1220,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <meshToonMaterial color="#222" />
                                     <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                             </group>
-                            <group position={[-0.25, -0.9, -0.4]}>
-                                    <cylinderGeometry args={[0.1, 0.15, 0.2]} />
+                            <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} />
                                     <meshToonMaterial color="#222" />
                                     <ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscendingState} />
                             </group>

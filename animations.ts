@@ -94,16 +94,16 @@ export const MELEE_STARTUP_POSE: MechPose = {
     }
 };
 
-// --- MELEE: SLASH (End of Swing) ---
+// --- MELEE: SLASH 1 (Diagonal Cut) ---
 export const MELEE_SLASH_POSE: MechPose = {
     TORSO: { x: 0.76, y: 0.36, z: 0.11 },
     CHEST: { x: 0.56, y: 0.76, z: -0.19 },
     HEAD: { x: 0, y: 0, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: -0.89, y: -0.09, z: -0.29 },
+        SHOULDER: { x: -0.84, y: 0.01, z: 0.21 },
         ELBOW: { x: 0, y: -0.39, z: 0 },
         FOREARM: { x: -0.34, y: 0, z: 0 },
-        WRIST: { x: 0.51, y: 0.01, z: -0.04 }
+        WRIST: { x: -0.12, y: -0.18, z: -0.04 }
     },
     RIGHT_ARM: {
         SHOULDER: { x: 0.91, y: 0.01, z: 0.66 },
@@ -119,6 +119,35 @@ export const MELEE_SLASH_POSE: MechPose = {
     RIGHT_LEG: {
         THIGH: { x: -0.29, y: 0, z: 0.46 },
         KNEE: 1.9,
+        ANKLE: { x: 0.61, y: 0, z: 0 }
+    }
+};
+
+// --- MELEE: SLASH 2 (Wide Horizontal Sweep) ---
+export const MELEE_SLASH_2_POSE: MechPose = {
+    TORSO: { x: 0.31, y: -0.59, z: -0.29 },
+    CHEST: { x: 0.26, y: -0.34, z: -0.04 },
+    HEAD: { x: -0.24, y: 0.61, z: 0.01 },
+    LEFT_ARM: {
+        SHOULDER: { x: -2.74, y: 1.36, z: 0.11 },
+        ELBOW: { x: 0.81, y: -0.09, z: -0.09 },
+        FOREARM: { x: 0.06, y: 0.01, z: 0.01 },
+        WRIST: { x: 1.31, y: 0.01, z: 0.11 }
+    },
+    RIGHT_ARM: {
+        SHOULDER: { x: 0.86, y: 0.06, z: 0.46 },
+        ELBOW: { x: -0.19, y: -0.19, z: 0.31 },
+        FOREARM: { x: -0.09, y: 1.51, z: 0.16 },
+        WRIST: { x: 0, y: 0, z: 0 }
+    },
+    LEFT_LEG: {
+        THIGH: { x: -1.09, y: 0.21, z: -0.39 },
+        KNEE: 1.8,
+        ANKLE: { x: 0.76, y: 0, z: 0 }
+    },
+    RIGHT_LEG: {
+        THIGH: { x: 0.31, y: -0.44, z: 0.31 },
+        KNEE: 0.95,
         ANKLE: { x: 0.61, y: 0, z: 0 }
     }
 };
