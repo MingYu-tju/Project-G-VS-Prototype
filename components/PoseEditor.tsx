@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, ContactShadows, PerspectiveCamera } from '@react-three/drei';
+import { OrbitControls, Grid, PerspectiveCamera } from '@react-three/drei';
 import { MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
 import { PosableUnit } from './PosableUnit';
 
@@ -178,7 +179,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             {/* 3D VIEWPORT */}
             <div className="flex-1 relative h-[50vh] md:h-auto bg-gradient-to-b from-gray-900 to-gray-800">
-                <Canvas shadows>
+                <Canvas> {/* Removed shadows */}
                     <PerspectiveCamera makeDefault position={[2.5, 2, 4.5]} fov={45} />
                     <color attach="background" args={['#1a1d26']} />
                     
@@ -187,12 +188,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     {/* --- MANUAL LIGHTING SETUP (Fixes Darkness) --- */}
                     <ambientLight intensity={0.6} />
                     
-                    {/* Main Key Light */}
+                    {/* Main Key Light - Removed castShadow */}
                     <directionalLight 
                         position={[5, 10, 5]} 
                         intensity={1.8} 
-                        castShadow 
-                        shadow-bias={-0.0005} 
                     />
                     
                     {/* Rim Lights for Style */}
@@ -202,7 +201,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     {/* Scene Content */}
                     <group position={[0, 0, 0]}>
                         <PosableUnit pose={pose} weapon={weapon} />
-                        <ContactShadows resolution={1024} scale={20} blur={1.5} opacity={0.5} far={2} color="#000000" />
+                        {/* Removed ContactShadows */}
                     </group>
 
                     {/* Static Grid (Fixes Jitter) */}

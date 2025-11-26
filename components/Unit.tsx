@@ -138,11 +138,8 @@ useGLTF.preload(MODEL_PATH);
 const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
     const { nodes } = useGLTF(MODEL_PATH) as any;
     
-    // Common properties for all head meshes
-    const meshProps = {
-        castShadow: true,
-        receiveShadow: true
-    };
+    // Common properties for all head meshes - Removed shadows for performance
+    const meshProps = {};
 
     return (
         <group position={[-0.08, 0.4, 0.1]} >
@@ -1027,7 +1024,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             {/* TORSO GROUP (Waist + Chest) */}
             <group ref={torsoRef}>
                 {/* WAIST */}
-                <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                <mesh position={[0, 0, 0]}>
                     <boxGeometry args={[0.6, 0.5, 0.5]} />
                     <meshToonMaterial color={armorColor} /> 
                     <Edges threshold={15} color="black" />
@@ -1035,14 +1032,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                 {/* CHEST */}
                 <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                        <mesh castShadow receiveShadow>
+                        <mesh>
                             <boxGeometry args={[0.9, 0.7, 0.7]} />
                             <meshToonMaterial color={chestColor} /> 
                             <Edges threshold={15} color="black" />
                         </mesh>
                     {/* Vents */}
                         <group position={[0.28, 0.1, 0.36]}>
-                            <mesh castShadow>
+                            <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
                                 <meshToonMaterial color="#ffaa00" />
                                 <Edges threshold={15} color="black" />
@@ -1055,7 +1052,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             ))}
                         </group>
                         <group position={[-0.28, 0.1, 0.36]}>
-                            <mesh castShadow>
+                            <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
                                 <meshToonMaterial color="#ffaa00" />
                                 <Edges threshold={15} color="black" />
@@ -1076,7 +1073,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         {/* ARMS */}
                         {/* Right Shoulder & Arm (Holding SHIELD) */}
                         <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
-                            <mesh castShadow receiveShadow>
+                            <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
@@ -1084,7 +1081,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                             {/* FOREARM */}
                             <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
                                 {/* 1. Inner Skeleton */}
-                                <mesh castShadow receiveShadow>
+                                <mesh>
                                     <boxGeometry args={[0.25, 0.6, 0.3]} />
                                     <meshToonMaterial color="#444" />
                                     <Edges threshold={15} color="black" />
@@ -1092,7 +1089,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 
                                 {/* 2. Outer Forearm Armor */}
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                    <mesh castShadow receiveShadow>
+                                    <mesh>
                                         <boxGeometry args={[0.28, 0.6, 0.35]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
@@ -1100,7 +1097,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 </group>
                                 
                                 {/* Right Fist (NPC) */}
-                                <mesh position={[0, -0.35, 0]} castShadow>
+                                <mesh position={[0, -0.35, 0]}>
                                     <boxGeometry args={[0.25, 0.25, 0.25]} />
                                     <meshToonMaterial color="#222" />
                                 </mesh>
@@ -1108,7 +1105,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 {/* 3. Independent Shield Group */}
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
                                         <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                            <mesh position={[0, 0.2, 0]} castShadow receiveShadow>
+                                            <mesh position={[0, 0.2, 0]}>
                                                 <boxGeometry args={[0.1, 1.7, 0.7]} />
                                                 <meshToonMaterial color={armorColor} />
                                                 <Edges threshold={15} color="black" />
@@ -1124,42 +1121,42 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                         {/* Left Shoulder & Arm (Holding GUN) */}
                         <group position={[-0.65, 0.1, 0]} ref={gunArmRef}>
-                            <mesh castShadow receiveShadow>
+                            <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
                             </mesh>
                             {/* FOREARM */}
                             <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
-                                <mesh castShadow receiveShadow>
+                                <mesh>
                                     <boxGeometry args={[0.25, 0.6, 0.3]} />
                                     <meshToonMaterial color="#444" />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                        <mesh castShadow receiveShadow>
+                                        <mesh>
                                         <boxGeometry args={[0.28, 0.6, 0.35]} />
                                         <meshToonMaterial color={armorColor} />
                                         <Edges threshold={15} color="black" />
                                         </mesh>
                                         
                                         {/* Left Fist (NPC) */}
-                                        <mesh position={[0, -0.35, 0]} castShadow>
+                                        <mesh position={[0, -0.35, 0]}>
                                             <boxGeometry args={[0.25, 0.25, 0.25]} />
                                             <meshToonMaterial color="#222" />
                                         </mesh>
 
                                         <group position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]} castShadow>
+                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}>
                                                 <boxGeometry args={[0.1, 0.2, 0.15]} />
                                                 <meshToonMaterial color="#222" />
                                             </mesh>
-                                            <mesh position={[0, 0.2, 0.4]} castShadow>
+                                            <mesh position={[0, 0.2, 0.4]}>
                                                 <boxGeometry args={[0.15, 0.25, 1.0]} />
                                                 <meshToonMaterial color="#444" />
                                                 <Edges threshold={15} color="black" />
                                             </mesh>
-                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]} castShadow>
+                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}>
                                                 <cylinderGeometry args={[0.04, 0.04, 0.6]} />
                                                 <meshToonMaterial color="#222" />
                                             </mesh>
@@ -1181,17 +1178,17 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                         {/* BACKPACK */}
                         <group position={[0, 0.2, -0.4]}>
-                            <mesh castShadow receiveShadow>
+                            <mesh>
                                 <boxGeometry args={[0.7, 0.8, 0.4]} />
                                 <meshToonMaterial color="#333" />
                                 <Edges threshold={15} color="black" />
                             </mesh>
-                            <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                            <mesh position={[0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
                                     <cylinderGeometry args={[0.04, 0.04, 0.5]} />
                                     <meshToonMaterial color="white" />
                                     <Edges threshold={15} color="black" />
                             </mesh>
-                            <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]} castShadow>
+                            <mesh position={[-0.3, 0.5, 0]} rotation={[0.2, 0, 0]}>
                                     <cylinderGeometry args={[0.04, 0.04, 0.5]} />
                                     <meshToonMaterial color="white" />
                                     <Edges threshold={15} color="black" />
@@ -1218,24 +1215,24 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             {/* LEGS GROUP */}
             <group ref={legsRef}>
                 <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                        <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
                         <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                            <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                            <mesh position={[0, -0.4, 0]}>
                                 <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
-                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
                                     <boxGeometry args={[0.25, 0.3, 0.1]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </mesh>
                             <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                                <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                                <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
                                     <meshToonMaterial color={feetColor} />
                                     <Edges threshold={15} color="black" />
@@ -1245,24 +1242,24 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 </group>
 
                 <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                        <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                        <mesh position={[0, -0.4, 0]}>
                             <boxGeometry args={[0.35, 0.7, 0.4]} />
                             <meshToonMaterial color={armorColor} />
                             <Edges threshold={15} color="black" />
                         </mesh>
                         <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                            <mesh position={[0, -0.4, 0]} castShadow receiveShadow>
+                            <mesh position={[0, -0.4, 0]}>
                                 <boxGeometry args={[0.35, 0.8, 0.45]} />
                                 <meshToonMaterial color={armorColor} />
                                 <Edges threshold={15} color="black" />
-                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow>
+                                <mesh position={[0, 0.2, 0.25]} rotation={[-0.2, 0, 0]}>
                                     <boxGeometry args={[0.25, 0.3, 0.1]} />
                                     <meshToonMaterial color={armorColor} />
                                     <Edges threshold={15} color="black" />
                                 </mesh>
                             </mesh>
                             <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                                <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow>
+                                <mesh position={[0, -0.1, 0.1]}>
                                     <boxGeometry args={[0.32, 0.2, 0.7]} />
                                     <meshToonMaterial color={feetColor} />
                                     <Edges threshold={15} color="black" />

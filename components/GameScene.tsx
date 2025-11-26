@@ -98,7 +98,7 @@ const DigitalFloor: React.FC = () => {
     return (
         <group position={[0, -0.05, 0]}>
             {/* Base Floor Plane - Matte Industrial Grey (No Flickering Reflections) */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
                <planeGeometry args={[1000, 1000]} />
                <meshStandardMaterial 
                     color="#1a1d26" // Dark Slate Grey (Lighter than pitch black)
@@ -160,31 +160,45 @@ export const GameScene: React.FC = () => {
   const { targets, currentTargetIndex, projectiles } = useGameStore();
 
   return (
-    <Canvas shadows camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true, toneMappingExposure: 1.2 }}>
+    <Canvas camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true, toneMappingExposure: 1.3 }}>
       
       {/* 1. Atmosphere */}
       <color attach="background" args={['#05070a']} />
-      {/* Dark blue fog for depth */}
-      <fog attach="fog" args={['#05070a', 40, 180]} />
+      {/* Fog pushed back to start at 60 to improve visibility of distant units */}
+      <fog attach="fog" args={['#05070a', 60, 180]} />
       
       <SceneManager />
 
-      {/* --- LIGHTING --- */}
-      <ambientLight intensity={0.4} color="#002244" />
+      {/* --- IMPROVED LIGHTING SYSTEM (NO SHADOWS) --- */}
       
-      {/* Neon Rim Lights */}
+      {/* 1. Base Ambient Light (General Visibility) - Increased and less saturated */}
+      <ambientLight intensity={0.6} color="#405060" />
+      
+      {/* 2. Hemisphere Light (Sky/Ground Fill) - Critical for seeing shadows */}
+      <hemisphereLight 
+        skyColor="#ffffff" 
+        groundColor="#202020" 
+        intensity={0.6} 
+      />
+
+      {/* 3. Main Key Light (Sun) - Removed shadows for performance */}
+      <directionalLight 
+        position={[50, 80, 30]} 
+        intensity={2.5} 
+        color="#ddeeff"
+      />
+
+      {/* 4. Fill Light (Opposite to Sun) - Softens harsh shadows on the dark side */}
+      <directionalLight 
+        position={[-30, 40, -30]} 
+        intensity={1.2} 
+        color="#6688aa"
+      />
+      
+      {/* 5. Neon Rim Lights (Stylistic) */}
       <pointLight position={[-100, 50, -100]} intensity={2000} color="#0088ff" distance={300} />
       <pointLight position={[100, 50, 100]} intensity={2000} color="#ff00aa" distance={300} />
 
-      {/* Main Sun (Simulated) */}
-      <directionalLight 
-        position={[50, 80, 30]} 
-        intensity={3} 
-        color="#ddeeff"
-        //castShadow 
-        shadow-bias={-0.0005}
-        shadow-mapSize={[2048, 2048]} 
-      />
 
       {/* 2. Background Stars */}
       <Stars radius={200} depth={50} count={8000} factor={6} saturation={0} fade speed={0.2} />
