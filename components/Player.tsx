@@ -1,7 +1,6 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color } from 'three';
+import { useFrame, useThree, createPortal } from '@react-three/fiber';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage } from 'three';
 import { Trail, Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE } from '../types';
@@ -286,38 +285,123 @@ const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
     );
 };
 
-const SpeedLines: React.FC<{ visible: boolean }> = ({ visible }) => {
-    const groupRef = useRef<Group>(null);
-    const TRAIL_LENGTH = 3;
-    const LINE_COUNT = 12;
-    const LINE_GEOM_LENGTH = 3;
+// --- GHOST EMITTER (Updated for Rainbow & Per-Instance Color) ---
+interface GhostEmitterProps {
+    active: boolean;
+    size?: [number, number, number];
+    offset?: [number, number, number];
+    rainbow?: boolean; // New Prop for Rainbow Step
+}
+
+const GhostEmitter: React.FC<GhostEmitterProps> = ({ active, size=[0.4, 0.6, 0.4], offset=[0,0,0], rainbow=false }) => {
+    const { scene } = useThree();
+    const meshRef = useRef<InstancedMesh>(null);
+    const trackerRef = useRef<Group>(null);
+    
+    const MAX_GHOSTS = 60; // Increased for rainbow smoothness
+    const SPAWN_INTERVAL = rainbow?2:5; 
+    const LIFETIME = 20; // Slightly longer lifetime
+    
+    const frameCount = useRef(0);
+    // Add 'color' to ghost data
+    const ghosts = useRef<{ pos: Vector3, rot: Quaternion, scale: Vector3, age: number, color: Color }[]>([]);
+    const tempObj = useMemo(() => new Object3D(), []);
+    const worldPos = useMemo(() => new Vector3(), []);
+    const worldQuat = useMemo(() => new Quaternion(), []);
+    const worldScale = useMemo(() => new Vector3(), []);
+    const tempColor = useMemo(() => new Color(), []);
+
     useFrame(() => {
-        if (!groupRef.current) return;
-        groupRef.current.visible = visible;
-        if (visible) {
-            groupRef.current.children.forEach((child: any, i: number) => {
-                child.position.z -= 1.8;
-                if (child.position.z < -TRAIL_LENGTH) {
-                    child.position.z = MathUtils.randFloat(0, 3); 
-                    child.position.x = MathUtils.randFloat(-0.6, 0.6); 
-                    child.position.y = MathUtils.randFloat(0.5, 2.5); 
-                }
-                const opacity = Math.max(0, 1 - (Math.abs(child.position.z) / TRAIL_LENGTH));
-                child.material.opacity = opacity * 0.6;
+        if (!trackerRef.current || !meshRef.current) return;
+        
+        frameCount.current++;
+
+        // 1. Spawn
+        if (active && frameCount.current % SPAWN_INTERVAL === 0) {
+            trackerRef.current.getWorldPosition(worldPos);
+            trackerRef.current.getWorldQuaternion(worldQuat);
+            trackerRef.current.getWorldScale(worldScale);
+
+            // Determine Color
+            const spawnColor = new Color();
+            if (rainbow) {
+                // Cycle hue based on frame count
+                const hue = (frameCount.current * 0.05) % 1.0; // Rainbow cycle
+                spawnColor.setHSL(hue, 1.0, 0.6);
+            } else {
+                spawnColor.set('#aaaaaa'); // Default Cyan
+            }
+
+            ghosts.current.push({
+                pos: worldPos.clone(),
+                rot: worldQuat.clone(),
+                scale: worldScale.clone(),
+                age: 0,
+                color: spawnColor
             });
         }
+
+        // 2. Render
+        let aliveCount = 0;
+        for (let i = ghosts.current.length - 1; i >= 0; i--) {
+            const g = ghosts.current[i];
+            g.age++;
+            
+            if (g.age > LIFETIME) {
+                ghosts.current.splice(i, 1);
+                continue;
+            }
+
+            const lifeRatio = 1 - (g.age / LIFETIME);
+            
+            tempObj.position.copy(g.pos);
+            tempObj.quaternion.copy(g.rot);
+            const s = lifeRatio * 0.9 + 0.1; 
+            tempObj.scale.set(g.scale.x, g.scale.y, g.scale.z).multiplyScalar(s);
+            
+            tempObj.updateMatrix();
+            meshRef.current.setMatrixAt(aliveCount, tempObj.matrix);
+            
+            // Set Instance Color
+            meshRef.current.setColorAt(aliveCount, g.color);
+            
+            aliveCount++;
+        }
+
+        meshRef.current.count = aliveCount;
+        meshRef.current.instanceMatrix.needsUpdate = true;
+        
+        // Important: Signal that colors need update
+        if (meshRef.current.instanceColor) {
+            meshRef.current.instanceColor.needsUpdate = true;
+        }
     });
+
     return (
-        <group ref={groupRef} visible={false}>
-            {[...Array(LINE_COUNT)].map((_, i) => (
-                 <mesh key={i} position={[Math.random(), Math.random(), Math.random()]} rotation={[Math.PI/2, 0, 0]}>
-                     <cylinderGeometry args={[0.015, 0.015, LINE_GEOM_LENGTH]} />
-                     <meshBasicMaterial color="#ffd700" transparent opacity={1} depthWrite={false} />
-                 </mesh>
-            ))}
-        </group>
-    )
-}
+        <>
+            <group ref={trackerRef} position={offset} />
+            {createPortal(
+                <instancedMesh 
+                    ref={meshRef} 
+                    args={[undefined, undefined, MAX_GHOSTS]} 
+                    frustumCulled={false}
+                >
+                    <boxGeometry args={size} />
+                    {/* Material is White, color comes from instanceColor attribute */}
+                    <meshBasicMaterial 
+                        color="#aaaaaa"  
+                        transparent 
+                        opacity={rainbow?0.9:0.5} 
+                        blending={AdditiveBlending} 
+                        depthWrite={false} 
+                    />
+                </instancedMesh>,
+                scene
+            )}
+        </>
+    );
+};
+
 
 // --- BEAM SABER COMPONENT ---
 const BeamSaber: React.FC<{ active: boolean }> = ({ active }) => {
@@ -472,7 +556,13 @@ export const Player: React.FC = () => {
     // Evade State
     const isEvading = useRef(false);
     const evadeTimer = useRef(0);
+    const evadeRecoveryTimer = useRef(0); // Recovery timer for Evade (Freeze)
     const evadeDirection = useRef(new Vector3(0, 0, 0));
+    const isRainbowStep = useRef(false); // Track Rainbow Step Status
+    
+    // Trail State
+    const trailTimer = useRef(0);      // NEW: Independent timer for trails
+    const trailRainbow = useRef(false); // NEW: Tracks if current trail should be rainbow
 
     // Combat State
     const isShooting = useRef(false);
@@ -550,6 +640,9 @@ export const Player: React.FC = () => {
                 isEvading.current = false;
                 evadeTimer.current = 0;
             }
+            // CANCEL EVADE RECOVERY
+            evadeRecoveryTimer.current = 0;
+
             if (isShooting.current) {
                 isShooting.current = false;
                 shootTimer.current = 0;
@@ -599,18 +692,42 @@ export const Player: React.FC = () => {
                 if (['w', 'a', 's', 'd'].includes(key)) {
                     if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
                         if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
+                            
+                            // --- RAINBOW STEP LOGIC ---
+                            let isRainbow = false;
                             if (meleeState.current !== 'NONE') {
+                                // Cancel melee and trigger rainbow step
                                 meleeState.current = 'NONE';
+                                isRainbow = true;
                             }
-                            if (consumeBoost(GLOBAL_CONFIG.EVADE_BOOST_COST)) {
+                            isRainbowStep.current = isRainbow;
+
+                            // 1. 先根据是否是虹闪，决定消耗多少气槽
+                            const boostCost = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_BOOST_COST : GLOBAL_CONFIG.EVADE_BOOST_COST;
+
+                            if (consumeBoost(boostCost)) {
                                 isEvading.current = true;
-                                evadeTimer.current = GLOBAL_CONFIG.EVADE_DURATION;
+                                // Cancel any existing recovery
+                                evadeRecoveryTimer.current = 0;
+                                
+                                // Use Rainbow Duration if active
+                                evadeTimer.current = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_DURATION : GLOBAL_CONFIG.EVADE_DURATION;
+                                
+                                // --- START TRAIL TIMER ---
+                                // The trail is now independent of the evasion physics state
+                                trailTimer.current = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_TRAIL_DURATION : GLOBAL_CONFIG.EVADE_TRAIL_DURATION;
+                                trailRainbow.current = isRainbow; // Snapshot color state
+
                                 cutTracking('player');
                                 const dir = getDirectionFromKey(key);
                                 evadeDirection.current.copy(dir);
-                                velocity.current.x = dir.x * GLOBAL_CONFIG.EVADE_SPEED;
-                                velocity.current.z = dir.z * GLOBAL_CONFIG.EVADE_SPEED;
+                                
+                                // Use Rainbow Speed if active
+                                const spd = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_SPEED : GLOBAL_CONFIG.EVADE_SPEED;
+                                velocity.current.x = dir.x * spd;
+                                velocity.current.z = dir.z * spd;
                                 velocity.current.y = 0;
+                                
                                 isDashing.current = false;
                                 isShooting.current = false;
                                 shootTimer.current = 0;
@@ -630,6 +747,9 @@ export const Player: React.FC = () => {
                         const hasAmmo = consumeAmmo();
                         if (hasAmmo) {
                             isShooting.current = true;
+                            // Cancel Evade Recovery
+                            evadeRecoveryTimer.current = 0;
+
                             setActiveWeapon('GUN');
                             visualLandingFrames.current = 0;
                             shootTimer.current = 0;
@@ -664,6 +784,9 @@ export const Player: React.FC = () => {
                         setActiveWeapon('SABER');
                         isDashing.current = false;
                         isEvading.current = false;
+                        // Cancel Evade Recovery
+                        evadeRecoveryTimer.current = 0;
+
                         visualLandingFrames.current = 0;
 
                         let inRedLock = false;
@@ -831,6 +954,11 @@ export const Player: React.FC = () => {
             ammoRegenTimer.current = 0;
         }
 
+        // --- DECREASE TRAIL TIMER ---
+        if (trailTimer.current > 0) {
+            trailTimer.current -= 1 * timeScale;
+        }
+
         let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE' = 'IDLE';
 
         const isLHeld = keys.current['l'];
@@ -883,6 +1011,7 @@ export const Player: React.FC = () => {
             shootTimer.current = 0;
             landingFrames.current = 0;
             visualLandingFrames.current = 0; 
+            evadeRecoveryTimer.current = 0; // Reset evade timer on stun
 
             velocity.current.set(0, velocity.current.y - GLOBAL_CONFIG.GRAVITY * timeScale, 0);
             position.current.add(playerKnockbackDir.clone().multiplyScalar(GLOBAL_CONFIG.KNOCKBACK_SPEED * timeScale));
@@ -1033,27 +1162,44 @@ export const Player: React.FC = () => {
             else if (isEvading.current) {
                 nextVisualState = 'EVADE';
                 evadeTimer.current -= 1 * timeScale;
-                velocity.current.x = evadeDirection.current.x * GLOBAL_CONFIG.EVADE_SPEED;
-                velocity.current.z = evadeDirection.current.z * GLOBAL_CONFIG.EVADE_SPEED;
+                // 判断当前是否是虹闪，如果是，每一帧都使用虹闪速度，否则使用普通速度
+                const currentSpeed = isRainbowStep.current ? GLOBAL_CONFIG.RAINBOW_STEP_SPEED : GLOBAL_CONFIG.EVADE_SPEED;
+
+                velocity.current.x = evadeDirection.current.x * currentSpeed;
+                velocity.current.z = evadeDirection.current.z * currentSpeed;
                 velocity.current.y = 0; 
 
                 if (isAscentInput) {
                     if (consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale)) {
                         isEvading.current = false; 
+                        // Cancel Recovery if any
+                        evadeRecoveryTimer.current = 0;
+
                         nextVisualState = 'ASCEND';
                         velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
                         lConsumedByAction.current = true;
                         preserveDoubleTapOnRelease.current = true;
+
+                        // --- INERTIA INHERITANCE ON CANCEL ---
+                        // Apply configurable inertia when canceling step into jump
+                        const inertiaRatio = isRainbowStep.current 
+                            ? GLOBAL_CONFIG.RAINBOW_STEP_ASCENT_INERTIA_RATIO 
+                            : GLOBAL_CONFIG.EVADE_ASCENT_INERTIA_RATIO;
+                        
+                        velocity.current.x *= inertiaRatio;
+                        velocity.current.z *= inertiaRatio;
                     }
                 }
 
                 if (evadeTimer.current <= 0) {
                     isEvading.current = false;
                     velocity.current.set(0, 0, 0);
-                    if (isGrounded.current) {
-                        landingFrames.current = getLandingLag();
-                        visualLandingFrames.current = GLOBAL_CONFIG.LANDING_LAG_MAX + 10; 
-                    }
+                    
+                    // --- EVADE RECOVERY LOGIC ---
+                    // Set fixed recovery timer based on step type
+                    evadeRecoveryTimer.current = isRainbowStep.current 
+                        ? GLOBAL_CONFIG.RAINBOW_STEP_RECOVERY_FRAMES 
+                        : GLOBAL_CONFIG.EVADE_RECOVERY_FRAMES;
                 }
             }
             else if (isShooting.current && shootMode.current === 'STOP') {
@@ -1075,139 +1221,149 @@ export const Player: React.FC = () => {
                 }
             } 
             else {
-                if (isDashing.current) {
-                    if ((isOverheated || boost <= 0) && dashReleaseTime.current === null) {
-                        dashReleaseTime.current = now;
+                // --- EVADE RECOVERY FREEZE ---
+                if (evadeRecoveryTimer.current > 0) {
+                    velocity.current.set(0,0,0); // Freeze position (Anti-Gravity)
+                    evadeRecoveryTimer.current -= timeScale;
+                    // Visual state remains "IDLE" or whatever nextVisualState defaults to (usually IDLE)
+                }
+                else {
+                    // NORMAL PHYSICS
+
+                    if (isDashing.current) {
+                        if ((isOverheated || boost <= 0) && dashReleaseTime.current === null) {
+                            dashReleaseTime.current = now;
+                        }
+                        if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
+                            dashReleaseTime.current = now;
+                        }
+                        if (dashReleaseTime.current !== null) {
+                            if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
+                                isDashing.current = false;
+                            }
+                        }
                     }
-                    if (dashReleaseTime.current === null && !isLHeld && !moveDir) {
-                        dashReleaseTime.current = now;
-                    }
-                    if (dashReleaseTime.current !== null) {
-                        if (now - dashReleaseTime.current > GLOBAL_CONFIG.DASH_COAST_DURATION) {
+
+                    const effectiveAscent = isAscentInput && !isVisualLock; 
+                    const isDashBursting = dashBurstTimer.current > 0;
+
+                    if (isDashing.current) {
+                        const isCoasting = dashReleaseTime.current !== null;
+                            let canSustain = isCoasting;
+                            if (!isCoasting) {
+                                const paid = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale);
+                                if (paid) {
+                                    canSustain = true;
+                                } else {
+                                    const checkState = useGameStore.getState();
+                                    if (checkState.isOverheated || checkState.boost <= 0) {
+                                        dashReleaseTime.current = now;
+                                        canSustain = true; 
+                                    } else {
+                                        canSustain = false; 
+                                    }
+                                }
+                            }
+                        if (canSustain) {
+                            nextVisualState = 'DASH';
+                            currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
+                            
+                            if (moveDir && dashReleaseTime.current === null) {
+                                const angle = moveDir.angleTo(dashDirection.current);
+                                const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
+                                const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
+                                dashDirection.current.applyAxisAngle(axis, rotateAmount);
+                                dashDirection.current.normalize();
+                            }
+                            
+                            velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
+                            velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
+                            velocity.current.y *= 0.85; 
+                        } else {
                             isDashing.current = false;
                         }
                     }
-                }
-
-                const effectiveAscent = isAscentInput && !isVisualLock; 
-                const isDashBursting = dashBurstTimer.current > 0;
-
-                if (isDashing.current) {
-                    const isCoasting = dashReleaseTime.current !== null;
-                        let canSustain = isCoasting;
-                        if (!isCoasting) {
-                            const paid = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_DASH_HOLD * timeScale);
-                            if (paid) {
-                                canSustain = true;
-                            } else {
-                                const checkState = useGameStore.getState();
-                                if (checkState.isOverheated || checkState.boost <= 0) {
-                                    dashReleaseTime.current = now;
-                                    canSustain = true; 
-                                } else {
-                                    canSustain = false; 
+                    else if (effectiveAscent && !isOverheated && !isDashBursting) {
+                        let canAscend = true;
+                        if (isAscentInput) {
+                            canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
+                            if (canAscend) {
+                                lConsumedByAction.current = true;
+                                if (visualState !== 'ASCEND') {
+                                    playBoostSound();
                                 }
                             }
                         }
-                    if (canSustain) {
-                        nextVisualState = 'DASH';
-                        currentDashSpeed.current = MathUtils.lerp(currentDashSpeed.current, GLOBAL_CONFIG.DASH_SUSTAIN_SPEED, GLOBAL_CONFIG.DASH_DECAY_FACTOR * timeScale);
-                        
-                        if (moveDir && dashReleaseTime.current === null) {
-                            const angle = moveDir.angleTo(dashDirection.current);
-                            const axis = new Vector3().crossVectors(dashDirection.current, moveDir).normalize();
-                            const rotateAmount = Math.min(angle, GLOBAL_CONFIG.DASH_TURN_SPEED * timeScale);
-                            dashDirection.current.applyAxisAngle(axis, rotateAmount);
-                            dashDirection.current.normalize();
-                        }
-                        
-                        velocity.current.x = dashDirection.current.x * currentDashSpeed.current;
-                        velocity.current.z = dashDirection.current.z * currentDashSpeed.current;
-                        velocity.current.y *= 0.85; 
-                    } else {
-                        isDashing.current = false;
-                    }
-                }
-                else if (effectiveAscent && !isOverheated && !isDashBursting) {
-                    let canAscend = true;
-                    if (isAscentInput) {
-                        canAscend = consumeBoost(GLOBAL_CONFIG.BOOST_CONSUMPTION_ASCENT * timeScale);
+
                         if (canAscend) {
-                            lConsumedByAction.current = true;
-                            if (visualState !== 'ASCEND') {
-                                playBoostSound();
+                            nextVisualState = 'ASCEND';
+                            velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
+                            velocity.current.x *= Math.pow(0.995, timeScale);
+                            velocity.current.z *= Math.pow(0.995, timeScale);
+                            if (moveDir) {
+                                const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                                const projectedSpeed = currentHVel.dot(moveDir);
+                                if (projectedSpeed < GLOBAL_CONFIG.ASCENT_MAX_HORIZONTAL_SPEED) {
+                                    velocity.current.x += moveDir.x * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                                    velocity.current.z += moveDir.z * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
+                                }
                             }
                         }
                     }
+                    else {
+                        if (isGrounded.current) {
+                            if (moveDir && !isVisualLock) {
+                                nextVisualState = 'WALK';
+                                const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                                const speed = currentVel.length();
+                                let effectiveDir = currentVel.clone();
+                                if (speed < 0.01) {
+                                    effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
+                                    effectiveDir.y = 0;
+                                }
+                                effectiveDir.normalize();
 
-                    if (canAscend) {
-                        nextVisualState = 'ASCEND';
-                        velocity.current.y = GLOBAL_CONFIG.ASCENT_SPEED;
-                        velocity.current.x *= Math.pow(0.995, timeScale);
-                        velocity.current.z *= Math.pow(0.995, timeScale);
-                        if (moveDir) {
-                            const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                            const projectedSpeed = currentHVel.dot(moveDir);
-                            if (projectedSpeed < GLOBAL_CONFIG.ASCENT_MAX_HORIZONTAL_SPEED) {
-                                velocity.current.x += moveDir.x * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
-                                velocity.current.z += moveDir.z * GLOBAL_CONFIG.ASCENT_HORIZONTAL_ACCEL * timeScale;
-                            }
-                        }
-                    }
-                }
-                else {
-                    if (isGrounded.current) {
-                        if (moveDir && !isVisualLock) {
-                            nextVisualState = 'WALK';
-                            const currentVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-                            const speed = currentVel.length();
-                            let effectiveDir = currentVel.clone();
-                            if (speed < 0.01) {
-                                effectiveDir = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
-                                effectiveDir.y = 0;
-                            }
-                            effectiveDir.normalize();
-
-                            const angle = moveDir.angleTo(effectiveDir);
-                            if (angle > 0.001) {
-                                let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
-                                if (axis.lengthSq() < 0.01) axis = new Vector3(0, 1, 0);
-                                const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
-                                const rotateAmount = Math.min(angle, turnRate);
-                                effectiveDir.applyAxisAngle(axis, rotateAmount);
-                                currentVel.copy(effectiveDir);
+                                const angle = moveDir.angleTo(effectiveDir);
+                                if (angle > 0.001) {
+                                    let axis = new Vector3().crossVectors(effectiveDir, moveDir).normalize();
+                                    if (axis.lengthSq() < 0.01) axis = new Vector3(0, 1, 0);
+                                    const turnRate = GLOBAL_CONFIG.GROUND_TURN_SPEED * timeScale;
+                                    const rotateAmount = Math.min(angle, turnRate);
+                                    effectiveDir.applyAxisAngle(axis, rotateAmount);
+                                    currentVel.copy(effectiveDir);
+                                } else {
+                                    currentVel.copy(effectiveDir);
+                                }
+                                
+                                currentVel.normalize().multiplyScalar(GLOBAL_CONFIG.WALK_SPEED);
+                                velocity.current.x = currentVel.x;
+                                velocity.current.z = currentVel.z;
                             } else {
-                                currentVel.copy(effectiveDir);
+                                velocity.current.x = 0;
+                                velocity.current.z = 0;
                             }
-                            
-                            currentVel.normalize().multiplyScalar(GLOBAL_CONFIG.WALK_SPEED);
-                            velocity.current.x = currentVel.x;
-                            velocity.current.z = currentVel.z;
                         } else {
-                            velocity.current.x = 0;
-                            velocity.current.z = 0;
-                        }
-                    } else {
-                        if (moveDir) {
-                            velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
+                            if (moveDir) {
+                                velocity.current.addScaledVector(moveDir, 0.002 * timeScale);
+                            }
                         }
                     }
-                }
 
-                const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
-                const frictionFactor = Math.pow(friction, timeScale);
-                
-                if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') {
-                    nextVisualState = 'ASCEND';
-                }
-                
-                if (nextVisualState !== 'ASCEND') {
-                    velocity.current.x *= frictionFactor;
-                    velocity.current.z *= frictionFactor;
-                }
-                
-                if (!isDashing.current) {
-                    velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
+                    const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
+                    const frictionFactor = Math.pow(friction, timeScale);
+                    
+                    if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') {
+                        nextVisualState = 'ASCEND';
+                    }
+                    
+                    if (nextVisualState !== 'ASCEND') {
+                        velocity.current.x *= frictionFactor;
+                        velocity.current.z *= frictionFactor;
+                    }
+                    
+                    if (!isDashing.current) {
+                        velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
+                    }
                 }
             }
             
@@ -1817,8 +1973,7 @@ export const Player: React.FC = () => {
                 }
             }
         }
-        
-// ... Shooting logic omitted (same) ...
+            // ... Shooting logic omitted (same) ...
         if (!stunned && isShooting.current) {
             shootTimer.current += 1 * timeScale; 
             
@@ -1910,23 +2065,18 @@ export const Player: React.FC = () => {
     const chestColor = '#2244aa';
     const feetColor = '#aa2222';
     const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND' || visualState === 'MELEE';
+    // Enable trails for high-speed actions, especially Evade
+    const isTrailActive = trailTimer.current > 0; // UPDATED: Use Independent Timer
+    
     const isAscending = visualState === 'ASCEND';
     const isThrusting = isDashingOrAscending;
-    const speedLinesRef = useRef<Group>(null);
-    useFrame(() => {
-        if (speedLinesRef.current && isEvading.current) {
-            const vel = velocity.current.clone().normalize();
-            if (vel.lengthSq() > 0) {
-                speedLinesRef.current.position.copy(position.current);
-                speedLinesRef.current.lookAt(position.current.clone().sub(vel));
-            }
-        }
-    })
-
+   
     return (
         <group>
             <mesh ref={meshRef} castShadow>
                 <group position={[0, 2.0, 0]}>
+                    
+                    {/* GHOST EMITTER FOR CENTER MASS */}
                     {/* WAIST/TORSO */}
                     <group ref={torsoRef}>
                         <mesh position={[0, 0, 0]} castShadow receiveShadow>
@@ -1934,6 +2084,7 @@ export const Player: React.FC = () => {
                             <meshToonMaterial color="#ff0000" />
                             <Edges threshold={15} color="black" />
                         </mesh>
+                        <GhostEmitter active={isTrailActive} size={[0.6, 0.5, 0.5]} rainbow={trailRainbow.current} />
                         
                         {/* CHEST/UPPER BODY */}
                         <group ref={upperBodyRef} position={[0, 0.65, 0]}>
@@ -1942,6 +2093,8 @@ export const Player: React.FC = () => {
                                 <meshToonMaterial color={chestColor} /> 
                                 <Edges threshold={15} color="black" />
                             </mesh>
+                            <GhostEmitter active={isTrailActive} size={[0.9, 0.7, 0.7]} rainbow={trailRainbow.current} />
+
                             <group position={[0.28, 0.1, 0.36]}>
                                 <mesh castShadow><boxGeometry args={[0.35, 0.25, 0.05]} /><meshToonMaterial color="#ffaa00" /><Edges threshold={15} color="black" /></mesh>
                                 {[...Array(5)].map((_, index) => ( <mesh key={index} position={[0, 0.12 - index * 0.05, 0.03]}><boxGeometry args={[0.33, 0.02, 0.02]} /><meshStandardMaterial color="#111" metalness={0.4} roughness={0.3} /></mesh> ))}
@@ -1958,7 +2111,8 @@ export const Player: React.FC = () => {
                             {/* RIGHT ARM CHAIN */}
                             <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                                 <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                
+                                <GhostEmitter active={isTrailActive} size={[0.5, 0.5, 0.5]} rainbow={trailRainbow.current} />
+
                                 {/* Forearm Group (Elbow) */}
                                 <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
                                     <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
@@ -1988,7 +2142,8 @@ export const Player: React.FC = () => {
                             {/* LEFT ARM CHAIN */}
                             <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
                                 <mesh castShadow receiveShadow><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                
+                                <GhostEmitter active={isTrailActive} size={[0.5, 0.5, 0.5]} rainbow={trailRainbow.current} />
+
                                 {/* Forearm Group (Elbow) */}
                                 <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
                                     <mesh castShadow receiveShadow><boxGeometry args={[0.25, 0.6, 0.3]} /><meshToonMaterial color="#444" /><Edges threshold={15} color="black" /></mesh>
@@ -2040,33 +2195,36 @@ export const Player: React.FC = () => {
                     <group ref={legsRef}>
                         {/* RIGHT LEG */}
                         <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
-                                    </group>
+                            <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                            <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
+
+                            <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
+                                    <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
+                                    <GhostEmitter active={isTrailActive} size={[0.32, 0.2, 0.7]} offset={[0, -0.1, 0.1]} rainbow={trailRainbow.current} />
                                 </group>
+                            </group>
                         </group>
 
                         {/* LEFT LEG */}
                         <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                                    <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
-                                    <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                                        <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
-                                    </group>
+                            <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.7, 0.4]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                            <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
+
+                            <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
+                                <mesh position={[0, -0.4, 0]} castShadow receiveShadow><boxGeometry args={[0.35, 0.8, 0.45]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]} castShadow><boxGeometry args={[0.25, 0.3, 0.1]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
+                                <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
+                                    <mesh position={[0, -0.1, 0.1]} castShadow receiveShadow><boxGeometry args={[0.32, 0.2, 0.7]} /><meshToonMaterial color={feetColor} /><Edges threshold={15} color="black" /></mesh>
+                                    <GhostEmitter active={isTrailActive} size={[0.32, 0.2, 0.7]} offset={[0, -0.1, 0.1]} rainbow={trailRainbow.current} />
                                 </group>
+                            </group>
                         </group>
                     </group>
                 </group>
             </mesh>
-            <group ref={speedLinesRef}>
-                <SpeedLines visible={visualState === 'EVADE'} />
-            </group>
         </group>
     );
 }

@@ -23,6 +23,7 @@ interface ThreeElements {
     color: any
     fog: any
     primitive: any
+    instancedMesh: any // Added instancedMesh
     [elemName: string]: any
 }
 
@@ -199,10 +200,21 @@ export const GLOBAL_CONFIG = {
     LANDING_HIP_DIP: 0.8, // New: Visual vertical drop distance when landing (Crouch height)
 
     // Evade (Step)
-    EVADE_SPEED: 0.45, // Faster than dash burst
-    EVADE_DURATION: 28, // Frames (approx 0.3s)
+    EVADE_SPEED: 0.45, // Normal Step Speed
+    EVADE_DURATION: 28, // Normal Step Duration
     EVADE_BOOST_COST: 10, // Costly maneuver
     DOUBLE_TAP_WINDOW: 250, // ms
+    EVADE_ASCENT_INERTIA_RATIO: 0.7, // Keep some momentum on jump cancel
+    EVADE_RECOVERY_FRAMES: 20, // Freeze time after step
+    EVADE_TRAIL_DURATION: 28,
+
+    // Rainbow Step (Melee Cancel Step)
+    RAINBOW_STEP_SPEED: 0.75, // Faster than normal step
+    RAINBOW_STEP_DURATION: 17, // Shorter duration to maintain similar distance but feel snappier
+    RAINBOW_STEP_BOOST_COST: 18, // Higher cost
+    RAINBOW_STEP_ASCENT_INERTIA_RATIO: 0.7, // Keep MORE momentum (high mobility)
+    RAINBOW_STEP_RECOVERY_FRAMES: 20, // Faster recovery
+    RAINBOW_STEP_TRAIL_DURATION: 17,
 
     // Melee (N-Melee Phase 1)
     MELEE_LUNGE_SPEED: 0.65, // Fast tracking speed
