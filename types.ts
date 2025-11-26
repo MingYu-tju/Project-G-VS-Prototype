@@ -275,7 +275,7 @@ export const GLOBAL_CONFIG = {
 
     
     // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.0, // Chance per frame to attempt shot (0.08 = very aggressive)
+    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
     AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
     AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
     AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
