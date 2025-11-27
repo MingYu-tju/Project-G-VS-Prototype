@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree, createPortal } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage } from 'three';
@@ -1146,15 +1147,37 @@ export const Player: React.FC = () => {
                         }
                     }
                     else if (meleeState.current === 'SLASH_1') {
-                        if (!hasMeleeHitRef.current && currentTarget) {
+                        const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
+                        const passed = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES - meleeTimer.current;
+
+                        // 1. APPROACH MAGNETISM (During windup)
+                        // If we have a target and haven't hit yet, slide towards them
+                        if (passed < config.DAMAGE_DELAY && currentTarget) {
+                            const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                            dirToTarget.y = 0; // Keep ground movement
+                            velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
+                            velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                        }
+
+                        // 2. HIT DETECTION LOGIC with DAMAGE_DELAY
+                        if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
                             const dist = position.current.distanceTo(currentTarget.position);
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                            // INCREASED TOLERANCE
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + GLOBAL_CONFIG.MELEE_HIT_TOLERANCE) {
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                                applyHit(currentTarget.id, knockback, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.KNOCKBACK_POWER, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.STUN_DURATION, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.HIT_STOP_FRAMES); 
+                                applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
+                                
+                                // Apply Chase Velocity (Impact Drive)
+                                const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                chaseDir.y = 0;
+                                const chaseSpeed = config.CHASE_VELOCITY;
+                                velocity.current.add(chaseDir.multiplyScalar(chaseSpeed));
+
                                 playHitSound(0);
                                 hasMeleeHitRef.current = true; 
                             }
                         }
+                        
                         meleeTimer.current -= timeScale;
                         if (meleeTimer.current <= 0) {
                             if (meleeComboBuffer.current) {
@@ -1162,18 +1185,10 @@ export const Player: React.FC = () => {
                                 meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
                                 hasMeleeHitRef.current = false; 
                                 meleeComboBuffer.current = false; 
+                                velocity.current.set(0,0,0);
                                 
-                                if (currentTarget  && lockState === LockState.RED) {
-                                    const tPos = currentTarget.position.clone();
-                                    const pPos = position.current.clone();
-                                    const dir = tPos.sub(pPos).normalize();
-                                    const stepSpeed = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.STEP_VELOCITY;
-                                    velocity.current.copy(dir.multiplyScalar(stepSpeed));
+                                if (currentTarget && lockState === LockState.RED) {
                                     meshRef.current.lookAt(currentTarget.position);
-                                } else {
-                                    const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
-                                    const stepSpeed = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.STEP_VELOCITY;
-                                    velocity.current.copy(fwd.multiplyScalar(stepSpeed));
                                 }
                             } else {
                                 meleeState.current = 'RECOVERY';
@@ -1182,12 +1197,31 @@ export const Player: React.FC = () => {
                         }
                     }
                     else if (meleeState.current === 'SLASH_2') {
-                        velocity.current.multiplyScalar(0.85); 
-                        if (!hasMeleeHitRef.current && currentTarget) {
+                        const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2;
+                        const passed = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES - meleeTimer.current;
+
+                        // 1. APPROACH MAGNETISM (During windup)
+                        if (passed < config.DAMAGE_DELAY && currentTarget) {
+                            const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                            dirToTarget.y = 0; 
+                            velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
+                            velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                        }
+
+                        // 2. HIT DETECTION LOGIC with DAMAGE_DELAY
+                        if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
                             const dist = position.current.distanceTo(currentTarget.position);
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + 0.5) { 
+                            // INCREASED TOLERANCE
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + GLOBAL_CONFIG.MELEE_HIT_TOLERANCE) { 
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                                applyHit(currentTarget.id, knockback, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.KNOCKBACK_POWER, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.STUN_DURATION, GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.HIT_STOP_FRAMES); 
+                                applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
+                                
+                                // Apply Chase Velocity (Impact Drive)
+                                const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                chaseDir.y = 0;
+                                const chaseSpeed = config.CHASE_VELOCITY;
+                                velocity.current.add(chaseDir.multiplyScalar(chaseSpeed));
+
                                 playHitSound(0);
                                 hasMeleeHitRef.current = true;
                             }
@@ -1337,6 +1371,37 @@ export const Player: React.FC = () => {
                         if (!isDashing.current) velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
                     }
                 }
+                
+                // --- COLLISION RESOLUTION ---
+                // Push player away from overlapping units to prevent clipping
+                const colRadius = GLOBAL_CONFIG.MECH_COLLISION_RADIUS;
+                const colHeight = GLOBAL_CONFIG.MECH_COLLISION_HEIGHT;
+                
+                targets.forEach(target => {
+                    // 1. Vertical Check (Simple Cylinder)
+                    if (Math.abs(position.current.y - target.position.y) < colHeight) {
+                        // 2. Horizontal Check
+                        const dx = position.current.x - target.position.x;
+                        const dz = position.current.z - target.position.z;
+                        const distSq = dx*dx + dz*dz;
+                        const minDist = colRadius * 2; // Player Radius + Target Radius
+                        
+                        if (distSq < minDist * minDist && distSq > 0.0001) {
+                            const dist = Math.sqrt(distSq);
+                            const overlap = minDist - dist;
+                            
+                            // 3. Resolve by pushing player out
+                            // Normalize direction vector
+                            const nx = dx / dist;
+                            const nz = dz / dist;
+                            
+                            // Apply push
+                            position.current.x += nx * overlap;
+                            position.current.z += nz * overlap;
+                        }
+                    }
+                });
+
                 position.current.add(velocity.current.clone().multiplyScalar(timeScale));
             }
 

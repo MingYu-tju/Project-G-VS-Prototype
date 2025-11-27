@@ -1,3 +1,4 @@
+
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -246,23 +247,29 @@ export const GLOBAL_CONFIG = {
     MELEE_LUNGE_SPEED: 0.65,
     MELEE_BOOST_CONSUMPTION: 0.4,
     MELEE_MAX_LUNGE_TIME: 55,
-    MELEE_STARTUP_FRAMES: 15,
+    MELEE_STARTUP_FRAMES: 10,
     MELEE_ATTACK_FRAMES: 25,
     MELEE_RECOVERY_FRAMES: 15,
-    MELEE_RANGE: 2.5,
+    MELEE_RANGE: 3.2,
+    MELEE_HIT_TOLERANCE: 0, // Added: Extra range forgiveness during active hit frames
     
     // --- MELEE COMBO ADJUSTMENTS (User Controlled) ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
-            KNOCKBACK_POWER: 0.8,
+            KNOCKBACK_POWER: 2.5,
+            CHASE_VELOCITY: 0.5, // Velocity imparted to player on hit to "stick" to target
+            APPROACH_SPEED: 1, // Magnetism speed during windup
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 8,
+            DAMAGE_DELAY: 6, // Frames to wait before active hitbox starts
         },
         SLASH_2: {
-            STEP_VELOCITY: 0.5,
-            KNOCKBACK_POWER: 1,
+            KNOCKBACK_POWER: 2.5,
+            CHASE_VELOCITY: 0.5, // Higher chase velocity for stronger 2nd hit
+            APPROACH_SPEED: 1, // Magnetism speed during windup
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 10,
+            HIT_STOP_FRAMES: 15,
+            DAMAGE_DELAY: 6, // Frames to wait before active hitbox starts
         }
     },
 
@@ -274,6 +281,8 @@ export const GLOBAL_CONFIG = {
     GRAVITY: 0.016,
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
+    MECH_COLLISION_RADIUS: 0.8, // New: Physical collision radius against other mechs
+    MECH_COLLISION_HEIGHT: 2, // New: Physical height cylinder
     
     // Boost
     BOOST_CONSUMPTION_DASH_INIT: 6,
