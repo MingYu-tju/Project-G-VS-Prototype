@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, PerspectiveCamera } from '@react-three/drei';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Grid, PerspectiveCamera, Html } from '@react-three/drei';
 import { DoubleSide, Vector3, Matrix4, Quaternion, Euler, MathUtils } from 'three'; 
-import { MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
+import { MechPose, DEFAULT_MECH_POSE, RotationVector, AnimationClip, AnimationTrack, Keyframe } from '../types';
 import { PosableUnit } from './PosableUnit';
+import { clonePose } from './AnimationSystem';
+
+// --- HELPER TYPES & UTILS ---
+
+interface KeyframeSnapshot {
+    time: number; // 0.0 to 1.0
+    pose: MechPose;
+}
 
 const RangeControl: React.FC<{ 
     label: string; 
@@ -60,24 +68,17 @@ const SlashPlaneGuide: React.FC<{
 
     return (
         <group position={[position.x, position.y, position.z]} rotation={[rotation.x, rotation.y, rotation.z]}>
-            {/* Visual Plane (Disk) */}
             <mesh>
                 <circleGeometry args={[4, 32]} />
                 <meshBasicMaterial color="#00ffaa" transparent opacity={0.1} side={DoubleSide} depthWrite={false} />
             </mesh>
-            
-            {/* Wireframe / Ring */}
             <mesh>
                 <ringGeometry args={[3.95, 4, 64]} />
                 <meshBasicMaterial color="#00ffaa" transparent opacity={0.6} side={DoubleSide} />
             </mesh>
-
-            {/* Grid Lines (Simulated using GridHelper rotated to match Circle on XY plane) */}
             <group rotation={[Math.PI/2, 0, 0]}>
                 <gridHelper args={[8, 8, 0x00ffaa, 0x004433]} />
             </group>
-
-            {/* Normal Indicator (Stick sticking out) */}
             <mesh position={[0, 0, 1]}>
                 <boxGeometry args={[0.05, 0.05, 2]} />
                 <meshBasicMaterial color="#00ffaa" transparent opacity={0.5} />
@@ -86,6 +87,50 @@ const SlashPlaneGuide: React.FC<{
     );
 };
 
+// --- INTERPOLATION LOGIC ---
+const lerpVector = (v1: RotationVector, v2: RotationVector, t: number) => ({
+    x: MathUtils.lerp(v1.x, v2.x, t),
+    y: MathUtils.lerp(v1.y, v2.y, t),
+    z: MathUtils.lerp(v1.z, v2.z, t),
+});
+
+const interpolatePose = (p1: MechPose, p2: MechPose, t: number): MechPose => {
+    const res = clonePose(p1);
+    
+    // Core
+    res.TORSO = lerpVector(p1.TORSO, p2.TORSO, t);
+    res.CHEST = lerpVector(p1.CHEST, p2.CHEST, t);
+    res.HEAD = lerpVector(p1.HEAD, p2.HEAD, t);
+    
+    // Arms
+    res.LEFT_ARM.SHOULDER = lerpVector(p1.LEFT_ARM.SHOULDER, p2.LEFT_ARM.SHOULDER, t);
+    res.LEFT_ARM.ELBOW = lerpVector(p1.LEFT_ARM.ELBOW, p2.LEFT_ARM.ELBOW, t);
+    res.LEFT_ARM.FOREARM = lerpVector(p1.LEFT_ARM.FOREARM, p2.LEFT_ARM.FOREARM, t);
+    res.LEFT_ARM.WRIST = lerpVector(p1.LEFT_ARM.WRIST, p2.LEFT_ARM.WRIST, t);
+
+    res.RIGHT_ARM.SHOULDER = lerpVector(p1.RIGHT_ARM.SHOULDER, p2.RIGHT_ARM.SHOULDER, t);
+    res.RIGHT_ARM.ELBOW = lerpVector(p1.RIGHT_ARM.ELBOW, p2.RIGHT_ARM.ELBOW, t);
+    res.RIGHT_ARM.FOREARM = lerpVector(p1.RIGHT_ARM.FOREARM, p2.RIGHT_ARM.FOREARM, t);
+    res.RIGHT_ARM.WRIST = lerpVector(p1.RIGHT_ARM.WRIST, p2.RIGHT_ARM.WRIST, t);
+
+    // Legs
+    res.LEFT_LEG.THIGH = lerpVector(p1.LEFT_LEG.THIGH, p2.LEFT_LEG.THIGH, t);
+    res.LEFT_LEG.KNEE = MathUtils.lerp(p1.LEFT_LEG.KNEE, p2.LEFT_LEG.KNEE, t);
+    res.LEFT_LEG.ANKLE = lerpVector(p1.LEFT_LEG.ANKLE, p2.LEFT_LEG.ANKLE, t);
+
+    res.RIGHT_LEG.THIGH = lerpVector(p1.RIGHT_LEG.THIGH, p2.RIGHT_LEG.THIGH, t);
+    res.RIGHT_LEG.KNEE = MathUtils.lerp(p1.RIGHT_LEG.KNEE, p2.RIGHT_LEG.KNEE, t);
+    res.RIGHT_LEG.ANKLE = lerpVector(p1.RIGHT_LEG.ANKLE, p2.RIGHT_LEG.ANKLE, t);
+    
+    if (p1.SHIELD && p2.SHIELD) {
+        if (!res.SHIELD) res.SHIELD = { POSITION: {x:0,y:0,z:0}, ROTATION: {x:0,y:0,z:0} };
+        res.SHIELD.POSITION = lerpVector(p1.SHIELD.POSITION, p2.SHIELD.POSITION, t);
+        res.SHIELD.ROTATION = lerpVector(p1.SHIELD.ROTATION, p2.SHIELD.ROTATION, t);
+    }
+    return res;
+};
+
+// --- EXPORT HELPERS ---
 // Helper to round numbers for cleaner output
 const r = (num: number) => parseFloat(num.toFixed(2));
 const fmtVec = (v: RotationVector) => `{ x: ${r(v.x)}, y: ${r(v.y)}, z: ${r(v.z)} }`;
@@ -116,23 +161,109 @@ const formatPoseToObj = (pose: MechPose): string => {
         THIGH: ${fmtVec(pose.RIGHT_LEG.THIGH)},
         KNEE: ${r(pose.RIGHT_LEG.KNEE)},
         ANKLE: ${fmtVec(pose.RIGHT_LEG.ANKLE)}
+    },
+    SHIELD: {
+        POSITION: ${pose.SHIELD ? fmtVec(pose.SHIELD.POSITION) : "{x:0,y:0,z:0}"},
+        ROTATION: ${pose.SHIELD ? fmtVec(pose.SHIELD.ROTATION) : "{x:0,y:0,z:0}"}
     }
 }`;
 };
 
 export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-    const [pose, setPose] = useState<MechPose>(JSON.parse(JSON.stringify(DEFAULT_MECH_POSE)));
+    // --- STATE ---
     const [weapon, setWeapon] = useState<'GUN' | 'SABER'>('SABER');
     const [showImport, setShowImport] = useState(false);
     const [importText, setImportText] = useState('');
+    
+    // Animation Data
+    const [keyframes, setKeyframes] = useState<KeyframeSnapshot[]>([
+        { time: 0.0, pose: clonePose(DEFAULT_MECH_POSE) },
+        { time: 1.0, pose: clonePose(DEFAULT_MECH_POSE) }
+    ]);
+    
+    // Playback
+    const [currentTime, setCurrentTime] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [playbackSpeed, setPlaybackSpeed] = useState(0.5); // Speed multiplier
 
-    // GUIDE STATE
+    // Editing
+    // This holds the pose currently being edited/viewed
+    const [displayPose, setDisplayPose] = useState<MechPose>(clonePose(DEFAULT_MECH_POSE));
+    
+    // Guide
     const [guideVisible, setGuideVisible] = useState(false);
     const [guidePos, setGuidePos] = useState({ x: 0, y: 1.5, z: 0 });
     const [guideRot, setGuideRot] = useState({ x: 0, y: 0, z: 0 });
 
-    const updatePose = (path: string[], axis: string, val: number) => {
-        setPose(prev => {
+    // --- LOGIC ---
+
+    // Calculate current pose based on time and keyframes
+    const calculatePoseAtTime = (t: number): MechPose => {
+        // Sort keyframes just in case
+        const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+        
+        if (sorted.length === 0) return clonePose(DEFAULT_MECH_POSE);
+        if (sorted.length === 1) return clonePose(sorted[0].pose);
+
+        // Find surrounding frames
+        let prev = sorted[0];
+        let next = sorted[sorted.length - 1];
+
+        for (let i = 0; i < sorted.length - 1; i++) {
+            if (t >= sorted[i].time && t <= sorted[i+1].time) {
+                prev = sorted[i];
+                next = sorted[i+1];
+                break;
+            }
+        }
+
+        if (next.time === prev.time) return clonePose(prev.pose);
+
+        const localT = (t - prev.time) / (next.time - prev.time);
+        return interpolatePose(prev.pose, next.pose, localT);
+    };
+
+    // Playback Loop
+    useEffect(() => {
+        let animationFrame: number;
+        let lastTime = performance.now();
+
+        const loop = (time: number) => {
+            const delta = (time - lastTime) / 1000;
+            lastTime = time;
+
+            if (isPlaying) {
+                setCurrentTime(prev => {
+                    let next = prev + (delta * playbackSpeed);
+                    if (next > 1.0) next = 0;
+                    return next;
+                });
+            }
+            animationFrame = requestAnimationFrame(loop);
+        };
+
+        if (isPlaying) {
+            animationFrame = requestAnimationFrame(loop);
+        }
+
+        return () => cancelAnimationFrame(animationFrame);
+    }, [isPlaying, playbackSpeed]);
+
+    // Sync Display Pose with Time (when playing or scrubbing)
+    useEffect(() => {
+        // Only auto-update pose if we are NOT manually editing a keyframe right now
+        // Actually, simplified: Always update display from timeline unless user drags a slider
+        const p = calculatePoseAtTime(currentTime);
+        setDisplayPose(p);
+    }, [currentTime, keyframes]);
+
+    // --- HANDLERS ---
+
+    const handlePoseChange = (path: string[], axis: string, val: number) => {
+        // Pause if editing
+        setIsPlaying(false);
+        
+        setDisplayPose(prev => {
             const next = JSON.parse(JSON.stringify(prev));
             let current = next;
             for (let i = 0; i < path.length; i++) {
@@ -142,117 +273,217 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             return next;
         });
     };
-
-    const updateKnee = (leg: 'LEFT_LEG' | 'RIGHT_LEG', val: number) => {
-        setPose(prev => ({
+    
+    const handleKneeChange = (leg: 'LEFT_LEG' | 'RIGHT_LEG', val: number) => {
+        setIsPlaying(false);
+        setDisplayPose(prev => ({
             ...prev,
-            [leg]: {
-                ...prev[leg],
-                KNEE: val
-            }
+            [leg]: { ...prev[leg], KNEE: val }
         }));
     };
 
-    // GUIDE UPDATE HELPERS
-    const updateGuidePos = (axis: 'x'|'y'|'z', val: number) => {
-        setGuidePos(prev => ({ ...prev, [axis]: val }));
-    };
-    const updateGuideRot = (axis: 'x'|'y'|'z', val: number) => {
-        setGuideRot(prev => ({ ...prev, [axis]: val }));
+    const addOrUpdateKeyframe = () => {
+        // Check if a keyframe exists at exactly this time (tolerance 0.01)
+        const existingIdx = keyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.01);
+        
+        const newKeyframe = {
+            time: currentTime,
+            pose: clonePose(displayPose)
+        };
+
+        if (existingIdx >= 0) {
+            // Update
+            const newKeys = [...keyframes];
+            newKeys[existingIdx] = newKeyframe;
+            setKeyframes(newKeys.sort((a, b) => a.time - b.time));
+        } else {
+            // Add
+            setKeyframes([...keyframes, newKeyframe].sort((a, b) => a.time - b.time));
+        }
     };
 
-    const copyData = () => {
-        const objStr = formatPoseToObj(pose);
+    const deleteKeyframe = () => {
+         const existingIdx = keyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.01);
+         if (existingIdx >= 0 && keyframes.length > 1) {
+             const newKeys = [...keyframes];
+             newKeys.splice(existingIdx, 1);
+             setKeyframes(newKeys);
+         }
+    };
+
+    // --- EXPORT CLIP ---
+    const exportClipJSON = () => {
+        const clipName = "CUSTOM_ANIM";
+        // Manually build JSON string for super-compact single-line tracks
+        let json = `{\n`;
+        json += `  "name": "${clipName}",\n`;
+        json += `  "duration": 1.0,\n`;
+        json += `  "loop": false,\n`;
+        json += `  "tracks": [\n`;
+
+        const getValue = (pose: any, path: string[]) => {
+            let val = pose;
+            for (const p of path) val = val[p];
+            return val;
+        };
+
+        const bonePaths = [
+            ['TORSO'], ['CHEST'], ['HEAD'],
+            ['LEFT_ARM', 'SHOULDER'], ['LEFT_ARM', 'ELBOW'], ['LEFT_ARM', 'FOREARM'], ['LEFT_ARM', 'WRIST'],
+            ['RIGHT_ARM', 'SHOULDER'], ['RIGHT_ARM', 'ELBOW'], ['RIGHT_ARM', 'FOREARM'], ['RIGHT_ARM', 'WRIST'],
+            ['LEFT_LEG', 'THIGH'], ['LEFT_LEG', 'KNEE'], ['LEFT_LEG', 'ANKLE'],
+            ['RIGHT_LEG', 'THIGH'], ['RIGHT_LEG', 'KNEE'], ['RIGHT_LEG', 'ANKLE'],
+            ['SHIELD', 'POSITION'], ['SHIELD', 'ROTATION']
+        ];
+
+        bonePaths.forEach((path, tIdx) => {
+            json += `    { "bone": "${path.join('.')}", "keyframes": [ `;
+            
+            const kfs = keyframes.map((kf) => {
+                const val = getValue(kf.pose, path);
+                const t = parseFloat(kf.time.toFixed(4));
+                
+                let vStr = "";
+                if (typeof val === 'number') {
+                    vStr = parseFloat(val.toFixed(3)).toString();
+                } else {
+                    // Compact Vector3 {x:0,y:0,z:0} without extra spaces
+                    vStr = `{ "x": ${parseFloat(val.x.toFixed(3))}, "y": ${parseFloat(val.y.toFixed(3))}, "z": ${parseFloat(val.z.toFixed(3))} }`;
+                }
+                
+                return `{ "time": ${t}, "value": ${vStr} }`;
+            });
+
+            json += kfs.join(", ");
+            json += ` ] }${tIdx === bonePaths.length - 1 ? '' : ','}\n`;
+        });
+
+        json += `  ]\n`;
+        json += `}`;
+
+        navigator.clipboard.writeText(json);
+        alert("Animation Clip JSON copied to clipboard! (Compact Single-Line Tracks)");
+    };
+
+    // --- EXPORT FRAME (Pose Object) ---
+    const exportFrameObj = () => {
+        const objStr = formatPoseToObj(displayPose);
         navigator.clipboard.writeText(objStr);
-        alert("Pose Object copied to clipboard! You can paste it directly into animations.ts");
+        alert("Single Pose Object copied to clipboard!");
     };
 
-    // --- 自动对齐刀刃逻辑 (AUTO ALIGN LOGIC) ---
+    // --- IMPORT ---
+    const handleImport = () => {
+        try {
+            // eslint-disable-next-line no-new-func
+            const parseFn = new Function(`return ${importText}`);
+            const importedData = parseFn();
+
+            if (importedData.tracks) {
+                // It's an Animation Clip with Tracks
+                // We need to reconstruct "Keyframe Snapshots" from the tracks.
+                // 1. Collect all unique timestamps
+                const uniqueTimes = new Set<number>();
+                const tracks: AnimationTrack[] = importedData.tracks;
+                
+                tracks.forEach(t => {
+                    t.keyframes.forEach(kf => uniqueTimes.add(kf.time));
+                });
+                
+                // 2. Sort timestamps
+                const sortedTimes = Array.from(uniqueTimes).sort((a, b) => a - b);
+                
+                // 3. Reconstruct Pose for each timestamp
+                const newSnapshots: KeyframeSnapshot[] = sortedTimes.map(time => {
+                    const pose = clonePose(DEFAULT_MECH_POSE);
+                    
+                    tracks.forEach(track => {
+                        // Find keyframe matching time (approx match for floats)
+                        const kf = track.keyframes.find(k => Math.abs(k.time - time) < 0.0001);
+                        if (kf) {
+                             // Apply value to pose
+                             const path = track.bone.split('.');
+                             if (path.length === 1) {
+                                 (pose as any)[path[0]] = kf.value;
+                             } else if (path.length === 2) {
+                                 (pose as any)[path[0]][path[1]] = kf.value;
+                             }
+                        }
+                    });
+                    
+                    return { time, pose };
+                });
+                
+                setKeyframes(newSnapshots);
+                if (newSnapshots.length > 0) {
+                    setDisplayPose(newSnapshots[0].pose);
+                    setCurrentTime(newSnapshots[0].time);
+                }
+                alert(`Imported Animation Clip with ${newSnapshots.length} keyframes.`);
+                setShowImport(false);
+
+            } 
+            else if (importedData.TORSO) {
+                 // It's a Single Pose Object
+                 const merged = { ...DEFAULT_MECH_POSE, ...importedData };
+                 if(importedData.LEFT_ARM) merged.LEFT_ARM = { ...DEFAULT_MECH_POSE.LEFT_ARM, ...importedData.LEFT_ARM };
+                 if(importedData.RIGHT_ARM) merged.RIGHT_ARM = { ...DEFAULT_MECH_POSE.RIGHT_ARM, ...importedData.RIGHT_ARM };
+                 
+                 setDisplayPose(merged);
+                 alert("Imported Pose. Click 'Keyframe' to add it to timeline.");
+                 setShowImport(false);
+            } else {
+                alert("Invalid format.");
+            }
+        } catch (e) {
+            alert("Failed to parse. Ensure valid JS object string.");
+            console.error(e);
+        }
+    };
+
+    // --- GUIDE LOGIC ---
+    const updateGuidePos = (axis: 'x'|'y'|'z', val: number) => setGuidePos(p => ({...p, [axis]: val}));
+    const updateGuideRot = (axis: 'x'|'y'|'z', val: number) => setGuideRot(p => ({...p, [axis]: val}));
+    
     const autoAlignBlade = () => {
-        // 1. 获取辅助平面的法线 (Plane Normal)
         const planeQuat = new Quaternion().setFromEuler(new Euler(guideRot.x, guideRot.y, guideRot.z));
         const planeNormal = new Vector3(0, 0, 1).applyQuaternion(planeQuat).normalize();
 
-        // 2. 构建左臂的运动学链矩阵 (Kinematic Chain) - 修正为 LEFT_ARM
+        // Reconstruct Left Arm Chain using `displayPose`
+        const p = displayPose;
         
-        // Torso (Root)
-        const mTorso = new Matrix4().makeRotationFromEuler(new Euler(pose.TORSO.x, pose.TORSO.y, pose.TORSO.z));
+        const mTorso = new Matrix4().makeRotationFromEuler(new Euler(p.TORSO.x, p.TORSO.y, p.TORSO.z));
+        const mChest = new Matrix4().makeRotationFromEuler(new Euler(p.CHEST.x, p.CHEST.y, p.CHEST.z));
+        mChest.setPosition(0, 0.65, 0); mChest.premultiply(mTorso);
         
-        // Chest (Parent: Torso)
-        const mChest = new Matrix4().makeRotationFromEuler(new Euler(pose.CHEST.x, pose.CHEST.y, pose.CHEST.z));
-        mChest.setPosition(0, 0.65, 0);
-        mChest.premultiply(mTorso);
-
-        // Left Shoulder (Parent: Chest)
-        const mShoulder = new Matrix4().makeRotationFromEuler(new Euler(pose.LEFT_ARM.SHOULDER.x, pose.LEFT_ARM.SHOULDER.y, pose.LEFT_ARM.SHOULDER.z));
-        mShoulder.setPosition(-0.65, 0.1, 0); // 注意：左臂 X 偏移为负
-        mShoulder.premultiply(mChest);
-
-        // Left Elbow (Parent: Shoulder)
-        // 左右臂的 Elbow 偏移在 PosableUnit 中是对称的，都是 [0, -0.4, 0]
-        const mElbow = new Matrix4().makeRotationFromEuler(new Euler(pose.LEFT_ARM.ELBOW.x, pose.LEFT_ARM.ELBOW.y, pose.LEFT_ARM.ELBOW.z));
-        mElbow.setPosition(0, -0.4, 0);
-        mElbow.premultiply(mShoulder);
-
-        // Left Forearm Twist (Parent: Elbow)
-        const mForearm = new Matrix4().makeRotationFromEuler(new Euler(pose.LEFT_ARM.FOREARM.x, pose.LEFT_ARM.FOREARM.y, pose.LEFT_ARM.FOREARM.z));
+        const mShoulder = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.SHOULDER.x, p.LEFT_ARM.SHOULDER.y, p.LEFT_ARM.SHOULDER.z));
+        mShoulder.setPosition(-0.65, 0.1, 0); mShoulder.premultiply(mChest);
+        
+        const mElbow = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.ELBOW.x, p.LEFT_ARM.ELBOW.y, p.LEFT_ARM.ELBOW.z));
+        mElbow.setPosition(0, -0.4, 0); mElbow.premultiply(mShoulder);
+        
+        const mForearm = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.FOREARM.x, p.LEFT_ARM.FOREARM.y, p.LEFT_ARM.FOREARM.z));
         mForearm.premultiply(mElbow);
 
-        // Wrist Pivot Container (Offsets inside Forearm)
-        // PosableUnit: Forearm Twist -> Group([0, -0.5, 0.1]) -> Wrist Group([0, -0.35, 0])
-        const mWristPivot = new Matrix4().makeTranslation(0, -0.35, 0); // Wrist offset
-        mWristPivot.premultiply(new Matrix4().makeRotationFromEuler(new Euler(-0.2, 0, 0))); // Armor rotation
-        mWristPivot.premultiply(new Matrix4().makeTranslation(0, -0.5, 0.1)); // Armor offset
+        const mWristPivot = new Matrix4().makeTranslation(0, -0.35, 0); 
+        mWristPivot.premultiply(new Matrix4().makeRotationFromEuler(new Euler(-0.2, 0, 0))); 
+        mWristPivot.premultiply(new Matrix4().makeTranslation(0, -0.5, 0.1)); 
         mWristPivot.premultiply(mForearm);
 
-        // 3. 计算光剑在手腕局部空间的方向
-        // Saber 位于手腕内的 [0, 0, 0.1]，旋转为 [Math.PI/1.8, 0, 0]
         const saberRot = new Euler(Math.PI/1.8, 0, 0);
         const bladeLocalVec = new Vector3(0, 1, 0).applyEuler(saberRot); 
-        
-        // 4. 将平面法线转换到“手腕父级”坐标系
         const invWristPivot = mWristPivot.clone().invert();
         const localNormal = planeNormal.clone().transformDirection(invWristPivot).normalize();
-
-        // 5. 计算目标向量
         const projection = bladeLocalVec.clone().sub(localNormal.clone().multiplyScalar(bladeLocalVec.dot(localNormal)));
         
-        if (projection.lengthSq() < 0.0001) {
-            alert("Blade is already perpendicular to plane! Move arm slightly.");
-            return;
-        }
+        if (projection.lengthSq() < 0.0001) return;
         projection.normalize();
-
-        // 6. 计算旋转
         const alignQuat = new Quaternion().setFromUnitVectors(bladeLocalVec, projection);
         const newWristEuler = new Euler().setFromQuaternion(alignQuat);
 
-        // 7. 应用更新到 LEFT_ARM
-        updatePose(['LEFT_ARM', 'WRIST'], 'x', newWristEuler.x);
-        updatePose(['LEFT_ARM', 'WRIST'], 'y', newWristEuler.y);
-        updatePose(['LEFT_ARM', 'WRIST'], 'z', newWristEuler.z);
-    };
-
-    const handleImport = () => {
-        try {
-            // Use Function constructor to parse the JS object string loosely
-            // eslint-disable-next-line no-new-func
-            const parseFn = new Function(`return ${importText}`);
-            const importedPose = parseFn();
-            
-            if (importedPose && importedPose.TORSO && importedPose.LEFT_ARM) {
-                const merged = { ...DEFAULT_MECH_POSE, ...importedPose };
-                if(importedPose.LEFT_ARM) merged.LEFT_ARM = { ...DEFAULT_MECH_POSE.LEFT_ARM, ...importedPose.LEFT_ARM };
-                if(importedPose.RIGHT_ARM) merged.RIGHT_ARM = { ...DEFAULT_MECH_POSE.RIGHT_ARM, ...importedPose.RIGHT_ARM };
-                setPose(merged);
-                setShowImport(false);
-            } else {
-                alert("Invalid pose object structure.");
-            }
-        } catch (e) {
-            alert("Failed to parse object. Ensure it is a valid JS object string.");
-            console.error(e);
-        }
+        handlePoseChange(['LEFT_ARM', 'WRIST'], 'x', newWristEuler.x);
+        handlePoseChange(['LEFT_ARM', 'WRIST'], 'y', newWristEuler.y);
+        handlePoseChange(['LEFT_ARM', 'WRIST'], 'z', newWristEuler.z);
     };
 
     return (
@@ -262,10 +493,11 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             {showImport && (
                 <div className="absolute inset-0 z-[110] bg-black/80 flex items-center justify-center p-4">
                     <div className="bg-gray-900 border border-gray-600 p-6 rounded-lg w-full max-w-2xl shadow-2xl">
-                        <h3 className="text-lg font-bold text-white mb-4">IMPORT POSE OBJECT</h3>
+                        <h3 className="text-lg font-bold text-white mb-4">IMPORT DATA</h3>
+                         <div className="text-xs text-gray-400 mb-2">Paste either a single Pose Object OR a full Animation Clip JSON</div>
                         <textarea 
                             className="w-full h-64 bg-black/50 border border-gray-700 p-4 font-mono text-xs text-green-400 mb-4 focus:outline-none focus:border-cyan-500"
-                            placeholder="Paste the pose object here (e.g. { TORSO: { x: 0... } })..."
+                            placeholder="{ TORSO: ... } OR { tracks: ... }"
                             value={importText}
                             onChange={(e) => setImportText(e.target.value)}
                         />
@@ -280,7 +512,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 onClick={handleImport}
                                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-bold"
                             >
-                                APPLY POSE
+                                LOAD DATA
                             </button>
                         </div>
                     </div>
@@ -288,78 +520,128 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             )}
 
             {/* 3D VIEWPORT */}
-            <div className="flex-1 relative h-[50vh] md:h-auto bg-gradient-to-b from-gray-900 to-gray-800">
-                <Canvas> 
-                    <PerspectiveCamera makeDefault position={[2.5, 2, 4.5]} fov={45} />
-                    <color attach="background" args={['#1a1d26']} />
+            <div className="flex-1 relative h-[60vh] md:h-auto bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col">
+                <div className="flex-1 relative">
+                    <Canvas> 
+                        <PerspectiveCamera makeDefault position={[2.5, 2, 4.5]} fov={45} />
+                        <color attach="background" args={['#1a1d26']} />
+                        <OrbitControls makeDefault target={[0, 1, 0]} />
+                        <ambientLight intensity={0.6} />
+                        <directionalLight position={[5, 10, 5]} intensity={1.8} />
+                        <group position={[0, 0, 0]}>
+                            <PosableUnit pose={displayPose} weapon={weapon} />
+                            <SlashPlaneGuide visible={guideVisible} position={guidePos} rotation={guideRot} />
+                        </group>
+                        <Grid position={[0, -0.01, 0]} args={[20, 20]} />
+                    </Canvas>
                     
-                    <OrbitControls makeDefault target={[0, 1, 0]} />
-
-                    <ambientLight intensity={0.6} />
-                    <directionalLight position={[5, 10, 5]} intensity={1.8} />
-                    <pointLight position={[-5, 5, -5]} intensity={5} color="#00aaff" distance={15} />
-                    <pointLight position={[5, 2, 5]} intensity={3} color="#ff0066" distance={15} />
-
-                    {/* Scene Content */}
-                    <group position={[0, 0, 0]}>
-                        <PosableUnit pose={pose} weapon={weapon} />
-                        <SlashPlaneGuide visible={guideVisible} position={guidePos} rotation={guideRot} />
-                    </group>
-
-                    <Grid position={[0, -0.01, 0]} args={[20, 20]} cellSize={0.5} cellThickness={0.6} cellColor="#444" sectionSize={2.5} sectionThickness={1} sectionColor="#666" fadeDistance={20} infiniteGrid />
-                </Canvas>
-                
-                <div className="absolute top-4 left-4 flex space-x-4 pointer-events-none">
-                    <div className="bg-black/60 text-white px-4 py-2 text-xs font-bold rounded border border-white/10 backdrop-blur-sm">
-                        POSE EDITOR TOOL
+                    {/* Top Bar */}
+                    <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
+                        <div className="bg-black/60 px-3 py-1 rounded border border-white/10 text-xs font-bold backdrop-blur-sm">
+                            TIMELINE EDITOR
+                        </div>
+                        <div className="pointer-events-auto space-x-2">
+                             <button onClick={() => setWeapon(w => w === 'GUN' ? 'SABER' : 'GUN')} className="bg-gray-700 px-3 py-1 rounded text-[10px] font-bold border border-gray-500">
+                                {weapon}
+                            </button>
+                             <button onClick={() => setShowImport(true)} className="bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded text-[10px] font-bold border border-purple-500">
+                                IMPORT
+                            </button>
+                            <button onClick={onClose} className="bg-red-600/80 hover:bg-red-500 px-3 py-1 rounded text-[10px] font-bold border border-red-400">
+                                EXIT
+                            </button>
+                        </div>
                     </div>
                 </div>
-                
-                <div className="absolute top-4 right-4 pointer-events-auto">
-                    <button onClick={onClose} className="bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 text-xs rounded font-bold border border-red-400/50 transition-colors">
-                        CLOSE
-                    </button>
-                </div>
-                
-                {/* Bottom Overlay */}
-                <div className="absolute bottom-6 right-6 flex space-x-3 pointer-events-auto">
-                     <button 
-                        onClick={() => setWeapon(w => w === 'GUN' ? 'SABER' : 'GUN')}
-                        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-xs font-bold border border-gray-500"
+
+                {/* TIMELINE UI (Bottom Panel) */}
+                <div className="h-32 bg-[#0a0a0a] border-t border-gray-700 p-4 flex flex-col justify-center">
+                    {/* Controls Row */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-2">
+                            <button 
+                                onClick={() => setIsPlaying(!isPlaying)}
+                                className={`w-8 h-8 flex items-center justify-center rounded ${isPlaying ? 'bg-yellow-600 text-black' : 'bg-green-600 text-white'}`}
+                            >
+                                {isPlaying ? '⏸' : '▶'}
+                            </button>
+                            <div className="text-xs font-mono text-cyan-400 w-16">
+                                {(currentTime * 100).toFixed(0)}%
+                            </div>
+                            <div className="flex flex-col">
+                                <label className="text-[8px] text-gray-500">SPEED</label>
+                                <input 
+                                    type="range" min="0.1" max="2.0" step="0.1" 
+                                    value={playbackSpeed} onChange={e => setPlaybackSpeed(parseFloat(e.target.value))} 
+                                    className="w-20 h-1"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                             <button onClick={deleteKeyframe} className="px-3 py-1 bg-red-900/50 border border-red-700 text-red-400 text-[10px] rounded hover:bg-red-800">
+                                DELETE KEY
+                            </button>
+                            <button onClick={addOrUpdateKeyframe} className="px-4 py-1.5 bg-cyan-700 border border-cyan-500 text-white text-xs font-bold rounded hover:bg-cyan-600 shadow-lg shadow-cyan-500/20">
+                                ◆ KEYFRAME
+                            </button>
+                             {/* EXPORT BUTTONS */}
+                             <div className="flex space-x-1 ml-4">
+                                <button onClick={exportFrameObj} className="px-3 py-1.5 bg-gray-700 border border-gray-500 text-white text-[10px] font-bold rounded hover:bg-gray-600">
+                                    EXP POSE
+                                </button>
+                                <button onClick={exportClipJSON} className="px-3 py-1.5 bg-purple-700 border border-purple-500 text-white text-[10px] font-bold rounded hover:bg-purple-600">
+                                    EXP ANIM
+                                </button>
+                             </div>
+                        </div>
+                    </div>
+
+                    {/* Timeline Bar */}
+                    <div className="relative w-full h-8 bg-gray-800 rounded-lg cursor-pointer group"
+                         onClick={(e) => {
+                             const rect = e.currentTarget.getBoundingClientRect();
+                             const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                             setCurrentTime(x);
+                             setIsPlaying(false);
+                         }}
                     >
-                        WEAPON: <span className="text-cyan-400">{weapon}</span>
-                    </button>
-                    <button 
-                        onClick={() => setShowImport(true)}
-                        className="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-xs font-bold border border-purple-500"
-                    >
-                        IMPORT
-                    </button>
-                    <button 
-                        onClick={copyData}
-                        className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg border border-cyan-400"
-                    >
-                        COPY OBJ
-                    </button>
+                        {/* Ticks for existing keyframes */}
+                        {keyframes.map((kf, i) => (
+                            <div 
+                                key={i} 
+                                className="absolute top-0 bottom-0 w-1 bg-yellow-400 z-10 hover:bg-white transition-colors"
+                                style={{ left: `${kf.time * 100}%` }}
+                                title={`Keyframe ${i}: ${(kf.time*100).toFixed(0)}%`}
+                            />
+                        ))}
+
+                        {/* Playhead */}
+                        <div 
+                            className="absolute top-[-4px] bottom-[-4px] w-0.5 bg-red-500 z-20 pointer-events-none shadow-[0_0_10px_rgba(255,0,0,0.8)]"
+                            style={{ left: `${currentTime * 100}%` }}
+                        >
+                            <div className="absolute -top-2 -left-1.5 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-red-500"></div>
+                        </div>
+                        
+                        {/* Ruler Lines */}
+                        <div className="absolute inset-0 flex justify-between px-0.5 pointer-events-none opacity-20">
+                            {[...Array(11)].map((_, i) => (
+                                <div key={i} className="w-px h-full bg-white"></div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
 
             {/* CONTROLS SIDEBAR */}
-            <div className="w-full md:w-96 bg-[#0f1115] border-l border-gray-800 h-[50vh] md:h-auto overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-700">
-                <div className="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
-                    <h2 className="text-sm font-bold text-white tracking-widest">
-                        JOINT CONFIG
-                    </h2>
-                    <div className="text-[10px] text-gray-500 font-mono">ALL ANGLES IN RADIANS</div>
-                </div>
-
-                <div className="space-y-6">
-                    {/* --- GUIDE CONTROLS --- */}
-                    <section className="bg-gray-900/50 p-3 rounded border border-gray-700 mb-6">
+            <div className="w-full md:w-96 bg-[#0f1115] border-l border-gray-800 h-[40vh] md:h-auto overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-700">
+                 {/* --- GUIDE CONTROLS --- */}
+                 <section className="bg-gray-900/50 p-3 rounded border border-gray-700 mb-6">
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="text-[10px] font-bold text-green-400 uppercase flex items-center">
                                 <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                                切面辅助规 (SLASH GUIDE)
+                                SLASH PLANE GUIDE
                             </h3>
                             <button
                                 onClick={() => setGuideVisible(!guideVisible)}
@@ -375,71 +657,50 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         
                         {guideVisible && (
                             <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="bg-black/20 p-2 rounded border border-white/5 mb-2">
-                                    <p className="text-[9px] text-gray-400 leading-relaxed">
-                                        1. 调整圆盘代表挥砍轨迹面。<br/>
-                                        2. 调整左肩/肘使手靠近圆盘。<br/>
-                                        3. 点击对齐，自动旋转手腕贴合。
-                                    </p>
-                                </div>
                                 <VectorControl label="PLANE POS (位置)" vector={guidePos} onChange={updateGuidePos} />
                                 <VectorControl label="PLANE ROT (角度)" vector={guideRot} onChange={updateGuideRot} />
-                                
-                                <button
-                                    onClick={autoAlignBlade}
-                                    className="w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded text-xs font-bold tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center"
-                                >
-                                    <span className="mr-1">⚡</span> AUTO-ALIGN (左手对齐)
+                                <button onClick={autoAlignBlade} className="w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded text-xs font-bold tracking-widest shadow-lg transition-all active:scale-95">
+                                    ⚡ AUTO-ALIGN
                                 </button>
                             </div>
                         )}
                     </section>
 
+                <div className="space-y-6">
+                    {/* POSE CONTROLS - Same as before but operating on displayPose via handlePoseChange */}
                     <section>
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Core (躯干)</h3>
-                        <VectorControl label="HEAD" vector={pose.HEAD} onChange={(a, v) => updatePose(['HEAD'], a, v)} />
-                        <VectorControl label="TORSO (WAIST)" vector={pose.TORSO} onChange={(a, v) => updatePose(['TORSO'], a, v)} />
-                        <VectorControl label="CHEST (UPPER)" vector={pose.CHEST} onChange={(a, v) => updatePose(['CHEST'], a, v)} />
+                        <VectorControl label="HEAD" vector={displayPose.HEAD} onChange={(a, v) => handlePoseChange(['HEAD'], a, v)} />
+                        <VectorControl label="TORSO" vector={displayPose.TORSO} onChange={(a, v) => handlePoseChange(['TORSO'], a, v)} />
+                        <VectorControl label="CHEST" vector={displayPose.CHEST} onChange={(a, v) => handlePoseChange(['CHEST'], a, v)} />
                     </section>
-                    
                     <section>
-                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Right Arm (右臂)</h3>
-                        <VectorControl label="SHOULDER" vector={pose.RIGHT_ARM.SHOULDER} onChange={(a, v) => updatePose(['RIGHT_ARM', 'SHOULDER'], a, v)} />
-                        <VectorControl label="ELBOW" vector={pose.RIGHT_ARM.ELBOW} onChange={(a, v) => updatePose(['RIGHT_ARM', 'ELBOW'], a, v)} />
-                        <VectorControl label="FOREARM (TWIST)" vector={pose.RIGHT_ARM.FOREARM} onChange={(a, v) => updatePose(['RIGHT_ARM', 'FOREARM'], a, v)} />
-                        <VectorControl label="WRIST (HAND)" vector={pose.RIGHT_ARM.WRIST} onChange={(a, v) => updatePose(['RIGHT_ARM', 'WRIST'], a, v)} />
+                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Left Arm (Saber)</h3>
+                        <VectorControl label="SHOULDER" vector={displayPose.LEFT_ARM.SHOULDER} onChange={(a, v) => handlePoseChange(['LEFT_ARM', 'SHOULDER'], a, v)} />
+                        <VectorControl label="ELBOW" vector={displayPose.LEFT_ARM.ELBOW} onChange={(a, v) => handlePoseChange(['LEFT_ARM', 'ELBOW'], a, v)} />
+                        <VectorControl label="FOREARM" vector={displayPose.LEFT_ARM.FOREARM} onChange={(a, v) => handlePoseChange(['LEFT_ARM', 'FOREARM'], a, v)} />
+                        <VectorControl label="WRIST" vector={displayPose.LEFT_ARM.WRIST} onChange={(a, v) => handlePoseChange(['LEFT_ARM', 'WRIST'], a, v)} />
                     </section>
-
                     <section>
-                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Left Arm (左臂)</h3>
-                        <VectorControl label="SHOULDER" vector={pose.LEFT_ARM.SHOULDER} onChange={(a, v) => updatePose(['LEFT_ARM', 'SHOULDER'], a, v)} />
-                        <VectorControl label="ELBOW" vector={pose.LEFT_ARM.ELBOW} onChange={(a, v) => updatePose(['LEFT_ARM', 'ELBOW'], a, v)} />
-                        <VectorControl label="FOREARM (TWIST)" vector={pose.LEFT_ARM.FOREARM} onChange={(a, v) => updatePose(['LEFT_ARM', 'FOREARM'], a, v)} />
-                        <VectorControl label="WRIST (HAND)" vector={pose.LEFT_ARM.WRIST} onChange={(a, v) => updatePose(['LEFT_ARM', 'WRIST'], a, v)} />
+                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Right Arm</h3>
+                        <VectorControl label="SHOULDER" vector={displayPose.RIGHT_ARM.SHOULDER} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'SHOULDER'], a, v)} />
+                        <VectorControl label="ELBOW" vector={displayPose.RIGHT_ARM.ELBOW} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'ELBOW'], a, v)} />
+                        {/* RESTORED FOREARM CONTROL */}
+                        <VectorControl label="FOREARM" vector={displayPose.RIGHT_ARM.FOREARM} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'FOREARM'], a, v)} />
+                        <VectorControl label="WRIST" vector={displayPose.RIGHT_ARM.WRIST} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'WRIST'], a, v)} />
                     </section>
-
                     <section>
-                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Right Leg (右腿)</h3>
-                        <VectorControl label="THIGH" vector={pose.RIGHT_LEG.THIGH} onChange={(a, v) => updatePose(['RIGHT_LEG', 'THIGH'], a, v)} />
-                        <div className="mb-3 border-b border-gray-800 pb-2">
-                            <div className="text-xs font-bold text-gray-300 mb-1">KNEE</div>
-                            <RangeControl label="X" value={pose.RIGHT_LEG.KNEE} onChange={(v) => updateKnee('RIGHT_LEG', v)} min={0} max={2.5} />
-                        </div>
-                        <VectorControl label="ANKLE" vector={pose.RIGHT_LEG.ANKLE} onChange={(a, v) => updatePose(['RIGHT_LEG', 'ANKLE'], a, v)} />
-                    </section>
-
-                    <section>
-                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Left Leg (左腿)</h3>
-                        <VectorControl label="THIGH" vector={pose.LEFT_LEG.THIGH} onChange={(a, v) => updatePose(['LEFT_LEG', 'THIGH'], a, v)} />
-                        <div className="mb-3 border-b border-gray-800 pb-2">
-                            <div className="text-xs font-bold text-gray-300 mb-1">KNEE</div>
-                            <RangeControl label="X" value={pose.LEFT_LEG.KNEE} onChange={(v) => updateKnee('LEFT_LEG', v)} min={0} max={2.5} />
-                        </div>
-                        <VectorControl label="ANKLE" vector={pose.LEFT_LEG.ANKLE} onChange={(a, v) => updatePose(['LEFT_LEG', 'ANKLE'], a, v)} />
+                        <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Legs</h3>
+                        <VectorControl label="L. THIGH" vector={displayPose.LEFT_LEG.THIGH} onChange={(a, v) => handlePoseChange(['LEFT_LEG', 'THIGH'], a, v)} />
+                        <RangeControl label="L. KNEE" value={displayPose.LEFT_LEG.KNEE} onChange={(v) => handleKneeChange('LEFT_LEG', v)} min={0} max={2.5} />
+                        <VectorControl label="L. ANKLE" vector={displayPose.LEFT_LEG.ANKLE} onChange={(a, v) => handlePoseChange(['LEFT_LEG', 'ANKLE'], a, v)} />
+                        <div className="h-4"></div>
+                        <VectorControl label="R. THIGH" vector={displayPose.RIGHT_LEG.THIGH} onChange={(a, v) => handlePoseChange(['RIGHT_LEG', 'THIGH'], a, v)} />
+                        <RangeControl label="R. KNEE" value={displayPose.RIGHT_LEG.KNEE} onChange={(v) => handleKneeChange('RIGHT_LEG', v)} min={0} max={2.5} />
+                        <VectorControl label="R. ANKLE" vector={displayPose.RIGHT_LEG.ANKLE} onChange={(a, v) => handlePoseChange(['RIGHT_LEG', 'ANKLE'], a, v)} />
                     </section>
                 </div>
-                
-                <div className="h-10"></div> {/* Spacer */}
+                <div className="h-20"></div>
             </div>
         </div>
     );

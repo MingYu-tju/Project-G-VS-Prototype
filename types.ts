@@ -1,9 +1,7 @@
-
 import { Vector3 } from 'three';
 import React from 'react';
 
 // --- FIX: Add missing JSX Intrinsic Elements for React Three Fiber ---
-// Define the interface for R3F elements to ensure they are recognized in JSX
 interface ThreeElements {
   group: any;
   mesh: any;
@@ -14,7 +12,7 @@ interface ThreeElements {
   circleGeometry: any;
   ringGeometry: any;
   icosahedronGeometry: any;
-  torusGeometry: any; // Added
+  torusGeometry: any; 
   meshBasicMaterial: any;
   meshStandardMaterial: any;
   meshToonMaterial: any;
@@ -29,7 +27,6 @@ interface ThreeElements {
   [elemName: string]: any;
 }
 
-// Augment global JSX namespace (for legacy or global-based setups)
 declare global {
   namespace JSX {
     interface IntrinsicElements extends ThreeElements {}
@@ -47,16 +44,16 @@ export interface GameEntity {
   type: 'PLAYER' | 'ALLY' | 'ENEMY';
   team: Team;
   name: string;
-  lastHitTime: number; // Timestamp of the last hit received
-  lastHitDuration: number; // New: How long the stun lasts for the specific hit
-  knockbackDir?: Vector3; // The direction of the knockback force
-  knockbackPower?: number; // New: Multiplier for knockback distance/speed
-  targetId?: string | null; // The ID of the entity this unit is currently targeting
+  lastHitTime: number;
+  lastHitDuration: number;
+  knockbackDir?: Vector3;
+  knockbackPower?: number;
+  targetId?: string | null;
 }
 
 export enum LockState {
-  GREEN = 'GREEN', // Far, no tracking
-  RED = 'RED' // Close, tracking active
+  GREEN = 'GREEN',
+  RED = 'RED'
 }
 
 export const RED_LOCK_DISTANCE = 70;
@@ -67,10 +64,10 @@ export interface Projectile {
   targetId: string | null;
   position: Vector3;
   velocity: Vector3;
-  forwardDirection: Vector3; // New: The fixed facing direction of the bullet model
+  forwardDirection: Vector3;
   isHoming: boolean;
   team: Team;
-  ttl: number; // Time To Live (frames)
+  ttl: number;
 }
 
 export interface HitEffectData {
@@ -81,32 +78,34 @@ export interface HitEffectData {
     scale: number;
 }
 
-// --- POSE DATA INTERFACE ---
+// --- ANIMATION SYSTEM TYPES ---
+
 export interface RotationVector {
     x: number;
     y: number;
     z: number;
 }
 
+// A snapshot of the entire mech's rotation state
 export interface MechPose {
-    TORSO: RotationVector; // Waist
-    CHEST: RotationVector; // Upper Body
+    TORSO: RotationVector;
+    CHEST: RotationVector;
     HEAD: RotationVector;
     LEFT_ARM: {
         SHOULDER: RotationVector;
         ELBOW: RotationVector;
-        FOREARM: RotationVector; // Twist
-        WRIST: RotationVector;   // Fist/Hand
+        FOREARM: RotationVector;
+        WRIST: RotationVector;
     };
     RIGHT_ARM: {
         SHOULDER: RotationVector;
         ELBOW: RotationVector;
-        FOREARM: RotationVector; // Twist
-        WRIST: RotationVector;   // Fist/Hand
+        FOREARM: RotationVector;
+        WRIST: RotationVector;
     };
     LEFT_LEG: {
         THIGH: RotationVector;
-        KNEE: number; // Knees usually only bend on X axis
+        KNEE: number;
         ANKLE: RotationVector;
     };
     RIGHT_LEG: {
@@ -120,35 +119,58 @@ export interface MechPose {
     };
 }
 
+// Identifies a specific bone path (e.g., "LEFT_ARM.SHOULDER")
+export type BonePath = string;
+
+export interface Keyframe {
+    time: number; // Normalized time (0.0 to 1.0)
+    value: RotationVector | number; // Euler angles or scalar (for knee)
+    easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+}
+
+export interface AnimationTrack {
+    bone: BonePath;
+    keyframes: Keyframe[];
+}
+
+export interface AnimationClip {
+    name: string;
+    duration: number; // Normalized duration concept (1.0), speed handled by controller
+    loop: boolean;
+    tracks: AnimationTrack[];
+    basePose?: MechPose; 
+}
+
+// UPDATED: Matches the initial JSX rotations in Player.tsx exactly
 export const DEFAULT_MECH_POSE: MechPose = {
     TORSO: { x: 0, y: 0, z: 0 },
     CHEST: { x: 0, y: 0, z: 0 },
-    HEAD: { x: 0, y: 0, z: 0 },
+    HEAD: { x: -0.4, y: 0, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: 0, y: 0, z: 0 },
-        ELBOW: { x: 0, y: 0, z: 0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
-        WRIST: { x: 0, y: 0, z: 0 }
+        SHOULDER: { x: 0.35, y: -0.3, z: 0 },       // gunArmRef (no rotation in JSX)
+        ELBOW: { x: -0.65, y: 0.3, z: 0 },    // leftForeArmRef
+        FOREARM: { x: -0.2, y: 0, z: 0 },     // leftForearmTwistRef
+        WRIST: { x: 0, y: 0, z: 0 }           // leftWristRef
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0, y: 0, z: 0 },
-        ELBOW: { x: 0, y: 0, z: 0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
-        WRIST: { x: 0, y: 0, z: 0 }
+        SHOULDER: { x: 0.35, y: 0.3, z: 0 },  // rightArmRef
+        ELBOW: { x: -0.65, y: -0.3, z: 0 },   // rightForeArmRef
+        FOREARM: { x: -0.2, y: 0, z: 0 },     // rightForearmTwistRef
+        WRIST: { x: 0, y: 0, z: 0 }           // rightWristRef
     },
     LEFT_LEG: {
-        THIGH: { x: 0, y: 0, z: 0 },
-        KNEE: 0,
-        ANKLE: { x: 0, y: 0, z: 0 }
+        THIGH: { x: -0.1, y: 0, z: -0.05 },   // leftLegRef
+        KNEE: 0.2,                            // leftLowerLegRef (x axis)
+        ANKLE: { x: -0.1, y: 0, z: 0 }        // leftFootRef
     },
     RIGHT_LEG: {
-        THIGH: { x: 0, y: 0, z: 0 },
-        KNEE: 0,
-        ANKLE: { x: 0, y: 0, z: 0 }
+        THIGH: { x: -0.1, y: 0, z: 0.05 },    // rightLegRef
+        KNEE: 0.3,                            // rightLowerLegRef (x axis)
+        ANKLE: { x: -0.2, y: 0, z: 0 }        // rightFootRef
     },
     SHIELD: {
         POSITION: { x: 0, y: -0.5, z: 0.1 },
-        ROTATION: { x: -0.2, y: 0, z: 0 }
+        ROTATION: { x: -0.2, y: 0, z: 0 }     // shieldRef
     }
 };
 
@@ -158,104 +180,95 @@ export const GLOBAL_CONFIG = {
     // Movement
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.2,
-    GROUND_TURN_SPEED: 0.10, // New: Ground steering speed (radians per frame)
+    GROUND_TURN_SPEED: 0.10,
     ASCENT_SPEED: 0.38,
-    ASCENT_TURN_SPEED: 0.04, // New: Air steering speed (radians per frame)
-    ASCENT_HORIZONTAL_ACCEL: 0.01, // New: Horizontal acceleration during ascent (Drift control)
-    ASCENT_MAX_HORIZONTAL_SPEED: 0.2, // New: Cap for horizontal speed gained via input during ascent
+    ASCENT_TURN_SPEED: 0.04,
+    ASCENT_HORIZONTAL_ACCEL: 0.01,
+    ASCENT_MAX_HORIZONTAL_SPEED: 0.2,
 
     // Dash
     DASH_BURST_SPEED: 0.75,
     DASH_SUSTAIN_SPEED: 0.5,
     DASH_DECAY_FACTOR: 0.058,
     DASH_TURN_SPEED: 0.04,
-    DASH_GRACE_PERIOD: 80, // (Deprecated/Secondary check)
-    DASH_BURST_DURATION: 25, // Frames where Jump Cancel is locked (Speed decays during this)
-    DASH_COAST_DURATION: 290, // ms - Time to keep dashing after releasing keys
-    DASH_GROUND_HOP_VELOCITY: 0.2, // New: Initial Upward velocity when ground dashing (Smooth Hop)
-    DASH_COOLDOWN_FRAMES: 30, // New: Minimum frames between dashes
+    DASH_GRACE_PERIOD: 80,
+    DASH_BURST_DURATION: 25,
+    DASH_COAST_DURATION: 290,
+    DASH_GROUND_HOP_VELOCITY: 0.2,
+    DASH_COOLDOWN_FRAMES: 30,
 
-    // Jump / Ascend / Short Hop
-    JUMP_SHORT_HOP_FRAMES: 5, // Frames to ascend if jump buffer was triggered but key released
-    JUMP_SHORT_HOP_SPEED: 0.28, // Velocity for a single-tap short hop
+    // Jump / Ascend
+    JUMP_SHORT_HOP_FRAMES: 5,
+    JUMP_SHORT_HOP_SPEED: 0.28,
 
     // Falling Animation
-    FALL_ANIM_RATIO: 0.2,       // Ratio: 0.25 means the animation tries to complete in the first 25% of the predicted fall duration.
-    FALL_ANIM_EXIT_SPEED: 0.1,   // How fast to recover to idle (Lerp factor)
+    FALL_ANIM_RATIO: 0.2,
+    FALL_ANIM_EXIT_SPEED: 0.1,
     
-    // Separate Left/Right Config for Asymmetrical Poses (Falling)
-    FALL_LEG_PITCH_RIGHT: -1.4,  // Right leg rotates forward (negative X)
-    FALL_LEG_PITCH_LEFT: -0.8,   // Left leg rotates forward more (negative X)
-    
-    FALL_KNEE_BEND_RIGHT: 2.6,   // Right knee bends deeply
-    FALL_KNEE_BEND_LEFT: 1.6,    // Left knee bends slightly
-    
-    FALL_LEG_SPREAD: 0.2,       // Legs splay outward (Z axis)
-    FALL_BODY_TILT: 0.4,         // Upper body tilts forward (positive X)
+    FALL_LEG_PITCH_RIGHT: -1.4,
+    FALL_LEG_PITCH_LEFT: -0.8,
+    FALL_KNEE_BEND_RIGHT: 2.6,
+    FALL_KNEE_BEND_LEFT: 1.6,
+    FALL_LEG_SPREAD: 0.2,
+    FALL_BODY_TILT: 0.4,
 
-    // Landing Animation (New: Fixed Duration Visuals)
-    LANDING_VISUAL_DURATION: 35, // Total frames for the landing animation (independent of stun)
-    LANDING_ANIM_RATIO: 0.06,     // 25% of time going down (impact), 75% recovering
-    
-    LANDING_BODY_TILT: 0.7,      // Upper body tilts forward heavily
-    LANDING_LEG_SPLAY: 0.3,      // Legs splay out wider
-    
-    // Separate Left/Right Config for Asymmetrical Poses (Landing)
-    LANDING_LEG_PITCH_RIGHT: -1.8, // Thighs pitch forward (negative X)
+    // Landing Animation
+    LANDING_VISUAL_DURATION: 35,
+    LANDING_ANIM_RATIO: 0.06, 
+    LANDING_BODY_TILT: 0.7,
+    LANDING_LEG_SPLAY: 0.3,
+    LANDING_LEG_PITCH_RIGHT: -1.8,
     LANDING_LEG_PITCH_LEFT: -0.8,
-    
-    LANDING_KNEE_BEND_RIGHT: 2.5,  // Knees bend back (crouch)
+    LANDING_KNEE_BEND_RIGHT: 2.5,
     LANDING_KNEE_BEND_LEFT: 2,
-    
-    LANDING_ANKLE_PITCH_RIGHT: -1, // New: Right ankle pitches forward
-    LANDING_ANKLE_PITCH_LEFT: -1.3,  // New: Left ankle pitches forward
-    
-    LANDING_HIP_DIP: 0.8, // New: Visual vertical drop distance when landing (Crouch height)
+    LANDING_ANKLE_PITCH_RIGHT: -1,
+    LANDING_ANKLE_PITCH_LEFT: -1.3,
+    LANDING_HIP_DIP: 0.8,
 
-    // Evade (Step)
-    EVADE_SPEED: 0.45,          // Normal Step Speed
-    EVADE_DURATION: 28,         // Normal Step Duration
-    EVADE_BOOST_COST: 10,       // Costly maneuver
-    DOUBLE_TAP_WINDOW: 250,     // ms
-    EVADE_ASCENT_INERTIA_RATIO: 0.7, // Keep some momentum on jump cancel
-    EVADE_RECOVERY_FRAMES: 20,       // Freeze time after step
+    // Evade
+    EVADE_SPEED: 0.45,
+    EVADE_DURATION: 28,
+    EVADE_BOOST_COST: 10,
+    DOUBLE_TAP_WINDOW: 250,
+    EVADE_ASCENT_INERTIA_RATIO: 0.7,
+    EVADE_RECOVERY_FRAMES: 20,
     EVADE_TRAIL_DURATION: 28,
 
-    // Rainbow Step (Melee Cancel Step)
-    RAINBOW_STEP_SPEED: 0.75,   // Faster than normal step
-    RAINBOW_STEP_DURATION: 17,  // Shorter duration to maintain similar distance but feel snappier
-    RAINBOW_STEP_BOOST_COST: 18, // Higher cost
-    RAINBOW_STEP_ASCENT_INERTIA_RATIO: 0.7, // Keep MORE momentum (high mobility)
-    RAINBOW_STEP_RECOVERY_FRAMES: 20,        // Faster recovery
+    // Rainbow Step
+    RAINBOW_STEP_SPEED: 0.75,
+    RAINBOW_STEP_DURATION: 17,
+    RAINBOW_STEP_BOOST_COST: 18,
+    RAINBOW_STEP_ASCENT_INERTIA_RATIO: 0.7,
+    RAINBOW_STEP_RECOVERY_FRAMES: 20,
     RAINBOW_STEP_TRAIL_DURATION:17,
     
-    // Melee (N-Melee Phase 1)
-    MELEE_LUNGE_SPEED: 0.65,    // Fast tracking speed
-    MELEE_BOOST_CONSUMPTION: 0.4, // Per frame during lunge
-    MELEE_MAX_LUNGE_TIME: 55,   // Max frames to chase (approx 0.6s)
-    MELEE_STARTUP_FRAMES: 15,   // Windup time (Green lock only, Red lock lunges immediately)
-    MELEE_ATTACK_FRAMES: 25,    // Duration of the slash animation/active frames
-    MELEE_RECOVERY_FRAMES: 15,  // End lag
-    MELEE_RANGE: 2.5,           // Distance to trigger hit (Collision size)
+    // Melee
+    MELEE_LUNGE_SPEED: 0.65,
+    MELEE_BOOST_CONSUMPTION: 0.4,
+    MELEE_MAX_LUNGE_TIME: 55,
+    MELEE_STARTUP_FRAMES: 15,
+    MELEE_ATTACK_FRAMES: 25,
+    MELEE_RECOVERY_FRAMES: 15,
+    MELEE_RANGE: 2.5,
     
     // --- MELEE COMBO ADJUSTMENTS (User Controlled) ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
-            KNOCKBACK_POWER: 0.8,  // Keep low so they stay close for 2nd hit
-            STUN_DURATION: 1000,    // ms: Long enough to input 2nd slash
-            HIT_STOP_FRAMES: 8,     // New: Frames to freeze
+            KNOCKBACK_POWER: 0.8,
+            STUN_DURATION: 1000,
+            HIT_STOP_FRAMES: 8,
         },
         SLASH_2: {
-            STEP_VELOCITY: 0.5,    // Forward speed when 2nd slash starts (Chase)
-            KNOCKBACK_POWER: 1,  // Finish with a strong hit
-            STUN_DURATION: 1000,   // ms: Knockdown time
-            HIT_STOP_FRAMES: 10,    // New: Stronger freeze
+            STEP_VELOCITY: 0.5,
+            KNOCKBACK_POWER: 1,
+            STUN_DURATION: 1000,
+            HIT_STOP_FRAMES: 10,
         }
     },
 
-    // Input Configuration (New)
-    INPUT_ASCENT_HOLD_THRESHOLD: 115, // ms: Time to hold L to trigger ascent
-    INPUT_DASH_WINDOW: 210,      // ms: Time window for double tap L to trigger dash
+    // Input
+    INPUT_ASCENT_HOLD_THRESHOLD: 115,
+    INPUT_DASH_WINDOW: 210,
 
     // Physics
     GRAVITY: 0.016,
@@ -266,45 +279,37 @@ export const GLOBAL_CONFIG = {
     BOOST_CONSUMPTION_DASH_INIT: 6,
     BOOST_CONSUMPTION_DASH_HOLD: 0.45,
     BOOST_CONSUMPTION_ASCENT: 0.55,
-    BOOST_CONSUMPTION_SHORT_HOP: 4, // Cost for a short hop
+    BOOST_CONSUMPTION_SHORT_HOP: 4,
 
-    // Combat / Weapons
+    // Combat
     BULLET_SPEED: 1.28, 
-    HOMING_LATERAL_SPEED: 0.28, // New: Constant sideways speed for homing (drift speed)
+    HOMING_LATERAL_SPEED: 0.28,
     MAX_AMMO: 20,
-    AMMO_REGEN_TIME: 1.9, // Seconds per shot
+    AMMO_REGEN_TIME: 1.9,
     
-    // Combat / Hitboxes (Collision Sizes)
-    UNIT_HITBOX_RADIUS: 1.4,       // The size of the mechs (Hurtbox)
-    PROJECTILE_HITBOX_RADIUS: 0.5, // The size of the bullet (Hitbox)
-                                   // Total hit distance = UNIT + PROJECTILE radii
+    UNIT_HITBOX_RADIUS: 1.4,
+    PROJECTILE_HITBOX_RADIUS: 0.5,
     
-    // Shooting Animation (Frames @ 60fps)
-    // Total time = Startup + Recovery
-    // NOTE: STARTUP MUST BE > AIM_DURATION
-    SHOT_STARTUP_FRAMES: 20, // Total frames before firing (Raise Gun + Hold)
-    SHOT_AIM_DURATION: 8,    // Frames to visually reach the aiming pose (Raise Gun)
-                             // Remaining (15-8 = 7) frames are held steady before firing
-    
-    SHOT_RECOVERY_FRAMES: 60,       // Normal Recovery (Move Shot)
-    SHOT_RECOVERY_FRAMES_STOP: 25,  // NEW: Recovery for Stop Shot (Usually faster or distinct)
+    // Shooting Animation
+    SHOT_STARTUP_FRAMES: 20,
+    SHOT_AIM_DURATION: 8,
+    SHOT_RECOVERY_FRAMES: 60,
+    SHOT_RECOVERY_FRAMES_STOP: 25,
     
     // Hit Response
-    KNOCKBACK_DURATION: 500, // ms - Base Duration (can be overridden by stunDuration)
-    KNOCKBACK_SPEED: 0.1,    // Base Speed multiplier
+    KNOCKBACK_DURATION: 500,
+    KNOCKBACK_SPEED: 0.1,
     
-    // Landing Lag (Frames - Gameplay Impact)
+    // Landing Lag
     LANDING_LAG_MIN: 12,
     LANDING_LAG_MAX: 25,
     LANDING_LAG_OVERHEAT: 38,
-    LANDING_LAG_BUFFER_WINDOW: 18, // New: Only buffer inputs in the last X frames of lag
-
+    LANDING_LAG_BUFFER_WINDOW: 18,
     
-    // --- AI CONFIGURATION (New) ---
-    AI_SHOOT_PROBABILITY: 0.05, // Chance per frame to attempt shot (0.08 = very aggressive)
-    AI_SHOOT_COOLDOWN_MIN: 1.2, // Seconds
-    AI_SHOOT_COOLDOWN_MAX: 2.4, // Seconds
-    AI_TARGET_SWITCH_MIN: 5.0,  // Seconds
-    AI_TARGET_SWITCH_MAX: 10.0,  // Seconds
-
+    // AI
+    AI_SHOOT_PROBABILITY: 0.05,
+    AI_SHOOT_COOLDOWN_MIN: 1.2,
+    AI_SHOOT_COOLDOWN_MAX: 2.4,
+    AI_TARGET_SWITCH_MIN: 5.0,
+    AI_TARGET_SWITCH_MAX: 10.0,
 };
