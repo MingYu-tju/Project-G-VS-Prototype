@@ -14,7 +14,7 @@ interface GameState {
   
   // Player Hit State
   playerLastHitTime: number;
-  playerLastHitDuration: number; // New
+  playerLastHitDuration: number; 
   playerKnockbackDir: Vector3;
   playerKnockbackPower: number;
 
@@ -25,7 +25,7 @@ interface GameState {
   lastShotTime: number;
   
   // Global Effects
-  hitStop: number; // Frames to freeze simulation (Card Stop / Hit Stop)
+  hitStop: number; 
   hitEffects: HitEffectData[];
   
   // Lock-on System
@@ -36,6 +36,10 @@ interface GameState {
   boost: number;
   maxBoost: number;
   isOverheated: boolean;
+  
+  // Cinematic Camera
+  isCinematicCameraActive: boolean;
+  setCinematicCamera: (active: boolean) => void;
   
   // AI Control
   areNPCsPaused: boolean;
@@ -54,8 +58,8 @@ interface GameState {
   updateProjectiles: (delta: number) => void;
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
-  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number) => void; // Updated signature
-  decrementHitStop: () => void; // New action to tick hitstop
+  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void; // Updated signature
+  decrementHitStop: () => void;
   
   // New: Cut Tracking (Step)
   cutTracking: (targetId: string) => void;
@@ -66,9 +70,9 @@ interface GameState {
 
 // Initial Targets
 const initialTargets: GameEntity[] = [
-  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
-  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
-  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1 },
+  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
+  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
+  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -97,6 +101,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   boost: 100,
   maxBoost: 100,
   isOverheated: false,
+  
+  isCinematicCameraActive: false,
+  setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
   areNPCsPaused: false,
 
@@ -261,11 +268,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  applyHit: (targetId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0) => {
+  applyHit: (targetId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0, isKnockdown: boolean = false) => {
       set((state) => {
           // Spawn VFX
-          // Need to calculate approximate impact point. 
-          // For simplicity, we'll place it at the target's position but slightly offset towards impact direction (reversed)
           let impactPos = new Vector3();
           if (targetId === 'player') {
               impactPos.copy(state.playerPos).add(new Vector3(0, 1.5, 0));
@@ -300,7 +305,8 @@ export const useGameStore = create<GameState>((set, get) => ({
                   lastHitTime: Date.now(),
                   lastHitDuration: stunDuration,
                   knockbackDir: impactDirection,
-                  knockbackPower: force
+                  knockbackPower: force,
+                  isKnockedDown: isKnockdown
               } : t);
           }
           return updates;
@@ -313,9 +319,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               return { hitStop: Math.max(0, state.hitStop - 1) };
           }
           
-          // Clean up old effects occasionally if list gets huge? 
-          // For now, GameScene renders based on time, so stale effects just invisible.
-          // Let's filter out very old effects (older than 1s) to keep memory clean
+          // Clean up old effects occasionally
           const now = Date.now();
           if (state.hitEffects.length > 0 && now - state.hitEffects[0].startTime > 1000) {
                return { hitEffects: state.hitEffects.filter(e => now - e.startTime < 1000) };

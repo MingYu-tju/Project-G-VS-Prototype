@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree, createPortal } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage } from 'three';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage, PerspectiveCamera } from 'three';
 import { Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
 import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
@@ -20,7 +20,7 @@ import {
 const FRAME_DURATION = 1 / 60;
 
 // --- MELEE CONFIGURATION ---
-type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH_1' | 'SLASH_2' | 'RECOVERY';
+type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH_1' | 'SLASH_2' | 'SLASH_3' | 'RECOVERY';
 const MELEE_EMPTY_BOOST_PENALTY = 0.5; 
 
 // ... Audio Manager ...
@@ -396,7 +396,7 @@ const SaberSlashEffect: React.FC<{ active: boolean, meleeState: React.MutableRef
         frameCount.current++;
         if (!meshRef.current || !parentRef.current) return;
 
-        if (active && (meleeState.current === 'SLASH_1' || meleeState.current === 'SLASH_2') && frameCount.current % SPAWN_INTERVAL === 0) {
+        if (active && (meleeState.current.includes('SLASH')) && frameCount.current % SPAWN_INTERVAL === 0) {
             for (let i = 0; i < SAMPLES; i++) {
                 const t = i / (SAMPLES - 1); 
                 const localPos = new Vector3().lerpVectors(bladeTip, bladeMid, t);
@@ -542,6 +542,9 @@ export const Player: React.FC = () => {
     
     // STORED QUATERNION FOR SMOOTH HEAD TRACKING
     const headLookQuat = useRef(new Quaternion());
+    
+    // CINEMATIC CAMERA TIMER
+    const cinematicTimer = useRef(0);
 
     const {
         targets,
@@ -562,7 +565,8 @@ export const Player: React.FC = () => {
         cutTracking,
         applyHit,
         hitStop,
-        isGameStarted
+        isGameStarted,
+        setCinematicCamera
     } = useGameStore();
 
     const velocity = useRef(new Vector3(0, 0, 0));
@@ -625,6 +629,7 @@ export const Player: React.FC = () => {
     const hasMeleeHitRef = useRef(false);
     const isMeleePenaltyActive = useRef(false); 
     const meleeComboBuffer = useRef(false); 
+    const isMeleeTrackingActive = useRef(false); // Track if current combo has magnetism
 
     const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE'>('IDLE');
     const [isStunned, setIsStunned] = useState(false);
@@ -677,6 +682,11 @@ export const Player: React.FC = () => {
         const now = Date.now();
         const state = useGameStore.getState();
         if (!state.isOverheated && state.boost > 0 && !isStunned) {
+            // INTERRUPT CINEMATIC CAMERA ON DASH
+            if (state.isCinematicCameraActive) {
+                setCinematicCamera(false);
+            }
+
             if (meleeState.current !== 'NONE') {
                 meleeState.current = 'NONE';
                 if (meshRef.current) {
@@ -742,6 +752,11 @@ export const Player: React.FC = () => {
                 if (['w', 'a', 's', 'd'].includes(key)) {
                     if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
                         if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
+                            // INTERRUPT CINEMATIC CAMERA ON EVADE
+                            if (useGameStore.getState().isCinematicCameraActive) {
+                                setCinematicCamera(false);
+                            }
+
                             let isRainbow = false;
                             if (meleeState.current !== 'NONE') {
                                 meleeState.current = 'NONE';
@@ -816,7 +831,7 @@ export const Player: React.FC = () => {
                 }
 
                 if (key === 'k') {
-                    if (meleeState.current === 'SLASH_1') {
+                    if (meleeState.current === 'SLASH_1' || meleeState.current === 'SLASH_2') {
                         meleeComboBuffer.current = true;
                         return;
                     }
@@ -839,6 +854,7 @@ export const Player: React.FC = () => {
                         isMeleePenaltyActive.current = !hasBoost;
                         if (inRedLock) {
                             meleeState.current = 'LUNGE';
+                            isMeleeTrackingActive.current = true; // Red Lock initiates tracking
                             let maxLungeTime = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME;
                             if (isMeleePenaltyActive.current) {
                                 maxLungeTime *= MELEE_EMPTY_BOOST_PENALTY;
@@ -852,6 +868,7 @@ export const Player: React.FC = () => {
                             }
                         } else {
                             meleeState.current = 'STARTUP';
+                            isMeleeTrackingActive.current = false; // Green lock = no tracking ever
                             meleeTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES;
                         }
                     }
@@ -978,6 +995,14 @@ export const Player: React.FC = () => {
             const currentTarget = targets[currentTargetIndex];
             const moveDir = getCameraRelativeInput();
             
+            // --- CINEMATIC CAMERA TIMER ---
+            if (useGameStore.getState().isCinematicCameraActive) {
+                cinematicTimer.current -= delta * 1000;
+                if (cinematicTimer.current <= 0) {
+                    setCinematicCamera(false);
+                }
+            }
+
             // ... (Physics logic) ...
             const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
 
@@ -1072,8 +1097,7 @@ export const Player: React.FC = () => {
                 }
             }
 
-            // ... Physics Update Block ...
-            if (stunned) {
+if (stunned) {
                 isDashing.current = false;
                 isShooting.current = false;
                 isEvading.current = false; 
@@ -1085,6 +1109,9 @@ export const Player: React.FC = () => {
                 landingFrames.current = 0;
                 visualLandingFrames.current = 0; 
                 evadeRecoveryTimer.current = 0; 
+                
+                // INTERRUPT CAMERA ON STUN
+                setCinematicCamera(false);
 
                 velocity.current.set(0, 0, 0); 
                 const horizontalKnockback = playerKnockbackDir.clone();
@@ -1097,19 +1124,52 @@ export const Player: React.FC = () => {
                 }
 
             } else {
+                // HELPER: 3D Melee Snapping
+                // Aligns player height and orientation to target for consistent combo connections
+                const performMeleeSnap = (target: any) => {
+                    if (!target) return;
+                    
+                    // 1. Vertical Snap (Vacuum to target height)
+                    // We blend firmly (0.8) to the target's Y level to ensure hitboxes stay aligned horizontally
+                    position.current.y = MathUtils.lerp(position.current.y, target.position.y, 0.8);
+                    velocity.current.y = 0; // Kill vertical momentum
+
+                    // 2. Orientation Snap (Yaw Correction + Pitch Reset)
+                    // Instead of setting rotation.x = 0 directly (which causes Gimbal Lock glitches),
+                    // we calculate the current forward vector, flatten it, and look at it.
+                    
+                    if (meshRef.current) {
+                        const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
+                        fwd.y = 0; // Flatten pitch
+                        if (fwd.lengthSq() > 0.001) {
+                            fwd.normalize();
+                            const lookTarget = position.current.clone().add(fwd);
+                            meshRef.current.lookAt(lookTarget);
+                        }
+                        // Force update to ensure downstream systems see the corrected pose
+                        meshRef.current.updateMatrixWorld();
+                    }
+                };
+
                 if (meleeState.current !== 'NONE') {
                     nextVisualState = 'MELEE';
                     if (isDashing.current || isEvading.current) {
                         meleeState.current = 'NONE';
+                        setCinematicCamera(false);
                     }
-                    velocity.current.y *= 0.9; 
+                    
+                    // ANTI-GRAVITY: Melee defies gravity
+                    // We handle gravity application at end of loop, but here we can damp existing vertical velocity
+                    if (meleeState.current !== 'LUNGE') {
+                         velocity.current.y = 0; // Hard lock vertical movement during swings unless overridden
+                    }
                     
                     if (meleeState.current === 'STARTUP') {
                         velocity.current.x = 0; velocity.current.z = 0;
                         meleeTimer.current -= timeScale;
                         if (meleeTimer.current <= 0) {
                             meleeState.current = 'SLASH_1';
-                            meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                            meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                             hasMeleeHitRef.current = false; 
                         }
                     } 
@@ -1125,7 +1185,7 @@ export const Player: React.FC = () => {
                             velocity.current.x = dir.x * speed;
                             velocity.current.z = dir.z * speed;
                             velocity.current.y = dir.y * speed;
-                            meshRef.current.lookAt(currentTarget.position);
+                            meshRef.current.lookAt(currentTarget.position); // Look directly at target (including pitch) during lunge
                         } else {
                             const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
                             let speed = GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
@@ -1138,41 +1198,66 @@ export const Player: React.FC = () => {
                         meleeStartupTimer.current -= timeScale;
                         const isStartupComplete = meleeStartupTimer.current <= 0;
                         if (isStartupComplete) {
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE || meleeTimer.current <= 0) {
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                                // HIT CONFIRM: Close enough, tracking successful
                                 meleeState.current = 'SLASH_1';
-                                meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                                meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
+                                hasMeleeHitRef.current = false; 
+                                velocity.current.set(0,0,0);
+                                
+                                // PERFORM SNAP ON CONTACT
+                                performMeleeSnap(currentTarget);
+                            } 
+                            else if (meleeTimer.current <= 0) {
+                                // TIMEOUT: Lunge limit reached, tracking failed
+                                meleeState.current = 'SLASH_1';
+                                meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                                 hasMeleeHitRef.current = false; 
                                 velocity.current.set(0,0,0); 
+                                isMeleeTrackingActive.current = false; // Disable tracking for subsequent hits
+                                
+                                // Also snap orientation to horizon on miss, but don't snap pos
+                                meshRef.current.rotation.x = 0;
+                                meshRef.current.rotation.z = 0;
                             }
                         }
                     }
                     else if (meleeState.current === 'SLASH_1') {
                         const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
-                        const passed = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES - meleeTimer.current;
+                        const passed = config.DURATION_FRAMES - meleeTimer.current;
+                        const activeTracking = isMeleeTrackingActive.current;
 
-                        // 1. APPROACH MAGNETISM (During windup)
-                        // If we have a target and haven't hit yet, slide towards them
-                        if (passed < config.DAMAGE_DELAY && currentTarget) {
-                            const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                            dirToTarget.y = 0; // Keep ground movement
-                            velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
-                            velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                        if (passed < config.DAMAGE_DELAY) {
+                            if (activeTracking && currentTarget) {
+                                // Re-snap vertical continuously during startup to stick to target
+                                position.current.y = MathUtils.lerp(position.current.y, currentTarget.position.y, 0.2);
+                                
+                                const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                dirToTarget.y = 0; 
+                                velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
+                                velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                            } else {
+                                const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion).normalize();
+                                fwd.y = 0;
+                                velocity.current.x = fwd.x * config.FORWARD_STEP_SPEED;
+                                velocity.current.z = fwd.z * config.FORWARD_STEP_SPEED;
+                            }
                         }
 
-                        // 2. HIT DETECTION LOGIC with DAMAGE_DELAY
                         if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
                             const dist = position.current.distanceTo(currentTarget.position);
-                            // INCREASED TOLERANCE
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + GLOBAL_CONFIG.MELEE_HIT_TOLERANCE) {
+                            const tolerance = activeTracking ? GLOBAL_CONFIG.MELEE_HIT_TOLERANCE : 0;
+                            
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) {
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
                                 
-                                // Apply Chase Velocity (Impact Drive)
+                                velocity.current.set(0, 0, 0);
                                 const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 chaseDir.y = 0;
-                                const chaseSpeed = config.CHASE_VELOCITY;
-                                velocity.current.add(chaseDir.multiplyScalar(chaseSpeed));
+                                velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
 
+                                performMeleeSnap(currentTarget); // Ensure perfect alignment on hit
                                 playHitSound(0);
                                 hasMeleeHitRef.current = true; 
                             }
@@ -1182,13 +1267,13 @@ export const Player: React.FC = () => {
                         if (meleeTimer.current <= 0) {
                             if (meleeComboBuffer.current) {
                                 meleeState.current = 'SLASH_2';
-                                meleeTimer.current = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES;
+                                meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.DURATION_FRAMES;
                                 hasMeleeHitRef.current = false; 
                                 meleeComboBuffer.current = false; 
                                 velocity.current.set(0,0,0);
                                 
-                                if (currentTarget && lockState === LockState.RED) {
-                                    meshRef.current.lookAt(currentTarget.position);
+                                if (currentTarget && activeTracking) {
+                                    performMeleeSnap(currentTarget); // Snap for next hit
                                 }
                             } else {
                                 meleeState.current = 'RECOVERY';
@@ -1198,30 +1283,108 @@ export const Player: React.FC = () => {
                     }
                     else if (meleeState.current === 'SLASH_2') {
                         const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2;
-                        const passed = GLOBAL_CONFIG.MELEE_ATTACK_FRAMES - meleeTimer.current;
+                        const passed = config.DURATION_FRAMES - meleeTimer.current;
+                        const activeTracking = isMeleeTrackingActive.current;
 
-                        // 1. APPROACH MAGNETISM (During windup)
-                        if (passed < config.DAMAGE_DELAY && currentTarget) {
-                            const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                            dirToTarget.y = 0; 
-                            velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
-                            velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                        if (passed < config.DAMAGE_DELAY) {
+                            if (activeTracking && currentTarget) {
+                                position.current.y = MathUtils.lerp(position.current.y, currentTarget.position.y, 0.2);
+                                const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                dirToTarget.y = 0; 
+                                velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
+                                velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                            } else {
+                                const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion).normalize();
+                                fwd.y = 0;
+                                velocity.current.x = fwd.x * config.FORWARD_STEP_SPEED;
+                                velocity.current.z = fwd.z * config.FORWARD_STEP_SPEED;
+                            }
                         }
 
-                        // 2. HIT DETECTION LOGIC with DAMAGE_DELAY
                         if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
                             const dist = position.current.distanceTo(currentTarget.position);
-                            // INCREASED TOLERANCE
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + GLOBAL_CONFIG.MELEE_HIT_TOLERANCE) { 
+                            const tolerance = activeTracking ? GLOBAL_CONFIG.MELEE_HIT_TOLERANCE : 0;
+
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) { 
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
                                 
-                                // Apply Chase Velocity (Impact Drive)
+                                velocity.current.set(0, 0, 0);
                                 const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 chaseDir.y = 0;
-                                const chaseSpeed = config.CHASE_VELOCITY;
-                                velocity.current.add(chaseDir.multiplyScalar(chaseSpeed));
+                                velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
 
+                                performMeleeSnap(currentTarget);
+                                playHitSound(0);
+                                hasMeleeHitRef.current = true;
+                            }
+                        }
+                        
+                        // Check for input during hit window (if hit happened)
+                        if (hasMeleeHitRef.current && meleeComboBuffer.current && !useGameStore.getState().isCinematicCameraActive) {
+                             setCinematicCamera(true);
+                             cinematicTimer.current = GLOBAL_CONFIG.CINEMATIC_CAMERA.DURATION;
+                        }
+
+                        meleeTimer.current -= timeScale;
+                        if (meleeTimer.current <= 0) {
+                            if (meleeComboBuffer.current) {
+                                // NEW: Transition to SLASH_3
+                                meleeState.current = 'SLASH_3';
+                                meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3.DURATION_FRAMES;
+                                hasMeleeHitRef.current = false;
+                                meleeComboBuffer.current = false;
+                                velocity.current.set(0,0,0);
+                                
+                                // TRIGGER CINEMATIC CAMERA (FIXED DURATION)
+                                setCinematicCamera(true); 
+                                cinematicTimer.current = GLOBAL_CONFIG.CINEMATIC_CAMERA.DURATION;
+
+                                if (currentTarget && activeTracking) {
+                                    performMeleeSnap(currentTarget);
+                                }
+                            } else {
+                                meleeState.current = 'RECOVERY';
+                                meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
+                            }
+                        }
+                    }
+                    else if (meleeState.current === 'SLASH_3') {
+                        // NEW LOGIC FOR 3RD HIT
+                        const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3;
+                        const passed = config.DURATION_FRAMES - meleeTimer.current;
+                        const activeTracking = isMeleeTrackingActive.current;
+
+                        if (passed < config.DAMAGE_DELAY) {
+                            if (activeTracking && currentTarget) {
+                                position.current.y = MathUtils.lerp(position.current.y, currentTarget.position.y, 0.2);
+                                const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                dirToTarget.y = 0; 
+                                velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
+                                velocity.current.z = dirToTarget.z * config.APPROACH_SPEED;
+                            } else {
+                                const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion).normalize();
+                                fwd.y = 0;
+                                velocity.current.x = fwd.x * config.FORWARD_STEP_SPEED;
+                                velocity.current.z = fwd.z * config.FORWARD_STEP_SPEED;
+                            }
+                        }
+
+                        if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
+                            const dist = position.current.distanceTo(currentTarget.position);
+                            const tolerance = activeTracking ? GLOBAL_CONFIG.MELEE_HIT_TOLERANCE : 0;
+
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) { 
+                                const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                // PASS FLAG FOR KNOCKDOWN
+                                applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES, config.IS_KNOCKDOWN); 
+                                
+                                velocity.current.set(0, 0, 0);
+                                const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                chaseDir.y = 0;
+                                velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
+
+                                performMeleeSnap(currentTarget);
                                 playHitSound(0);
                                 hasMeleeHitRef.current = true;
                             }
@@ -1230,10 +1393,15 @@ export const Player: React.FC = () => {
                         if (meleeTimer.current <= 0) {
                             meleeState.current = 'RECOVERY';
                             meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
+                            // NOTE: Do not force camera off here; let timer handle it.
                         }
                     }
                     else if (meleeState.current === 'RECOVERY') {
                         meleeTimer.current -= timeScale;
+                        // Apply slight gravity in recovery if needed, or keep suspended?
+                        // Usually recovery drops you.
+                        velocity.current.y -= GLOBAL_CONFIG.GRAVITY * 0.5 * timeScale; 
+                        
                         if (meleeTimer.current <= 0) {
                             meleeState.current = 'NONE';
                             if (position.current.y < 1.5) {
@@ -1368,34 +1536,28 @@ export const Player: React.FC = () => {
                         const frictionFactor = Math.pow(friction, timeScale);
                         if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') nextVisualState = 'ASCEND';
                         if (nextVisualState !== 'ASCEND') { velocity.current.x *= frictionFactor; velocity.current.z *= frictionFactor; }
+                        
+                        // STANDARD GRAVITY (Only if not melee, not dashing, etc)
                         if (!isDashing.current) velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
                     }
                 }
                 
                 // --- COLLISION RESOLUTION ---
-                // Push player away from overlapping units to prevent clipping
                 const colRadius = GLOBAL_CONFIG.MECH_COLLISION_RADIUS;
                 const colHeight = GLOBAL_CONFIG.MECH_COLLISION_HEIGHT;
                 
                 targets.forEach(target => {
-                    // 1. Vertical Check (Simple Cylinder)
                     if (Math.abs(position.current.y - target.position.y) < colHeight) {
-                        // 2. Horizontal Check
                         const dx = position.current.x - target.position.x;
                         const dz = position.current.z - target.position.z;
                         const distSq = dx*dx + dz*dz;
-                        const minDist = colRadius * 2; // Player Radius + Target Radius
+                        const minDist = colRadius * 2; 
                         
                         if (distSq < minDist * minDist && distSq > 0.0001) {
                             const dist = Math.sqrt(distSq);
                             const overlap = minDist - dist;
-                            
-                            // 3. Resolve by pushing player out
-                            // Normalize direction vector
                             const nx = dx / dist;
                             const nz = dz / dist;
-                            
-                            // Apply push
                             position.current.x += nx * overlap;
                             position.current.z += nz * overlap;
                         }
@@ -1507,12 +1669,18 @@ export const Player: React.FC = () => {
             }
             else if (meleeState.current === 'SLASH_1') {
                 activeClip = ANIMATION_CLIPS.MELEE_SLASH_1;
-                speed = 60 / GLOBAL_CONFIG.MELEE_ATTACK_FRAMES * 3.7;
+                // SPEED: Matches Logic Duration
+                speed = 60 / GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                 blend = 0.05; 
             }
             else if (meleeState.current === 'SLASH_2') {
                 activeClip = ANIMATION_CLIPS.MELEE_SLASH_2;
-                speed = 60 / GLOBAL_CONFIG.MELEE_ATTACK_FRAMES * 3.7;
+                speed = 60 / GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.DURATION_FRAMES;
+                blend = 0.05;
+            }
+            else if (meleeState.current === 'SLASH_3') {
+                activeClip = ANIMATION_CLIPS.MELEE_SLASH_3;
+                speed = 60 / GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3.DURATION_FRAMES; 
                 blend = 0.05;
             }
             else if (meleeState.current === 'RECOVERY') {
@@ -1749,59 +1917,61 @@ export const Player: React.FC = () => {
 
             // E. HEAD LOOK AT (PROCEDURAL OVERRIDE - POST RENDER)
             // Apply this *after* applyPoseToModel so it overwrites the animation clip's head rotation
-            if (headRef.current && !stunned && meleeState.current === 'NONE') {
-                // 1. Calculate "Animation Neutral" in Local Space (relative to chest)
-                const neutralLocalQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));
+            if (headRef.current && !stunned) {
+                // 1. Default to Animation Pose (Base State)
+                const animHeadQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));
+                let targetQuat = animHeadQuat;
+                let trackSpeed = 0.1 * timeScale;
+
+                // 2. Apply LookAt Overrides if allowed
+                // Disable tracking during MELEE sequences to let animation play out naturally
+                const isMelee = meleeState.current !== 'NONE';
+                const isCinematic = useGameStore.getState().isCinematicCameraActive;
                 
-                let targetLocalQuat = neutralLocalQuat.clone();
-                let trackingWeight = 0.0;
-
-                const currentTarget = targets[currentTargetIndex];
-                if (currentTarget) {
-                    // Update world matrices so we have correct parent transforms
-                    meshRef.current.updateMatrixWorld();
-                    
-                    const headWorldPos = new Vector3();
-                    headRef.current.getWorldPosition(headWorldPos);
-                    
-                    // Look at target chest/head height
-                    const targetLookPos = currentTarget.position.clone().add(new Vector3(0, 1.0, 0));
-                    const dirToTarget = targetLookPos.clone().sub(headWorldPos).normalize();
-                    const bodyFwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion).normalize();
-                    
-                    // Only look if target is roughly in front (> 78 degrees arc)
-                    if (bodyFwd.dot(dirToTarget) > 0.2) {
-                        trackingWeight = 1.0;
+                if (!isMelee && !isCinematic) {
+                    const currentTarget = targets[currentTargetIndex];
+                    if (currentTarget) {
+                        // Update world matrices so we have correct parent transforms
+                        meshRef.current.updateMatrixWorld();
                         
-                        // Calculate the Local Rotation needed to look at target
-                        // Step 1: Get parent (Chest) world rotation
-                        const parentWorldQuat = new Quaternion();
-                        if (headRef.current.parent) {
-                            headRef.current.parent.getWorldQuaternion(parentWorldQuat);
+                        const headWorldPos = new Vector3();
+                        headRef.current.getWorldPosition(headWorldPos);
+                        
+                        // Look at target chest/head height
+                        const targetLookPos = currentTarget.position.clone().add(new Vector3(0, 1.0, 0));
+                        const dirToTarget = targetLookPos.clone().sub(headWorldPos).normalize();
+                        const bodyFwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion).normalize();
+                        
+                        // Only look if target is roughly in front (> 78 degrees arc)
+                        if (bodyFwd.dot(dirToTarget) > 0.2) {
+                            // Calculate the Local Rotation needed to look at target
+                            const parentWorldQuat = new Quaternion();
+                            if (headRef.current.parent) {
+                                headRef.current.parent.getWorldQuaternion(parentWorldQuat);
+                            }
+                            
+                            const m = new Matrix4();
+                            m.lookAt(headWorldPos, targetLookPos, new Vector3(0, 1, 0)); // Standard Up
+                            const worldLookQuat = new Quaternion().setFromRotationMatrix(m);
+                            
+                            // Local = ParentInverse * World
+                            const localLookQuat = parentWorldQuat.clone().invert().multiply(worldLookQuat);
+
+                            // Correction for GLB models
+                            const correction = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
+                            localLookQuat.multiply(correction);
+                            
+                            targetQuat = localLookQuat;
+                            trackSpeed = 0.2 * timeScale; // Track faster than resetting
                         }
-                        
-                        // Step 2: Calculate World Look Rotation
-                        const m = new Matrix4();
-                        m.lookAt(headWorldPos, targetLookPos, new Vector3(0, 1, 0)); // Standard Up
-                        const worldLookQuat = new Quaternion().setFromRotationMatrix(m);
-                        
-                        // Step 3: Convert World Look to Local Look
-                        // Local = ParentInverse * World
-                        targetLocalQuat = parentWorldQuat.clone().invert().multiply(worldLookQuat);
-
-                        // Correction: If head is facing wrong way (Z vs -Z mismatch), flip it
-                        // Standard fix for GLB models that face Z+ when LookAt expects Z-
-                        const correction = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
-                        targetLocalQuat.multiply(correction);
                     }
+                } else {
+                    // During melee or cinematic, blend quickly back to animation pose
+                    trackSpeed = 0.2 * timeScale;
                 }
                 
-                // Smoothly interpolate stored quat towards target
-                // Use a faster speed for looking at, slower for return
-                const slerpSpeed = (trackingWeight > 0.5 ? 0.2 : 0.1) * timeScale;
-                headLookQuat.current.slerp(targetLocalQuat, slerpSpeed);
-                
-                // Apply final rotation
+                // 3. Smoothly interpolate and Apply
+                headLookQuat.current.slerp(targetQuat, trackSpeed);
                 headRef.current.quaternion.copy(headLookQuat.current);
             }
 
@@ -1845,16 +2015,39 @@ export const Player: React.FC = () => {
         }
 
         // --- CAMERA UPDATE (RUNS ALWAYS, even if HitStop) ---
+        const { isCinematicCameraActive } = useGameStore.getState();
         const currentTarget = targets[currentTargetIndex];
+        const camConfig = GLOBAL_CONFIG.CINEMATIC_CAMERA;
+        
         let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
         let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
-        if (currentTarget) {
-            const pToT = new Vector3().subVectors(currentTarget.position, position.current);
-            const dir = pToT.normalize();
-            targetCamPos = position.current.clone().add(dir.multiplyScalar(-10)).add(new Vector3(0, 6, 0));
-            targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3); targetLookAt.y += 2.0; 
+        let targetFov = 60; // Default FOV
+        let lerpFactor = 0.1 * timeScale;
+
+        if (isCinematicCameraActive && meshRef.current) {
+            // CINEMATIC MODE: Fixed relative to player
+            const offset = camConfig.OFFSET; 
+            
+            // Convert local offset to world based on player rotation
+            const localOffset = new Vector3(offset.x, offset.y, offset.z);
+            localOffset.applyQuaternion(meshRef.current.quaternion);
+            
+            targetCamPos = position.current.clone().add(localOffset);
+            targetLookAt = position.current.clone().add(new Vector3(0, 1.5, 0)); // Look at chest
+            
+            targetFov = camConfig.FOV;
+            lerpFactor = camConfig.SMOOTHING * timeScale;
         } else {
-            targetCamPos = position.current.clone().add(new Vector3(0, 6, 10)); targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
+            // STANDARD TRACKING MODE
+            if (currentTarget) {
+                const pToT = new Vector3().subVectors(currentTarget.position, position.current);
+                const dir = pToT.normalize();
+                targetCamPos = position.current.clone().add(dir.multiplyScalar(-10)).add(new Vector3(0, 6, 0));
+                targetLookAt = position.current.clone().lerp(currentTarget.position, 0.3); targetLookAt.y += 2.0; 
+            } else {
+                targetCamPos = position.current.clone().add(new Vector3(0, 6, 10)); 
+                targetLookAt = position.current.clone().add(new Vector3(0, 2, 0));
+            }
         }
         
         // Apply Camera Shake on Hit Stop
@@ -1867,10 +2060,19 @@ export const Player: React.FC = () => {
              targetCamPos.add(new Vector3((Math.random()-0.5)*shake, (Math.random()-0.5)*shake, (Math.random()-0.5)*shake));
         }
         
-        camera.position.lerp(targetCamPos, 0.1 * timeScale);
+        // Apply Position & LookAt
+        camera.position.lerp(targetCamPos, lerpFactor);
         camera.lookAt(targetLookAt);
-    });
 
+        // Apply FOV Change
+        if (camera instanceof PerspectiveCamera) {
+            // Check if significant change needed to avoid unnecessary matrix updates
+            if (Math.abs(camera.fov - targetFov) > 0.1) {
+                camera.fov = MathUtils.lerp(camera.fov, targetFov, lerpFactor);
+                camera.updateProjectionMatrix();
+            }
+        }
+    });
     const isDashingOrAscending = visualState === 'DASH' || visualState === 'ASCEND' || visualState === 'MELEE';
     const isTrailActive = trailTimer.current > 0; 
     const isAscending = visualState === 'ASCEND';

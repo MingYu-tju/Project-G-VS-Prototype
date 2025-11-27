@@ -1,4 +1,3 @@
-
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -50,6 +49,9 @@ export interface GameEntity {
   knockbackDir?: Vector3;
   knockbackPower?: number;
   targetId?: string | null;
+  // NEW: Knockdown State
+  isKnockedDown?: boolean; 
+  wakeUpTime?: number;
 }
 
 export enum LockState {
@@ -244,33 +246,66 @@ export const GLOBAL_CONFIG = {
     RAINBOW_STEP_TRAIL_DURATION:17,
     
     // Melee
-    MELEE_LUNGE_SPEED: 0.65,
+    MELEE_LUNGE_SPEED: 0.62,
     MELEE_BOOST_CONSUMPTION: 0.4,
-    MELEE_MAX_LUNGE_TIME: 55,
+    MELEE_MAX_LUNGE_TIME: 50,
     MELEE_STARTUP_FRAMES: 10,
-    MELEE_ATTACK_FRAMES: 25,
+    // MELEE_ATTACK_FRAMES removed - now per-combo
     MELEE_RECOVERY_FRAMES: 15,
     MELEE_RANGE: 3.2,
-    MELEE_HIT_TOLERANCE: 0, // Added: Extra range forgiveness during active hit frames
+    MELEE_HIT_TOLERANCE: 0, 
     
-    // --- MELEE COMBO ADJUSTMENTS (User Controlled) ---
+    // --- MELEE COMBO ADJUSTMENTS ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
+            DURATION_FRAMES: 12,
             KNOCKBACK_POWER: 2.5,
-            CHASE_VELOCITY: 0.5, // Velocity imparted to player on hit to "stick" to target
-            APPROACH_SPEED: 1, // Magnetism speed during windup
+            CHASE_VELOCITY: 0.5, 
+            APPROACH_SPEED: 1, 
+            FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 8,
-            DAMAGE_DELAY: 6, // Frames to wait before active hitbox starts
+            HIT_STOP_FRAMES: 18,
+            DAMAGE_DELAY: 3, 
         },
         SLASH_2: {
-            KNOCKBACK_POWER: 2.5,
-            CHASE_VELOCITY: 0.5, // Higher chase velocity for stronger 2nd hit
-            APPROACH_SPEED: 1, // Magnetism speed during windup
+            DURATION_FRAMES: 12,
+            KNOCKBACK_POWER: 3,
+            CHASE_VELOCITY: 0.5, 
+            APPROACH_SPEED: 1, 
+            FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 15,
-            DAMAGE_DELAY: 6, // Frames to wait before active hitbox starts
+            HIT_STOP_FRAMES: 25,
+            DAMAGE_DELAY: 5, 
+        },
+        // NEW: Third hit in combo
+        SLASH_3: {
+            DURATION_FRAMES: 35, // Slower, heavier hit
+            KNOCKBACK_POWER: 9.0, 
+            CHASE_VELOCITY: 0.5, 
+            APPROACH_SPEED: 0.5, 
+            FORWARD_STEP_SPEED: 0.1,
+            STUN_DURATION: 2000,
+            HIT_STOP_FRAMES: 80, 
+            DAMAGE_DELAY: 33,
+            IS_KNOCKDOWN: true, 
         }
+    },
+    
+    // --- CINEMATIC CAMERA ---
+    CINEMATIC_CAMERA: {
+        OFFSET: { x: 8, y: 4.0, z: 8.0 }, // Left-Front relative to player
+        FOV: 75,
+        SMOOTHING: 0.8,
+        DURATION: 1200 // Duration in ms
+    },
+    
+    // --- KNOCKDOWN PHYSICS ---
+    KNOCKDOWN: {
+        GRAVITY: 0.03,
+        INIT_Y_VELOCITY: 0.7, // Pop up
+        AIR_DRAG: 0.98,
+        GROUND_FRICTION: 0.8,
+        WAKEUP_DELAY: 1200, // ms lying on ground before standing
     },
 
     // Input
@@ -279,10 +314,11 @@ export const GLOBAL_CONFIG = {
 
     // Physics
     GRAVITY: 0.016,
+    MELEE_GRAVITY_SCALE: 0.0, // Antigravity during combos
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
-    MECH_COLLISION_RADIUS: 0.8, // New: Physical collision radius against other mechs
-    MECH_COLLISION_HEIGHT: 2, // New: Physical height cylinder
+    MECH_COLLISION_RADIUS: 0.9, 
+    MECH_COLLISION_HEIGHT: 2, 
     
     // Boost
     BOOST_CONSUMPTION_DASH_INIT: 6,

@@ -279,7 +279,7 @@ export const GameScene: React.FC = () => {
 
       <Player />
       
-      {targets.map((t, index) => (
+    {targets.map((t, index) => (
         <Unit 
           key={t.id}
           id={t.id}
@@ -291,6 +291,7 @@ export const GameScene: React.FC = () => {
           lastHitDuration={t.lastHitDuration}
           knockbackDir={t.knockbackDir}
           knockbackPower={t.knockbackPower}
+          isKnockedDown={t.isKnockedDown}
         />
       ))}
 

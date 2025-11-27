@@ -132,39 +132,41 @@ const interpolatePose = (p1: MechPose, p2: MechPose, t: number): MechPose => {
 
 // --- EXPORT HELPERS ---
 // Helper to round numbers for cleaner output
-const r = (num: number) => parseFloat(num.toFixed(2));
-const fmtVec = (v: RotationVector) => `{ x: ${r(v.x)}, y: ${r(v.y)}, z: ${r(v.z)} }`;
+const r = (num: number) => parseFloat(num.toFixed(3)); // 3 decimals for export
+const fmtVec = (v: RotationVector) => `{ "x": ${r(v.x)}, "y": ${r(v.y)}, "z": ${r(v.z)} }`;
 
 const formatPoseToObj = (pose: MechPose): string => {
+    // Standard JS Object string format
+    const fVec = (v: RotationVector) => `{ x: ${r(v.x)}, y: ${r(v.y)}, z: ${r(v.z)} }`;
     return `{
-    TORSO: ${fmtVec(pose.TORSO)},
-    CHEST: ${fmtVec(pose.CHEST)},
-    HEAD: ${fmtVec(pose.HEAD)},
+    TORSO: ${fVec(pose.TORSO)},
+    CHEST: ${fVec(pose.CHEST)},
+    HEAD: ${fVec(pose.HEAD)},
     LEFT_ARM: {
-        SHOULDER: ${fmtVec(pose.LEFT_ARM.SHOULDER)},
-        ELBOW: ${fmtVec(pose.LEFT_ARM.ELBOW)},
-        FOREARM: ${fmtVec(pose.LEFT_ARM.FOREARM)},
-        WRIST: ${fmtVec(pose.LEFT_ARM.WRIST)}
+        SHOULDER: ${fVec(pose.LEFT_ARM.SHOULDER)},
+        ELBOW: ${fVec(pose.LEFT_ARM.ELBOW)},
+        FOREARM: ${fVec(pose.LEFT_ARM.FOREARM)},
+        WRIST: ${fVec(pose.LEFT_ARM.WRIST)}
     },
     RIGHT_ARM: {
-        SHOULDER: ${fmtVec(pose.RIGHT_ARM.SHOULDER)},
-        ELBOW: ${fmtVec(pose.RIGHT_ARM.ELBOW)},
-        FOREARM: ${fmtVec(pose.RIGHT_ARM.FOREARM)},
-        WRIST: ${fmtVec(pose.RIGHT_ARM.WRIST)}
+        SHOULDER: ${fVec(pose.RIGHT_ARM.SHOULDER)},
+        ELBOW: ${fVec(pose.RIGHT_ARM.ELBOW)},
+        FOREARM: ${fVec(pose.RIGHT_ARM.FOREARM)},
+        WRIST: ${fVec(pose.RIGHT_ARM.WRIST)}
     },
     LEFT_LEG: {
-        THIGH: ${fmtVec(pose.LEFT_LEG.THIGH)},
+        THIGH: ${fVec(pose.LEFT_LEG.THIGH)},
         KNEE: ${r(pose.LEFT_LEG.KNEE)},
-        ANKLE: ${fmtVec(pose.LEFT_LEG.ANKLE)}
+        ANKLE: ${fVec(pose.LEFT_LEG.ANKLE)}
     },
     RIGHT_LEG: {
-        THIGH: ${fmtVec(pose.RIGHT_LEG.THIGH)},
+        THIGH: ${fVec(pose.RIGHT_LEG.THIGH)},
         KNEE: ${r(pose.RIGHT_LEG.KNEE)},
-        ANKLE: ${fmtVec(pose.RIGHT_LEG.ANKLE)}
+        ANKLE: ${fVec(pose.RIGHT_LEG.ANKLE)}
     },
     SHIELD: {
-        POSITION: ${pose.SHIELD ? fmtVec(pose.SHIELD.POSITION) : "{x:0,y:0,z:0}"},
-        ROTATION: ${pose.SHIELD ? fmtVec(pose.SHIELD.ROTATION) : "{x:0,y:0,z:0}"}
+        POSITION: ${pose.SHIELD ? fVec(pose.SHIELD.POSITION) : "{x:0,y:0,z:0}"},
+        ROTATION: ${pose.SHIELD ? fVec(pose.SHIELD.ROTATION) : "{x:0,y:0,z:0}"}
     }
 }`;
 };
@@ -186,6 +188,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(0.5); // Speed multiplier
 
+    // Dragging
+    const [draggingKfIndex, setDraggingKfIndex] = useState<number | null>(null);
+    const timelineRef = useRef<HTMLDivElement>(null);
+
     // Editing
     // This holds the pose currently being edited/viewed
     const [displayPose, setDisplayPose] = useState<MechPose>(clonePose(DEFAULT_MECH_POSE));
@@ -199,7 +205,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
     // Calculate current pose based on time and keyframes
     const calculatePoseAtTime = (t: number): MechPose => {
-        // Sort keyframes just in case
+        // Sort keyframes internally for calculation, even if unsorted in state during drag
         const sorted = [...keyframes].sort((a, b) => a.time - b.time);
         
         if (sorted.length === 0) return clonePose(DEFAULT_MECH_POSE);
@@ -251,53 +257,117 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
     // Sync Display Pose with Time (when playing or scrubbing)
     useEffect(() => {
-        // Only auto-update pose if we are NOT manually editing a keyframe right now
-        // Actually, simplified: Always update display from timeline unless user drags a slider
+        // Always update display from timeline
         const p = calculatePoseAtTime(currentTime);
         setDisplayPose(p);
     }, [currentTime, keyframes]);
 
+    // --- DRAG LOGIC ---
+    useEffect(() => {
+        const handleWindowMouseMove = (e: MouseEvent) => {
+            if (draggingKfIndex !== null && timelineRef.current) {
+                const rect = timelineRef.current.getBoundingClientRect();
+                const rawX = e.clientX - rect.left;
+                let newTime = rawX / rect.width;
+                
+                // Clamp
+                newTime = Math.max(0, Math.min(1, newTime));
+                
+                // Update specific keyframe time without sorting yet
+                setKeyframes(prev => {
+                    const next = [...prev];
+                    if (next[draggingKfIndex]) {
+                        next[draggingKfIndex] = { ...next[draggingKfIndex], time: newTime };
+                    }
+                    return next;
+                });
+                
+                // Preview at dragging location
+                setCurrentTime(newTime);
+            }
+        };
+
+        const handleWindowMouseUp = () => {
+            if (draggingKfIndex !== null) {
+                setDraggingKfIndex(null);
+                // Sort keyframes on drop to enforce time order
+                setKeyframes(prev => [...prev].sort((a, b) => a.time - b.time));
+            }
+        };
+
+        if (draggingKfIndex !== null) {
+            window.addEventListener('mousemove', handleWindowMouseMove);
+            window.addEventListener('mouseup', handleWindowMouseUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('mouseup', handleWindowMouseUp);
+        };
+    }, [draggingKfIndex]);
+
     // --- HANDLERS ---
 
     const handlePoseChange = (path: string[], axis: string, val: number) => {
-        // Pause if editing
         setIsPlaying(false);
+        // Find if we are exactly on a keyframe
+        const exactKeyIndex = keyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.001);
         
-        setDisplayPose(prev => {
-            const next = JSON.parse(JSON.stringify(prev));
-            let current = next;
-            for (let i = 0; i < path.length; i++) {
-                current = current[path[i]];
-            }
-            current[axis] = val;
-            return next;
-        });
+        if (exactKeyIndex !== -1) {
+            // Update existing keyframe directly
+            setKeyframes(prev => {
+                const nextKfs = [...prev];
+                const newPose = JSON.parse(JSON.stringify(nextKfs[exactKeyIndex].pose));
+                let current = newPose;
+                for (let i = 0; i < path.length; i++) current = current[path[i]];
+                current[axis] = val;
+                nextKfs[exactKeyIndex] = { ...nextKfs[exactKeyIndex], pose: newPose };
+                return nextKfs;
+            });
+        } else {
+            // Update temporary display pose (will revert if time changes without setting key)
+            setDisplayPose(prev => {
+                const next = JSON.parse(JSON.stringify(prev));
+                let current = next;
+                for (let i = 0; i < path.length; i++) current = current[path[i]];
+                current[axis] = val;
+                return next;
+            });
+        }
     };
     
     const handleKneeChange = (leg: 'LEFT_LEG' | 'RIGHT_LEG', val: number) => {
         setIsPlaying(false);
-        setDisplayPose(prev => ({
-            ...prev,
-            [leg]: { ...prev[leg], KNEE: val }
-        }));
+        const exactKeyIndex = keyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.001);
+        
+        if (exactKeyIndex !== -1) {
+             setKeyframes(prev => {
+                const nextKfs = [...prev];
+                const newPose = JSON.parse(JSON.stringify(nextKfs[exactKeyIndex].pose));
+                newPose[leg].KNEE = val;
+                nextKfs[exactKeyIndex] = { ...nextKfs[exactKeyIndex], pose: newPose };
+                return nextKfs;
+            });
+        } else {
+            setDisplayPose(prev => ({
+                ...prev,
+                [leg]: { ...prev[leg], KNEE: val }
+            }));
+        }
     };
 
     const addOrUpdateKeyframe = () => {
-        // Check if a keyframe exists at exactly this time (tolerance 0.01)
         const existingIdx = keyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.01);
-        
         const newKeyframe = {
             time: currentTime,
             pose: clonePose(displayPose)
         };
 
         if (existingIdx >= 0) {
-            // Update
             const newKeys = [...keyframes];
             newKeys[existingIdx] = newKeyframe;
             setKeyframes(newKeys.sort((a, b) => a.time - b.time));
         } else {
-            // Add
             setKeyframes([...keyframes, newKeyframe].sort((a, b) => a.time - b.time));
         }
     };
@@ -314,12 +384,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // --- EXPORT CLIP ---
     const exportClipJSON = () => {
         const clipName = "CUSTOM_ANIM";
-        // Manually build JSON string for super-compact single-line tracks
-        let json = `{\n`;
-        json += `  "name": "${clipName}",\n`;
-        json += `  "duration": 1.0,\n`;
-        json += `  "loop": false,\n`;
-        json += `  "tracks": [\n`;
+        let json = `{\n  "name": "${clipName}",\n  "duration": 1.0,\n  "loop": false,\n  "tracks": [\n`;
 
         const getValue = (pose: any, path: string[]) => {
             let val = pose;
@@ -338,31 +403,22 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         bonePaths.forEach((path, tIdx) => {
             json += `    { "bone": "${path.join('.')}", "keyframes": [ `;
-            
-            const kfs = keyframes.map((kf) => {
+            // Sort keys just for export safety
+            const sortedKfs = [...keyframes].sort((a, b) => a.time - b.time);
+            const kfStrings = sortedKfs.map((kf) => {
                 const val = getValue(kf.pose, path);
-                const t = parseFloat(kf.time.toFixed(4));
-                
+                const t = r(kf.time); // reduced precision for file size
                 let vStr = "";
-                if (typeof val === 'number') {
-                    vStr = parseFloat(val.toFixed(3)).toString();
-                } else {
-                    // Compact Vector3 {x:0,y:0,z:0} without extra spaces
-                    vStr = `{ "x": ${parseFloat(val.x.toFixed(3))}, "y": ${parseFloat(val.y.toFixed(3))}, "z": ${parseFloat(val.z.toFixed(3))} }`;
-                }
-                
+                if (typeof val === 'number') vStr = r(val).toString();
+                else vStr = fmtVec(val);
                 return `{ "time": ${t}, "value": ${vStr} }`;
             });
-
-            json += kfs.join(", ");
+            json += kfStrings.join(", ");
             json += ` ] }${tIdx === bonePaths.length - 1 ? '' : ','}\n`;
         });
-
-        json += `  ]\n`;
-        json += `}`;
-
+        json += `  ]\n}`;
         navigator.clipboard.writeText(json);
-        alert("Animation Clip JSON copied to clipboard! (Compact Single-Line Tracks)");
+        alert("Animation Clip JSON copied to clipboard!");
     };
 
     // --- EXPORT FRAME (Pose Object) ---
@@ -380,37 +436,21 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             const importedData = parseFn();
 
             if (importedData.tracks) {
-                // It's an Animation Clip with Tracks
-                // We need to reconstruct "Keyframe Snapshots" from the tracks.
-                // 1. Collect all unique timestamps
                 const uniqueTimes = new Set<number>();
                 const tracks: AnimationTrack[] = importedData.tracks;
+                tracks.forEach(t => t.keyframes.forEach(kf => uniqueTimes.add(kf.time)));
                 
-                tracks.forEach(t => {
-                    t.keyframes.forEach(kf => uniqueTimes.add(kf.time));
-                });
-                
-                // 2. Sort timestamps
                 const sortedTimes = Array.from(uniqueTimes).sort((a, b) => a - b);
-                
-                // 3. Reconstruct Pose for each timestamp
                 const newSnapshots: KeyframeSnapshot[] = sortedTimes.map(time => {
                     const pose = clonePose(DEFAULT_MECH_POSE);
-                    
                     tracks.forEach(track => {
-                        // Find keyframe matching time (approx match for floats)
                         const kf = track.keyframes.find(k => Math.abs(k.time - time) < 0.0001);
                         if (kf) {
-                             // Apply value to pose
                              const path = track.bone.split('.');
-                             if (path.length === 1) {
-                                 (pose as any)[path[0]] = kf.value;
-                             } else if (path.length === 2) {
-                                 (pose as any)[path[0]][path[1]] = kf.value;
-                             }
+                             if (path.length === 1) (pose as any)[path[0]] = kf.value;
+                             else if (path.length === 2) (pose as any)[path[0]][path[1]] = kf.value;
                         }
                     });
-                    
                     return { time, pose };
                 });
                 
@@ -421,16 +461,14 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 }
                 alert(`Imported Animation Clip with ${newSnapshots.length} keyframes.`);
                 setShowImport(false);
-
             } 
             else if (importedData.TORSO) {
-                 // It's a Single Pose Object
                  const merged = { ...DEFAULT_MECH_POSE, ...importedData };
                  if(importedData.LEFT_ARM) merged.LEFT_ARM = { ...DEFAULT_MECH_POSE.LEFT_ARM, ...importedData.LEFT_ARM };
                  if(importedData.RIGHT_ARM) merged.RIGHT_ARM = { ...DEFAULT_MECH_POSE.RIGHT_ARM, ...importedData.RIGHT_ARM };
                  
                  setDisplayPose(merged);
-                 alert("Imported Pose. Click 'Keyframe' to add it to timeline.");
+                 alert("Imported Pose. Click 'KEYFRAME' to add it.");
                  setShowImport(false);
             } else {
                 alert("Invalid format.");
@@ -449,22 +487,16 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         const planeQuat = new Quaternion().setFromEuler(new Euler(guideRot.x, guideRot.y, guideRot.z));
         const planeNormal = new Vector3(0, 0, 1).applyQuaternion(planeQuat).normalize();
 
-        // Reconstruct Left Arm Chain using `displayPose`
         const p = displayPose;
-        
         const mTorso = new Matrix4().makeRotationFromEuler(new Euler(p.TORSO.x, p.TORSO.y, p.TORSO.z));
         const mChest = new Matrix4().makeRotationFromEuler(new Euler(p.CHEST.x, p.CHEST.y, p.CHEST.z));
         mChest.setPosition(0, 0.65, 0); mChest.premultiply(mTorso);
-        
         const mShoulder = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.SHOULDER.x, p.LEFT_ARM.SHOULDER.y, p.LEFT_ARM.SHOULDER.z));
         mShoulder.setPosition(-0.65, 0.1, 0); mShoulder.premultiply(mChest);
-        
         const mElbow = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.ELBOW.x, p.LEFT_ARM.ELBOW.y, p.LEFT_ARM.ELBOW.z));
         mElbow.setPosition(0, -0.4, 0); mElbow.premultiply(mShoulder);
-        
         const mForearm = new Matrix4().makeRotationFromEuler(new Euler(p.LEFT_ARM.FOREARM.x, p.LEFT_ARM.FOREARM.y, p.LEFT_ARM.FOREARM.z));
         mForearm.premultiply(mElbow);
-
         const mWristPivot = new Matrix4().makeTranslation(0, -0.35, 0); 
         mWristPivot.premultiply(new Matrix4().makeRotationFromEuler(new Euler(-0.2, 0, 0))); 
         mWristPivot.premultiply(new Matrix4().makeTranslation(0, -0.5, 0.1)); 
@@ -555,7 +587,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </div>
 
                 {/* TIMELINE UI (Bottom Panel) */}
-                <div className="h-32 bg-[#0a0a0a] border-t border-gray-700 p-4 flex flex-col justify-center">
+                <div className="h-32 bg-[#0a0a0a] border-t border-gray-700 p-4 flex flex-col justify-center select-none">
                     {/* Controls Row */}
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-2">
@@ -583,7 +615,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 DELETE KEY
                             </button>
                             <button onClick={addOrUpdateKeyframe} className="px-4 py-1.5 bg-cyan-700 border border-cyan-500 text-white text-xs font-bold rounded hover:bg-cyan-600 shadow-lg shadow-cyan-500/20">
-                                ◆ KEYFRAME
+                                {keyframes.find(k => Math.abs(k.time - currentTime) < 0.01) ? "UPDATE KEY" : "ADD KEY"}
                             </button>
                              {/* EXPORT BUTTONS */}
                              <div className="flex space-x-1 ml-4">
@@ -598,22 +630,39 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     </div>
 
                     {/* Timeline Bar */}
-                    <div className="relative w-full h-8 bg-gray-800 rounded-lg cursor-pointer group"
-                         onClick={(e) => {
-                             const rect = e.currentTarget.getBoundingClientRect();
-                             const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                             setCurrentTime(x);
-                             setIsPlaying(false);
-                         }}
+                    <div 
+                        ref={timelineRef}
+                        className="relative w-full h-8 bg-gray-800 rounded-lg cursor-pointer group select-none"
+                        onClick={(e) => {
+                             // Seek only if not dragging
+                             if (draggingKfIndex === null) {
+                                 const rect = e.currentTarget.getBoundingClientRect();
+                                 const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                 setCurrentTime(x);
+                                 setIsPlaying(false);
+                             }
+                        }}
                     >
-                        {/* Ticks for existing keyframes */}
+                        {/* Keyframe Markers */}
                         {keyframes.map((kf, i) => (
                             <div 
                                 key={i} 
-                                className="absolute top-0 bottom-0 w-1 bg-yellow-400 z-10 hover:bg-white transition-colors"
+                                className={`absolute top-0 bottom-0 w-3 -ml-1.5 z-30 cursor-ew-resize flex flex-col items-center justify-center group/kf transition-transform active:scale-110 ${draggingKfIndex === i ? 'z-50' : 'z-30'}`}
                                 style={{ left: `${kf.time * 100}%` }}
-                                title={`Keyframe ${i}: ${(kf.time*100).toFixed(0)}%`}
-                            />
+                                onMouseDown={(e) => {
+                                    e.stopPropagation();
+                                    setDraggingKfIndex(i);
+                                    setCurrentTime(kf.time);
+                                    setIsPlaying(false);
+                                }}
+                            >
+                                <div className={`w-1 h-full rounded-sm ${draggingKfIndex === i ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-yellow-400 group-hover/kf:bg-yellow-200'}`}></div>
+                                
+                                {/* Tooltip */}
+                                <div className="absolute bottom-full mb-1 text-[9px] bg-black text-white px-1 rounded opacity-0 group-hover/kf:opacity-100 pointer-events-none whitespace-nowrap">
+                                    {(kf.time*100).toFixed(1)}%
+                                </div>
+                            </div>
                         ))}
 
                         {/* Playhead */}
@@ -667,7 +716,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     </section>
 
                 <div className="space-y-6">
-                    {/* POSE CONTROLS - Same as before but operating on displayPose via handlePoseChange */}
+                    {/* POSE CONTROLS */}
                     <section>
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Core (躯干)</h3>
                         <VectorControl label="HEAD" vector={displayPose.HEAD} onChange={(a, v) => handlePoseChange(['HEAD'], a, v)} />
@@ -685,7 +734,6 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         <h3 className="text-[10px] font-bold text-cyan-600 mb-2 uppercase">Right Arm</h3>
                         <VectorControl label="SHOULDER" vector={displayPose.RIGHT_ARM.SHOULDER} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'SHOULDER'], a, v)} />
                         <VectorControl label="ELBOW" vector={displayPose.RIGHT_ARM.ELBOW} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'ELBOW'], a, v)} />
-                        {/* RESTORED FOREARM CONTROL */}
                         <VectorControl label="FOREARM" vector={displayPose.RIGHT_ARM.FOREARM} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'FOREARM'], a, v)} />
                         <VectorControl label="WRIST" vector={displayPose.RIGHT_ARM.WRIST} onChange={(a, v) => handlePoseChange(['RIGHT_ARM', 'WRIST'], a, v)} />
                     </section>
