@@ -229,6 +229,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   // Knockdown Logic
   const wakeUpTimer = useRef(0);
   const wasKnockedDownRef = useRef(false);
+  const knockdownTriggerTimeRef = useRef(0); // New: Tracks when the current knockdown started
 
   // Movement Vars
   const dashDirection = useRef(new Vector3(0, 0, 1));
@@ -331,6 +332,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (isKnockedDown && !wasKnockedDownRef.current) {
         aiState.current = 'KNOCKED_DOWN';
         velocity.current.y = GLOBAL_CONFIG.KNOCKDOWN.INIT_Y_VELOCITY;
+        // Record when this knockdown started so we can distinguish the launch hit from subsequent juggles
+        knockdownTriggerTimeRef.current = lastHitTime; 
         
         if (knockbackDir) {
             const horiz = knockbackDir.clone();
@@ -346,16 +349,42 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     // --- STATE MACHINE (PHYSICS) ---
     if (aiState.current === 'KNOCKED_DOWN') {
-        velocity.current.y -= GLOBAL_CONFIG.KNOCKDOWN.GRAVITY * timeScale;
-        velocity.current.x *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
-        velocity.current.z *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
-        position.current.add(velocity.current.clone().multiplyScalar(timeScale));
-        
-        if (position.current.y <= 0) {
-            position.current.y = 0;
-            velocity.current.set(0,0,0);
-            aiState.current = 'WAKE_UP';
-            wakeUpTimer.current = GLOBAL_CONFIG.KNOCKDOWN.WAKEUP_DELAY;
+        // JUGGLE LOGIC:
+        // A hit counts as a juggle if it is 'fresh' (happened after the knockdown started).
+        // If lastHitTime == knockdownTriggerTimeRef, it's the hit that launched us, so let physics run.
+        const isJuggled = stunned && (lastHitTime > knockdownTriggerTimeRef.current);
+
+        if (isJuggled) {
+            // --- AIR JUGGLE (Suspended) ---
+            // Stop gravity to allow aerial combo
+            velocity.current.set(0, 0, 0); 
+            
+            // Apply horizontal force if knocked back (Hit Impulse)
+            if (knockbackDir) {
+                 const force = GLOBAL_CONFIG.KNOCKBACK_SPEED * knockbackPower * 0.5; 
+                 const horizontalDir = knockbackDir.clone();
+                 horizontalDir.y = 0; 
+                 if (horizontalDir.lengthSq() > 0) horizontalDir.normalize();
+                 position.current.add(horizontalDir.multiplyScalar(force * timeScale));
+            }
+            
+            // Play flinch animation instead of falling/rolling
+            animator.play(ANIMATION_CLIPS.IDLE, 0.1);
+        } else {
+            // --- NORMAL FALLING (Launch or Freefall) ---
+            velocity.current.y -= GLOBAL_CONFIG.KNOCKDOWN.GRAVITY * timeScale;
+            velocity.current.x *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
+            velocity.current.z *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
+            position.current.add(velocity.current.clone().multiplyScalar(timeScale));
+            
+            if (position.current.y <= 0) {
+                position.current.y = 0;
+                velocity.current.set(0,0,0);
+                aiState.current = 'WAKE_UP';
+                wakeUpTimer.current = GLOBAL_CONFIG.KNOCKDOWN.WAKEUP_DELAY;
+            }
+            // Resume tumbling/falling pose
+            animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1);
         }
     }
     else if (aiState.current === 'WAKE_UP') {
@@ -371,6 +400,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
     else if (stunned) {
+        // Normal ground stun
         setIsThrusting(false);
         velocity.current.set(0, 0, 0);
         if (knockbackDir) {

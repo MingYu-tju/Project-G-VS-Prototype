@@ -258,35 +258,35 @@ export const GLOBAL_CONFIG = {
     // --- MELEE COMBO ADJUSTMENTS ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
-            DURATION_FRAMES: 12,
+            DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 2.5,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 1, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 18,
-            DAMAGE_DELAY: 3, 
+            HIT_STOP_FRAMES: 13,
+            DAMAGE_DELAY: 5, 
         },
         SLASH_2: {
-            DURATION_FRAMES: 12,
+            DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 3,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 1, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 25,
-            DAMAGE_DELAY: 5, 
+            HIT_STOP_FRAMES: 20,
+            DAMAGE_DELAY: 7, 
         },
         // NEW: Third hit in combo
         SLASH_3: {
-            DURATION_FRAMES: 35, // Slower, heavier hit
+            DURATION_FRAMES: 36, // Slower, heavier hit
             KNOCKBACK_POWER: 9.0, 
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0.5, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 80, 
-            DAMAGE_DELAY: 33,
+            HIT_STOP_FRAMES: 50, 
+            DAMAGE_DELAY: 19,
             IS_KNOCKDOWN: true, 
         }
     },
