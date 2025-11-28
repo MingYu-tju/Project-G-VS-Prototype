@@ -1,10 +1,10 @@
 
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { useFrame, useThree, createPortal } from '@react-three/fiber';
-import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage, PerspectiveCamera } from 'three';
+import { useFrame, useThree, createPortal, extend } from '@react-three/fiber';
+import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Shape, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage, PerspectiveCamera, ShaderMaterial } from 'three';
 import { Edges, useGLTF } from '@react-three/drei';
 import { useGameStore } from '../store';
-import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
+import { Team, LockState, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector, SlashSpecsGroup } from '../types';
 import { ANIMATION_CLIPS } from '../animations';
 import { AnimationController } from './AnimationSystem';
 import { 
@@ -23,7 +23,15 @@ const FRAME_DURATION = 1 / 60;
 type MeleePhase = 'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH_1' | 'SLASH_2' | 'SLASH_3' | 'RECOVERY';
 const MELEE_EMPTY_BOOST_PENALTY = 0.5; 
 
-// ... Audio Manager ...
+// --- DEFAULT SLASH CONFIGURATION (Exported) ---
+export const DEFAULT_SLASH_SPECS: SlashSpecsGroup ={
+    SIZE: 4.4, WIDTH: 2.5, ARC: 2.9,
+    SLASH_1: { color: '#ff00aa', pos: [0.06,1.21,-0.34], rot: [-1.64,1.31,-0.39], startAngle: 2.208, speed: 1, delay: 0 },
+    SLASH_2: { color: '#ff00aa', pos: [-0.54,1.86,0], rot: [1.371,1.86,0.86], startAngle: 0.708, speed: -1, delay: 0.1 },
+    SLASH_3: { color: '#ff00aa', pos: [0.06,1.31,-0.04], rot: [-1.34,1.21,1.21], startAngle: 1.708, speed: 1, delay: 0.3 }
+};
+
+//  Audio Manager 
 let globalAudioCtx: AudioContext | null = null;
 let boostAudioBuffer: AudioBuffer | null = null;
 let shootAudioBuffer: AudioBuffer | null = null;
@@ -378,114 +386,224 @@ const GhostEmitter: React.FC<GhostEmitterProps> = ({ active, size=[0.4, 0.6, 0.4
     );
 };
 
-const SaberSlashEffect: React.FC<{ active: boolean, meleeState: React.MutableRefObject<MeleePhase>, parentRef: React.RefObject<Group> }> = ({ active, meleeState, parentRef }) => {
-    const { scene } = useThree();
-    const meshRef = useRef<InstancedMesh>(null);
-    const SPAWN_INTERVAL = 1;
-    const MAX_PARTICLES = 400;
-    const SAMPLES = 20; 
-    const LIFETIME = 60;
-    
-    const particles = useRef<{ pos: Vector3, rot: Quaternion, scale: Vector3, age: number, brightness: number }[]>([]);
-    const frameCount = useRef(0);
-    const tempObj = useMemo(() => new Object3D(), []);
-    const bladeTip = useMemo(() => new Vector3(0, 3.1, 0), []);
-    const bladeMid = useMemo(() => new Vector3(0, 1.6, 0), []);
-    
-    useFrame(() => {
-        frameCount.current++;
-        if (!meshRef.current || !parentRef.current) return;
-
-        if (active && (meleeState.current.includes('SLASH')) && frameCount.current % SPAWN_INTERVAL === 0) {
-            for (let i = 0; i < SAMPLES; i++) {
-                const t = i / (SAMPLES - 1); 
-                const localPos = new Vector3().lerpVectors(bladeTip, bladeMid, t);
-                localPos.applyMatrix4(parentRef.current.matrixWorld);
-                const rot = new Quaternion().setFromRotationMatrix(parentRef.current.matrixWorld);
-                const brightness = 1.0 - t;
-                
-                if (brightness > 0.05) {
-                    particles.current.push({
-                        pos: localPos,
-                        rot: rot,
-                        scale: new Vector3(0.15, 0.15, 0.15), 
-                        age: 0,
-                        brightness: brightness
-                    });
+// --- CUSTOM SHADER MATERIAL FOR SLASH RING ---
+// Export the material class so other components can reference it if needed, 
+// though extend() makes <slashMaterial> globally available.
+export class SlashMaterial extends ShaderMaterial {
+    constructor() {
+        super({
+            uniforms: {
+                uColor: { value: new Color('#00ffff') },
+                uOpacity: { value: 0 },
+                uInnerRadius: { value: 0.6 }, 
+                uArc: { value: Math.PI }      
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
-            }
+            `,
+            fragmentShader: `
+                varying vec2 vUv;
+                uniform vec3 uColor;
+                uniform float uOpacity;
+                uniform float uInnerRadius;
+                uniform float uArc;
+
+                void main() {
+                    vec2 centered = vUv - 0.5;
+                    float dist = length(centered) * 2.0; 
+
+                    float radialAlpha = smoothstep(uInnerRadius, 1.0, dist);
+                    radialAlpha *= step(dist, 1.0);
+
+                    float angle = atan(centered.y, centered.x);
+                    if (angle < 0.0) angle += 6.2831853;
+
+                    float fadeWidth = 0.3; 
+                    float startFade = smoothstep(0.0, fadeWidth, angle);
+                    float endFade = 1.0 - smoothstep(uArc - fadeWidth, uArc, angle);
+                    
+                    float angularAlpha = startFade * endFade;
+                    float finalAlpha = radialAlpha * angularAlpha * uOpacity;
+                    
+                    if (finalAlpha < 0.01) discard;
+
+                    gl_FragColor = vec4(uColor, finalAlpha);
+                }
+            `,
+            transparent: true,
+            side: DoubleSide,
+            depthWrite: false,
+            blending: AdditiveBlending
+        });
+    }
+}
+
+extend({ SlashMaterial });
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      slashMaterial: any;
+    }
+  }
+}
+
+// --- PROCEDURAL SLASH EFFECT (Updated for Editor Support) ---
+interface SlashEffectProps {
+    meleeState?: React.MutableRefObject<MeleePhase>;
+    parentRef?: React.RefObject<Group>;
+    overrideSpecs?: SlashSpecsGroup; // Optional overrides for editor
+    manualProgress?: number | null; // If set, drives animation manually
+    manualMode?: MeleePhase | null; // If set, forces specific slash type
+}
+
+export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({ 
+    meleeState, 
+    parentRef,
+    overrideSpecs,
+    manualProgress = null,
+    manualMode = null
+}) => {
+    const meshRef = useRef<Mesh>(null);
+    const materialRef = useRef<any>(null);
+    
+    // Use overrides if provided, else defaults
+    const SPECS = overrideSpecs || DEFAULT_SLASH_SPECS;
+
+    // Calc Inner Radius (Safe Clamp)
+    const rawInner = 1.0 - (SPECS.WIDTH / SPECS.SIZE);
+    const innerR = Math.max(0.01, Math.min(0.99, rawInner));
+
+    // Animation State
+    const animState = useRef({
+        active: false,
+        progress: 0,
+        age: 0, 
+        currentSlash: 'NONE' as MeleePhase,
+        spec: SPECS.SLASH_1 
+    });
+
+    useFrame((state, delta) => {
+        if (!meshRef.current || !materialRef.current) return;
+
+        // FORCE UNIFORM UPDATE (Critical for Editor/HMR)
+        materialRef.current.uniforms.uInnerRadius.value = innerR;
+        materialRef.current.uniforms.uArc.value = SPECS.ARC;
+
+        // --- MODE 1: MANUAL / EDITOR MODE ---
+        if (manualProgress !== null && manualMode) {
+            // Force rendering based on manual inputs
+            let spec = SPECS.SLASH_1;
+            if (manualMode === 'SLASH_2') spec = SPECS.SLASH_2;
+            if (manualMode === 'SLASH_3') spec = SPECS.SLASH_3;
+
+            // Apply transforms immediately
+            meshRef.current.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
+            meshRef.current.rotation.set(spec.rot[0], spec.rot[1], spec.rot[2]);
+            meshRef.current.scale.setScalar(SPECS.SIZE);
+            
+            materialRef.current.uniforms.uColor.value.set(spec.color);
+            materialRef.current.uniforms.uArc.value = SPECS.ARC;
+
+            // Simulate progress logic roughly
+            // Opacity Logic
+            let opacity = 0;
+            const p = manualProgress;
+            if (p < 0.2) opacity = p / 0.2;
+            else opacity = 1 - (p - 0.2) / 0.8;
+            opacity = Math.max(0, opacity);
+            materialRef.current.uniforms.uOpacity.value = opacity * 0.8;
+
+            // Rotation Logic
+            const currentRotation = spec.startAngle + (p * spec.speed);
+            meshRef.current.rotation.z = currentRotation;
+            
+            // REMOVED HARDCODED SLASH_3 DROP - WYSIWYG
+            
+            return; // Skip game logic
         }
 
-        let aliveCount = 0;
-        for (let i = particles.current.length - 1; i >= 0; i--) {
-            const p = particles.current[i];
-            p.age++;
-            if (p.age > LIFETIME) {
-                particles.current.splice(i, 1);
-                continue;
+        // --- MODE 2: GAMEPLAY LOGIC ---
+        if (!meleeState) return; // Should not happen in gameplay but good check
+
+        const currentPhase = meleeState.current;
+        const s = animState.current;
+        const timeScale = delta * 60; 
+
+        // DETECT START
+        if (currentPhase.includes('SLASH') && currentPhase !== s.currentSlash) {
+            s.active = true;
+            s.currentSlash = currentPhase as MeleePhase;
+            s.progress = 0;
+            s.age = 0;
+            
+            // Load Spec
+            if (currentPhase === 'SLASH_1') s.spec = SPECS.SLASH_1;
+            else if (currentPhase === 'SLASH_2') s.spec = SPECS.SLASH_2;
+            else if (currentPhase === 'SLASH_3') s.spec = SPECS.SLASH_3;
+            else s.active = false; 
+
+            if (s.active) {
+                meshRef.current.position.set(s.spec.pos[0], s.spec.pos[1], s.spec.pos[2]);
+                meshRef.current.rotation.set(s.spec.rot[0], s.spec.rot[1], s.spec.rot[2]);
+                meshRef.current.scale.setScalar(SPECS.SIZE);
+                
+                materialRef.current.uniforms.uColor.value.set(s.spec.color);
+                materialRef.current.uniforms.uArc.value = SPECS.ARC;
+                materialRef.current.uniforms.uOpacity.value = 0; 
             }
-            const lifeRatio = 1 - (p.age / LIFETIME);
-            const currentBrightness = p.brightness * lifeRatio;
-            tempObj.position.copy(p.pos);
-            tempObj.quaternion.copy(p.rot);
-            tempObj.scale.copy(p.scale);
-            tempObj.updateMatrix();
-            meshRef.current.setMatrixAt(aliveCount, tempObj.matrix);
-            const col = new Color(0xff0088).multiplyScalar(currentBrightness);
-            meshRef.current.setColorAt(aliveCount, col);
-            aliveCount++;
         }
-        meshRef.current.count = aliveCount;
-        meshRef.current.instanceMatrix.needsUpdate = true;
-        if (meshRef.current.instanceColor) {
-            meshRef.current.instanceColor.needsUpdate = true;
+        else if (!currentPhase.includes('SLASH')) {
+            s.active = false;
+            s.currentSlash = 'NONE';
+        }
+
+        // ANIMATE
+        if (s.active) {
+            s.age += delta;
+
+            if (s.age < s.spec.delay) {
+                materialRef.current.uniforms.uOpacity.value = 0;
+                return;
+            }
+
+            s.progress += 0.02 * Math.abs(s.spec.speed) * timeScale; 
+            
+            let opacity = 0;
+            if (s.progress < 0.2) opacity = s.progress / 0.2;
+            else opacity = 1 - (s.progress - 0.2) / 0.8;
+            opacity = Math.max(0, opacity);
+            
+            materialRef.current.uniforms.uOpacity.value = opacity * 0.8; 
+
+            const currentRotation = s.spec.startAngle + (s.progress * s.spec.speed);
+            meshRef.current.rotation.z = currentRotation;
+
+            if (s.progress >= 1.0) {
+                s.active = false;
+                materialRef.current.uniforms.uOpacity.value = 0;
+            }
+        } else {
+            materialRef.current.uniforms.uOpacity.value = 0;
         }
     });
 
-    return createPortal(
-        <instancedMesh 
-            ref={meshRef} 
-            args={[undefined, undefined, MAX_PARTICLES]} 
-            frustumCulled={false}
-        >
-            <boxGeometry args={[1, 1, 1]} />
-            <meshBasicMaterial color="white" transparent blending={AdditiveBlending} depthWrite={false} />
-        </instancedMesh>,
-        scene
-    );
-};
-
-const BeamSaber: React.FC<{ active: boolean, meleeState: React.MutableRefObject<MeleePhase> }> = ({ active, meleeState }) => {
-    const groupRef = useRef<Group>(null);
-    const bladeGroupRef = useRef<Group>(null); 
-    useFrame(() => {
-        if (groupRef.current) {
-            const targetScale = active ? 1 : 0;
-            groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, 0.3);
-            groupRef.current.visible = groupRef.current.scale.y > 0.01;
-        }
-    });
     return (
-        <group ref={groupRef} visible={false}>
-            <mesh position={[0, -0.25, 0]}>
-                <cylinderGeometry args={[0.035, 0.04, 0.6, 8]} />
-                <meshToonMaterial color="white" />
-                <Edges threshold={15} color="#999" />
-            </mesh>
-            <group ref={bladeGroupRef}>
-                <mesh position={[0, 1.6, 0]}>
-                    <cylinderGeometry args={[0.05, 0.05, 2.8, 8]} />
-                    <meshBasicMaterial color="white" />
-                </mesh>
-                <mesh position={[0, 1.6, 0]}>
-                    <cylinderGeometry args={[0.12, 0.12, 3.0, 8]} />
-                    <meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} />
-                </mesh>
-            </group>
-            <SaberSlashEffect active={active } meleeState={meleeState} parentRef={bladeGroupRef} />
-        </group>
+        <mesh ref={meshRef}>
+            <ringGeometry args={[innerR, 1.0, 32, 1, 0, SPECS.ARC]} />
+            <slashMaterial 
+                ref={materialRef} 
+                uInnerRadius={innerR}
+                uArc={SPECS.ARC}
+            />
+        </mesh>
     );
 };
+
 
 const MODEL_PATH = '/models/head.glb';
 useGLTF.preload(MODEL_PATH);
@@ -604,7 +722,7 @@ export const Player: React.FC = () => {
     const lastWalkCycle = useRef(0); 
     const currentLegInertiaRot = useRef({ x: 0, y: 0, z: 0 });
     const currentHipOffset = useRef(0); 
-    const currentWalkWeight = useRef(0); // New: For smooth walking transition
+    const currentWalkWeight = useRef(0); 
 
     const isEvading = useRef(false);
     const evadeTimer = useRef(0);
@@ -629,7 +747,7 @@ export const Player: React.FC = () => {
     const hasMeleeHitRef = useRef(false);
     const isMeleePenaltyActive = useRef(false); 
     const meleeComboBuffer = useRef(false); 
-    const isMeleeTrackingActive = useRef(false); // Track if current combo has magnetism
+    const isMeleeTrackingActive = useRef(false);
 
     const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE'>('IDLE');
     const [isStunned, setIsStunned] = useState(false);
@@ -678,15 +796,15 @@ export const Player: React.FC = () => {
         return moveDir.normalize();
     };
 
+    // ... (startDashAction and key handlers remain identical, skipping for brevity, assume they are here) ...
+    // ... Copying logic for startDashAction, handleKeyDown, handleKeyUp ...
     const startDashAction = () => {
         const now = Date.now();
         const state = useGameStore.getState();
         if (!state.isOverheated && state.boost > 0 && !isStunned) {
-            // INTERRUPT CINEMATIC CAMERA ON DASH
             if (state.isCinematicCameraActive) {
                 setCinematicCamera(false);
             }
-
             if (meleeState.current !== 'NONE') {
                 meleeState.current = 'NONE';
                 if (meshRef.current) {
@@ -752,11 +870,9 @@ export const Player: React.FC = () => {
                 if (['w', 'a', 's', 'd'].includes(key)) {
                     if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
                         if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
-                            // INTERRUPT CINEMATIC CAMERA ON EVADE
                             if (useGameStore.getState().isCinematicCameraActive) {
                                 setCinematicCamera(false);
                             }
-
                             let isRainbow = false;
                             if (meleeState.current !== 'NONE') {
                                 meleeState.current = 'NONE';
@@ -854,7 +970,7 @@ export const Player: React.FC = () => {
                         isMeleePenaltyActive.current = !hasBoost;
                         if (inRedLock) {
                             meleeState.current = 'LUNGE';
-                            isMeleeTrackingActive.current = true; // Red Lock initiates tracking
+                            isMeleeTrackingActive.current = true;
                             let maxLungeTime = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME;
                             if (isMeleePenaltyActive.current) {
                                 maxLungeTime *= MELEE_EMPTY_BOOST_PENALTY;
@@ -868,7 +984,7 @@ export const Player: React.FC = () => {
                             }
                         } else {
                             meleeState.current = 'STARTUP';
-                            isMeleeTrackingActive.current = false; // Green lock = no tracking ever
+                            isMeleeTrackingActive.current = false;
                             meleeTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES;
                         }
                     }
@@ -936,7 +1052,6 @@ export const Player: React.FC = () => {
         }
     };
 
-    // --- HELPER: Apply Pose to Refs ---
     const applyPoseToModel = (pose: MechPose, hipOffset: number, legContainerRot: {x:number, y:number, z:number}) => {
          const setRot = (ref: React.MutableRefObject<Group | null>, rot: RotationVector) => {
              if (ref.current) {
@@ -946,24 +1061,19 @@ export const Player: React.FC = () => {
 
          setRot(torsoRef, pose.TORSO);
          setRot(upperBodyRef, pose.CHEST);
-         // Head is handled separately via manual LookAt override or smoothing below
-         
          setRot(gunArmRef, pose.LEFT_ARM.SHOULDER); 
          setRot(leftForeArmRef, pose.LEFT_ARM.ELBOW);
          setRot(leftForearmTwistRef, pose.LEFT_ARM.FOREARM);
          setRot(leftWristRef, pose.LEFT_ARM.WRIST);
-
          setRot(rightArmRef, pose.RIGHT_ARM.SHOULDER);
          setRot(rightForeArmRef, pose.RIGHT_ARM.ELBOW);
          setRot(rightForearmTwistRef, pose.RIGHT_ARM.FOREARM);
          setRot(rightWristRef, pose.RIGHT_ARM.WRIST);
 
-         // Apply Legs Container Rotation (Inertia)
          if (legsRef.current) {
              legsRef.current.rotation.set(legContainerRot.x, legContainerRot.y, legContainerRot.z);
          }
          
-         // Apply Hip Offset (Landing Dip)
          if (torsoRef.current && torsoRef.current.parent) {
              torsoRef.current.position.y = hipOffset;
              if (legsRef.current) legsRef.current.position.y = hipOffset;
@@ -983,19 +1093,16 @@ export const Player: React.FC = () => {
          }
     };
 
-
     useFrame((state, delta) => {
         if (!meshRef.current) return;
 
         const timeScale = delta * 60;
 
-        // --- LOGIC BLOCK: Runs only if not hit-stopped ---
         if (hitStop <= 0) {
             const now = Date.now();
             const currentTarget = targets[currentTargetIndex];
             const moveDir = getCameraRelativeInput();
             
-            // --- CINEMATIC CAMERA TIMER ---
             if (useGameStore.getState().isCinematicCameraActive) {
                 cinematicTimer.current -= delta * 1000;
                 if (cinematicTimer.current <= 0) {
@@ -1003,7 +1110,6 @@ export const Player: React.FC = () => {
                 }
             }
 
-            // ... (Physics logic) ...
             const stunned = now - playerLastHitTime < GLOBAL_CONFIG.KNOCKBACK_DURATION;
 
             if (wasStunnedRef.current && !stunned) {
@@ -1055,7 +1161,6 @@ export const Player: React.FC = () => {
                 trailTimer.current -= 1 * timeScale;
             }
 
-            // ... Input State Logic ...
             let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE' = 'IDLE';
 
             const isLHeld = keys.current['l'];
@@ -1110,7 +1215,6 @@ if (stunned) {
                 visualLandingFrames.current = 0; 
                 evadeRecoveryTimer.current = 0; 
                 
-                // INTERRUPT CAMERA ON STUN
                 setCinematicCamera(false);
 
                 velocity.current.set(0, 0, 0); 
@@ -1124,29 +1228,19 @@ if (stunned) {
                 }
 
             } else {
-                // HELPER: 3D Melee Snapping
-                // Aligns player height and orientation to target for consistent combo connections
                 const performMeleeSnap = (target: any) => {
                     if (!target) return;
-                    
-                    // 1. Vertical Snap (Vacuum to target height)
-                    // We blend firmly (0.8) to the target's Y level to ensure hitboxes stay aligned horizontally
                     position.current.y = MathUtils.lerp(position.current.y, target.position.y, 0.8);
-                    velocity.current.y = 0; // Kill vertical momentum
-
-                    // 2. Orientation Snap (Yaw Correction + Pitch Reset)
-                    // Instead of setting rotation.x = 0 directly (which causes Gimbal Lock glitches),
-                    // we calculate the current forward vector, flatten it, and look at it.
+                    velocity.current.y = 0; 
                     
                     if (meshRef.current) {
                         const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion);
-                        fwd.y = 0; // Flatten pitch
+                        fwd.y = 0; 
                         if (fwd.lengthSq() > 0.001) {
                             fwd.normalize();
                             const lookTarget = position.current.clone().add(fwd);
                             meshRef.current.lookAt(lookTarget);
                         }
-                        // Force update to ensure downstream systems see the corrected pose
                         meshRef.current.updateMatrixWorld();
                     }
                 };
@@ -1157,11 +1251,8 @@ if (stunned) {
                         meleeState.current = 'NONE';
                         setCinematicCamera(false);
                     }
-                    
-                    // ANTI-GRAVITY: Melee defies gravity
-                    // We handle gravity application at end of loop, but here we can damp existing vertical velocity
                     if (meleeState.current !== 'LUNGE') {
-                         velocity.current.y = 0; // Hard lock vertical movement during swings unless overridden
+                         velocity.current.y = 0;
                     }
                     
                     if (meleeState.current === 'STARTUP') {
@@ -1185,7 +1276,7 @@ if (stunned) {
                             velocity.current.x = dir.x * speed;
                             velocity.current.z = dir.z * speed;
                             velocity.current.y = dir.y * speed;
-                            meshRef.current.lookAt(currentTarget.position); // Look directly at target (including pitch) during lunge
+                            meshRef.current.lookAt(currentTarget.position);
                         } else {
                             const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
                             let speed = GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
@@ -1199,24 +1290,18 @@ if (stunned) {
                         const isStartupComplete = meleeStartupTimer.current <= 0;
                         if (isStartupComplete) {
                             if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
-                                // HIT CONFIRM: Close enough, tracking successful
                                 meleeState.current = 'SLASH_1';
                                 meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                                 hasMeleeHitRef.current = false; 
                                 velocity.current.set(0,0,0);
-                                
-                                // PERFORM SNAP ON CONTACT
                                 performMeleeSnap(currentTarget);
                             } 
                             else if (meleeTimer.current <= 0) {
-                                // TIMEOUT: Lunge limit reached, tracking failed
                                 meleeState.current = 'SLASH_1';
                                 meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                                 hasMeleeHitRef.current = false; 
                                 velocity.current.set(0,0,0); 
-                                isMeleeTrackingActive.current = false; // Disable tracking for subsequent hits
-                                
-                                // Also snap orientation to horizon on miss, but don't snap pos
+                                isMeleeTrackingActive.current = false;
                                 meshRef.current.rotation.x = 0;
                                 meshRef.current.rotation.z = 0;
                             }
@@ -1229,9 +1314,7 @@ if (stunned) {
 
                         if (passed < config.DAMAGE_DELAY) {
                             if (activeTracking && currentTarget) {
-                                // Re-snap vertical continuously during startup to stick to target
                                 position.current.y = MathUtils.lerp(position.current.y, currentTarget.position.y, 0.2);
-                                
                                 const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                 dirToTarget.y = 0; 
                                 velocity.current.x = dirToTarget.x * config.APPROACH_SPEED;
@@ -1257,7 +1340,7 @@ if (stunned) {
                                 chaseDir.y = 0;
                                 velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
 
-                                performMeleeSnap(currentTarget); // Ensure perfect alignment on hit
+                                performMeleeSnap(currentTarget); 
                                 playHitSound(0);
                                 hasMeleeHitRef.current = true; 
                             }
@@ -1271,9 +1354,8 @@ if (stunned) {
                                 hasMeleeHitRef.current = false; 
                                 meleeComboBuffer.current = false; 
                                 velocity.current.set(0,0,0);
-                                
                                 if (currentTarget && activeTracking) {
-                                    performMeleeSnap(currentTarget); // Snap for next hit
+                                    performMeleeSnap(currentTarget);
                                 }
                             } else {
                                 meleeState.current = 'RECOVERY';
@@ -1320,36 +1402,15 @@ if (stunned) {
                             }
                         }
                         
-                        if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
-                            const dist = position.current.distanceTo(currentTarget.position);
-                            const tolerance = activeTracking ? GLOBAL_CONFIG.MELEE_HIT_TOLERANCE : 0;
-
-                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) { 
-                                const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                                applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
-                                
-                                velocity.current.set(0, 0, 0);
-                                const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                                chaseDir.y = 0;
-                                velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
-
-                                performMeleeSnap(currentTarget);
-                                playHitSound(0);
-                                hasMeleeHitRef.current = true;
-                            }
-                        }
-                        
                         meleeTimer.current -= timeScale;
                         if (meleeTimer.current <= 0) {
                             if (meleeComboBuffer.current) {
-                                // NEW: Transition to SLASH_3
                                 meleeState.current = 'SLASH_3';
                                 meleeTimer.current = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3.DURATION_FRAMES;
                                 hasMeleeHitRef.current = false;
                                 meleeComboBuffer.current = false;
                                 velocity.current.set(0,0,0);
                                 
-                                // TRIGGER CINEMATIC CAMERA (FIXED DURATION)
                                 setCinematicCamera(true); 
                                 cinematicTimer.current = GLOBAL_CONFIG.CINEMATIC_CAMERA.DURATION;
 
@@ -1363,8 +1424,6 @@ if (stunned) {
                         }
                     }
                     else if (meleeState.current === 'SLASH_3') {
-
-                        // NEW LOGIC FOR 3RD HIT
                         const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3;
                         const passed = config.DURATION_FRAMES - meleeTimer.current;
                         const activeTracking = isMeleeTrackingActive.current;
@@ -1390,7 +1449,6 @@ if (stunned) {
 
                             if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) { 
                                 const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
-                                // PASS FLAG FOR KNOCKDOWN
                                 applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES, config.IS_KNOCKDOWN); 
                                 
                                 velocity.current.set(0, 0, 0);
@@ -1407,13 +1465,10 @@ if (stunned) {
                         if (meleeTimer.current <= 0) {
                             meleeState.current = 'RECOVERY';
                             meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
-                            // NOTE: Do not force camera off here; let timer handle it.
                         }
                     }
                     else if (meleeState.current === 'RECOVERY') {
                         meleeTimer.current -= timeScale;
-                        // Apply slight gravity in recovery if needed, or keep suspended?
-                        // Usually recovery drops you.
                         velocity.current.y -= GLOBAL_CONFIG.GRAVITY * 0.5 * timeScale; 
                         
                         if (meleeTimer.current <= 0) {
@@ -1551,12 +1606,10 @@ if (stunned) {
                         if (forcedAscentFrames.current > 0 && nextVisualState !== 'DASH') nextVisualState = 'ASCEND';
                         if (nextVisualState !== 'ASCEND') { velocity.current.x *= frictionFactor; velocity.current.z *= frictionFactor; }
                         
-                        // STANDARD GRAVITY (Only if not melee, not dashing, etc)
                         if (!isDashing.current) velocity.current.y -= GLOBAL_CONFIG.GRAVITY * timeScale;
                     }
                 }
                 
-                // --- COLLISION RESOLUTION ---
                 const colRadius = GLOBAL_CONFIG.MECH_COLLISION_RADIUS;
                 const colHeight = GLOBAL_CONFIG.MECH_COLLISION_HEIGHT;
                 
@@ -1661,10 +1714,6 @@ if (stunned) {
                 meshRef.current.updateMatrixWorld(true);
             }
 
-            // --- ANIMATION SYSTEM UPDATE ---
-            
-            // 1. Select Clip
-            // Use NEUTRAL if not grounded OR if performing landing animation (to prevent leg snapping from falling pose)
             let activeClip = (isGrounded.current && nextVisualState !== 'LANDING') ? ANIMATION_CLIPS.IDLE : ANIMATION_CLIPS.NEUTRAL;
             let speed = 1.0;
             let blend = 0.2; 
@@ -1683,7 +1732,6 @@ if (stunned) {
             }
             else if (meleeState.current === 'SLASH_1') {
                 activeClip = ANIMATION_CLIPS.MELEE_SLASH_1;
-                // SPEED: Matches Logic Duration
                 speed = 60 / GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1.DURATION_FRAMES;
                 blend = 0.05; 
             }
@@ -1707,20 +1755,14 @@ if (stunned) {
                 blend = 0.2;
             }
             
-            // 2. Update Controller
             animator.play(activeClip, blend, speed, true); 
             animator.update(delta);
             
-            // 3. Get Result
             const animatedPose = animator.getCurrentPose();
             
-            // 4. PROCEDURAL OVERRIDES (PHYSICS LAYERS)
-            
-            // HELPER FOR SERVO/LERP SMOOTHING
             const lerpSpeedFall = 0.25 * timeScale;
             const smoothRot = (currentVal: number, targetVal: number) => MathUtils.lerp(currentVal, targetVal, lerpSpeedFall);
 
-            // A. FALLING LOGIC - REWRITTEN TO USE SERVO/LERP
             const isFalling = !isGrounded.current && !isDashing.current && nextVisualState !== 'ASCEND' && nextVisualState !== 'EVADE' && nextVisualState !== 'MELEE';
             if (isFalling && !wasFallingRef.current) {
                 const vy = velocity.current.y; 
@@ -1741,20 +1783,17 @@ if (stunned) {
                 if (progress < ratio) animWeight = progress / ratio;
                 else animWeight = 1 - ((progress - ratio) / (1 - ratio));
                 
-                // Calculate TARGET Fall Poses (Lerp from Neutral Base to Max Fall Pitch)
                 const targetRightThighX = MathUtils.lerp(DEFAULT_MECH_POSE.RIGHT_LEG.THIGH.x, GLOBAL_CONFIG.FALL_LEG_PITCH_RIGHT, animWeight);
                 const targetLeftThighX = MathUtils.lerp(DEFAULT_MECH_POSE.LEFT_LEG.THIGH.x, GLOBAL_CONFIG.FALL_LEG_PITCH_LEFT, animWeight);
                 
                 const targetRightKnee = MathUtils.lerp(DEFAULT_MECH_POSE.RIGHT_LEG.KNEE, GLOBAL_CONFIG.FALL_KNEE_BEND_RIGHT, animWeight);
                 const targetLeftKnee = MathUtils.lerp(DEFAULT_MECH_POSE.LEFT_LEG.KNEE, GLOBAL_CONFIG.FALL_KNEE_BEND_LEFT, animWeight);
                 
-                // Spread
                 const targetRightThighZ = MathUtils.lerp(DEFAULT_MECH_POSE.RIGHT_LEG.THIGH.z, GLOBAL_CONFIG.FALL_LEG_SPREAD, animWeight);
                 const targetLeftThighZ = MathUtils.lerp(DEFAULT_MECH_POSE.LEFT_LEG.THIGH.z, -GLOBAL_CONFIG.FALL_LEG_SPREAD, animWeight);
                 
                 const targetBodyTilt = MathUtils.lerp(DEFAULT_MECH_POSE.TORSO.x, GLOBAL_CONFIG.FALL_BODY_TILT, animWeight);
 
-                // Apply Servo Smoothing (Lerp from PREVIOUS FRAME actual rotation to TARGET)
                 if (rightLegRef.current) animatedPose.RIGHT_LEG.THIGH.x = smoothRot(rightLegRef.current.rotation.x, targetRightThighX);
                 if (leftLegRef.current) animatedPose.LEFT_LEG.THIGH.x = smoothRot(leftLegRef.current.rotation.x, targetLeftThighX);
                 
@@ -1767,7 +1806,6 @@ if (stunned) {
                 if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, targetBodyTilt);
             }
 
-            // B. LANDING LOGIC - REWRITTEN TO USE SERVO/LERP APPROACH
             if (visualState === 'LANDING') {
                 const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
                 const current = visualLandingFrames.current; 
@@ -1777,27 +1815,21 @@ if (stunned) {
                 if (progress < r) w = progress / r;
                 else w = 1 - ((progress - r) / (1 - r));
 
-                // 1. Thighs
                 if (rightLegRef.current) animatedPose.RIGHT_LEG.THIGH.x = smoothRot(rightLegRef.current.rotation.x, GLOBAL_CONFIG.LANDING_LEG_PITCH_RIGHT * w);
                 if (leftLegRef.current) animatedPose.LEFT_LEG.THIGH.x = smoothRot(leftLegRef.current.rotation.x, GLOBAL_CONFIG.LANDING_LEG_PITCH_LEFT * w);
 
-                // 2. Knees (Base offset is 0.2, matching Unit.tsx logic)
                 if (rightLowerLegRef.current) animatedPose.RIGHT_LEG.KNEE = smoothRot(rightLowerLegRef.current.rotation.x, 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_RIGHT - 0.2) * w);
                 if (leftLowerLegRef.current) animatedPose.LEFT_LEG.KNEE = smoothRot(leftLowerLegRef.current.rotation.x, 0.2 + (GLOBAL_CONFIG.LANDING_KNEE_BEND_LEFT - 0.2) * w);
 
-                // 3. Ankles (Base offset is -0.2)
                 if (rightFootRef.current) animatedPose.RIGHT_LEG.ANKLE.x = smoothRot(rightFootRef.current.rotation.x, -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_RIGHT - -0.2) * w);
                 if (leftFootRef.current) animatedPose.LEFT_LEG.ANKLE.x = smoothRot(leftFootRef.current.rotation.x, -0.2 + (GLOBAL_CONFIG.LANDING_ANKLE_PITCH_LEFT - -0.2) * w);
 
-                // 4. Leg Splay (Z Axis)
                 if (rightLegRef.current) animatedPose.RIGHT_LEG.THIGH.z = smoothRot(rightLegRef.current.rotation.z, 0.05 + GLOBAL_CONFIG.LANDING_LEG_SPLAY * w);
                 if (leftLegRef.current) animatedPose.LEFT_LEG.THIGH.z = smoothRot(leftLegRef.current.rotation.z, -0.05 - GLOBAL_CONFIG.LANDING_LEG_SPLAY * w);
 
-                // 5. Body Tilt
                 if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, GLOBAL_CONFIG.LANDING_BODY_TILT * w);
             }
 
-            // C. WALK CYCLE (BLENDED)
             const isWalking = nextVisualState === 'WALK' && isGrounded.current;
             const targetWalkWeight = isWalking ? 1.0 : 0.0;
             currentWalkWeight.current = MathUtils.lerp(currentWalkWeight.current, targetWalkWeight, 0.15 * timeScale);
@@ -1820,7 +1852,6 @@ if (stunned) {
                 const cos = Math.cos(t);
                 const w = currentWalkWeight.current;
 
-                // Blend Walk Cycle
                 animatedPose.RIGHT_LEG.THIGH.x = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.x, -sin * 0.9, w);
                 animatedPose.LEFT_LEG.THIGH.x = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.x, sin * 0.9, w);
                 
@@ -1836,22 +1867,18 @@ if (stunned) {
                 animatedPose.RIGHT_LEG.ANKLE.x = MathUtils.lerp(animatedPose.RIGHT_LEG.ANKLE.x, rAnkleTarget, w);
                 animatedPose.LEFT_LEG.ANKLE.x = MathUtils.lerp(animatedPose.LEFT_LEG.ANKLE.x, lAnkleTarget, w);
                 
-                // Sway & Head
                 animatedPose.TORSO.x = MathUtils.lerp(animatedPose.TORSO.x, 0.5, w); 
                 animatedPose.CHEST.y = MathUtils.lerp(animatedPose.CHEST.y, sin * 0.22, w);
                 animatedPose.CHEST.z = MathUtils.lerp(animatedPose.CHEST.z, cos * 0.1, w);
                 animatedPose.HEAD.y = MathUtils.lerp(animatedPose.HEAD.y, -sin * 0.22, w);
 
-                // Override leg spread
                 animatedPose.RIGHT_LEG.THIGH.z = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.z, 0, w);
                 animatedPose.LEFT_LEG.THIGH.z = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.z, 0, w);
                 animatedPose.RIGHT_LEG.THIGH.y = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.y, 0, w);
                 animatedPose.LEFT_LEG.THIGH.y = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.y, 0, w);
             }
 
-            // D. AIMING
             if (isShooting.current && currentTarget && gunArmRef.current) {
-                // Calculate aim quaternion
                 const shoulderPos = new Vector3();
                 gunArmRef.current.getWorldPosition(shoulderPos);
                 const targetPos = currentTarget.position.clone();
@@ -1862,7 +1889,6 @@ if (stunned) {
                 const aimQuat = new Quaternion().setFromUnitVectors(defaultForward, localDir);
                 const aimEuler = new Euler().setFromQuaternion(aimQuat);
 
-                // Blend aiming based on shoot timer
                 const startup = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES;
                 const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
                 const recovery = shootMode.current === 'STOP' ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -1880,15 +1906,11 @@ if (stunned) {
                     aimWeight = 1.0 - t;
                 }
                 
-                // Lerp from current animation pose to aim pose
                 animatedPose.LEFT_ARM.SHOULDER.x = MathUtils.lerp(animatedPose.LEFT_ARM.SHOULDER.x, aimEuler.x, aimWeight);
                 animatedPose.LEFT_ARM.SHOULDER.y = MathUtils.lerp(animatedPose.LEFT_ARM.SHOULDER.y, aimEuler.y, aimWeight);
                 animatedPose.LEFT_ARM.SHOULDER.z = MathUtils.lerp(animatedPose.LEFT_ARM.SHOULDER.z, aimEuler.z, aimWeight);
             }
             
-            // 5. Apply Final Pose
-            
-            // Falling body tilt inertia for legs container
             let targetInertiaX = 0;
             let targetInertiaZ = 0;
 
@@ -1906,8 +1928,6 @@ if (stunned) {
             currentLegInertiaRot.current.x = MathUtils.lerp(currentLegInertiaRot.current.x, targetInertiaX, swaySpeed);
             currentLegInertiaRot.current.z = MathUtils.lerp(currentLegInertiaRot.current.z, targetInertiaZ, swaySpeed);
 
-            // --- SMOOTH HIP OFFSET ---
-            // Calculate target hip offset (dip) based on landing animation
             let targetHipOffset = 0;
             if (visualState === 'LANDING') {
                 const current = visualLandingFrames.current; 
@@ -1919,8 +1939,6 @@ if (stunned) {
                 targetHipOffset = -(GLOBAL_CONFIG.LANDING_HIP_DIP * w);
             }
 
-            // If we are in LANDING state, snap to target to preserve the impact curve punchiness.
-            // If we are exiting LANDING (e.g. interrupted by dash), smooth back to 0.
             if (visualState === 'LANDING') {
                 currentHipOffset.current = targetHipOffset;
             } else {
@@ -1929,68 +1947,54 @@ if (stunned) {
 
             applyPoseToModel(animatedPose, currentHipOffset.current, currentLegInertiaRot.current);
 
-            // E. HEAD LOOK AT (PROCEDURAL OVERRIDE - POST RENDER)
-            // Apply this *after* applyPoseToModel so it overwrites the animation clip's head rotation
             if (headRef.current && !stunned) {
-                // 1. Default to Animation Pose (Base State)
                 const animHeadQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));
                 let targetQuat = animHeadQuat;
                 let trackSpeed = 0.1 * timeScale;
 
-                // 2. Apply LookAt Overrides if allowed
-                // Disable tracking during MELEE sequences to let animation play out naturally
                 const isMelee = meleeState.current !== 'NONE';
                 const isCinematic = useGameStore.getState().isCinematicCameraActive;
                 
                 if (!isMelee && !isCinematic) {
                     const currentTarget = targets[currentTargetIndex];
                     if (currentTarget) {
-                        // Update world matrices so we have correct parent transforms
                         meshRef.current.updateMatrixWorld();
                         
                         const headWorldPos = new Vector3();
                         headRef.current.getWorldPosition(headWorldPos);
                         
-                        // Look at target chest/head height
                         const targetLookPos = currentTarget.position.clone().add(new Vector3(0, 1.0, 0));
                         const dirToTarget = targetLookPos.clone().sub(headWorldPos).normalize();
                         const bodyFwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion).normalize();
                         
-                        // Only look if target is roughly in front (> 78 degrees arc)
                         if (bodyFwd.dot(dirToTarget) > 0.2) {
-                            // Calculate the Local Rotation needed to look at target
                             const parentWorldQuat = new Quaternion();
                             if (headRef.current.parent) {
                                 headRef.current.parent.getWorldQuaternion(parentWorldQuat);
                             }
                             
                             const m = new Matrix4();
-                            m.lookAt(headWorldPos, targetLookPos, new Vector3(0, 1, 0)); // Standard Up
+                            m.lookAt(headWorldPos, targetLookPos, new Vector3(0, 1, 0)); 
                             const worldLookQuat = new Quaternion().setFromRotationMatrix(m);
                             
-                            // Local = ParentInverse * World
                             const localLookQuat = parentWorldQuat.clone().invert().multiply(worldLookQuat);
 
-                            // Correction for GLB models
                             const correction = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
                             localLookQuat.multiply(correction);
                             
                             targetQuat = localLookQuat;
-                            trackSpeed = 0.2 * timeScale; // Track faster than resetting
+                            trackSpeed = 0.2 * timeScale; 
                         }
                     }
                 } else {
-                    // During melee or cinematic, blend quickly back to animation pose
                     trackSpeed = 0.2 * timeScale;
                 }
                 
-                // 3. Smoothly interpolate and Apply
                 headLookQuat.current.slerp(targetQuat, trackSpeed);
                 headRef.current.quaternion.copy(headLookQuat.current);
             }
 
 
-            // 6. Shooting Logic
             if (isShooting.current) {
                 shootTimer.current += 1 * timeScale; 
                 const currentRecovery = shootMode.current === 'STOP' ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
@@ -2012,7 +2016,7 @@ if (stunned) {
                         direction = targetEntity.position.clone().sub(spawnPos).normalize();
                     } else {
                         if (muzzleRef.current) {
-                            const fwd = new Vector3(0,0,1); muzzleRef.current.getWorldDirection(fwd); direction = fwd.normalize();
+                            const fwd = new Vector3(); muzzleRef.current.getWorldDirection(fwd); direction = fwd.normalize();
                         } else { direction = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion); }
                     }
                     spawnProjectile({
@@ -2028,31 +2032,27 @@ if (stunned) {
             }
         }
 
-        // --- CAMERA UPDATE (RUNS ALWAYS, even if HitStop) ---
         const { isCinematicCameraActive } = useGameStore.getState();
         const currentTarget = targets[currentTargetIndex];
         const camConfig = GLOBAL_CONFIG.CINEMATIC_CAMERA;
         
         let targetCamPos = position.current.clone().add(new Vector3(0, 7, 14)); 
         let targetLookAt = position.current.clone().add(new Vector3(0, 2, 0)); 
-        let targetFov = 60; // Default FOV
+        let targetFov = 60; 
         let lerpFactor = 0.1 * timeScale;
 
         if (isCinematicCameraActive && meshRef.current) {
-            // CINEMATIC MODE: Fixed relative to player
             const offset = camConfig.OFFSET; 
             
-            // Convert local offset to world based on player rotation
             const localOffset = new Vector3(offset.x, offset.y, offset.z);
             localOffset.applyQuaternion(meshRef.current.quaternion);
             
             targetCamPos = position.current.clone().add(localOffset);
-            targetLookAt = position.current.clone().add(new Vector3(0, 1.5, 0)); // Look at chest
+            targetLookAt = position.current.clone().add(new Vector3(0, 1.5, 0)); 
             
             targetFov = camConfig.FOV;
             lerpFactor = camConfig.SMOOTHING * timeScale;
         } else {
-            // STANDARD TRACKING MODE
             if (currentTarget) {
                 const pToT = new Vector3().subVectors(currentTarget.position, position.current);
                 const dir = pToT.normalize();
@@ -2064,23 +2064,18 @@ if (stunned) {
             }
         }
         
-        // Apply Camera Shake on Hit Stop
         if (hitStop > 0) {
-            const shake = 0.3; // Strong shake
+            const shake = 0.3; 
             targetCamPos.add(new Vector3((Math.random()-0.5)*shake, (Math.random()-0.5)*shake, (Math.random()-0.5)*shake));
         } else if (wasStunnedRef.current) {
-             // Minor shake on stun
              const shake = 0.1;
              targetCamPos.add(new Vector3((Math.random()-0.5)*shake, (Math.random()-0.5)*shake, (Math.random()-0.5)*shake));
         }
         
-        // Apply Position & LookAt
         camera.position.lerp(targetCamPos, lerpFactor);
         camera.lookAt(targetLookAt);
 
-        // Apply FOV Change
         if (camera instanceof PerspectiveCamera) {
-            // Check if significant change needed to avoid unnecessary matrix updates
             if (Math.abs(camera.fov - targetFov) > 0.1) {
                 camera.fov = MathUtils.lerp(camera.fov, targetFov, lerpFactor);
                 camera.updateProjectionMatrix();
@@ -2099,6 +2094,9 @@ if (stunned) {
     return (
         <group>
             <mesh ref={meshRef}>
+                {/* ROOT-LEVEL SLASH VFX - Moves with player, but logic handles local offset/rotation */}
+                <ProceduralSlashEffect meleeState={meleeState} parentRef={meshRef} />
+
                 <group position={[0, 2.0, 0]}>
                     <group ref={torsoRef}>
                         <mesh position={[0, 0, 0]}>
@@ -2156,8 +2154,24 @@ if (stunned) {
                                             <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><meshToonMaterial color={armorColor} /><Edges threshold={15} color="black" /></mesh>
                                             <group ref={leftWristRef} position={[0, -0.35, 0]}>
                                                 <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><meshToonMaterial color="#222" /></mesh>
+                                                
+                                                {/* SABER MODEL (Just the physical parts, trails removed) */}
                                                 <group visible={activeWeapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
-                                                    <BeamSaber active={activeWeapon === 'SABER'} meleeState={meleeState} />
+                                                    <group visible={activeWeapon === 'SABER'}>
+                                                        <mesh position={[0, -0.25, 0]}>
+                                                            <cylinderGeometry args={[0.035, 0.04, 0.6, 8]} />
+                                                            <meshToonMaterial color="white" />
+                                                            <Edges threshold={15} color="#999" />
+                                                        </mesh>
+                                                        <mesh position={[0, 1.6, 0]}>
+                                                            <cylinderGeometry args={[0.05, 0.05, 2.8, 8]} />
+                                                            <meshBasicMaterial color="white" />
+                                                        </mesh>
+                                                        <mesh position={[0, 1.6, 0]}>
+                                                            <cylinderGeometry args={[0.12, 0.12, 3.0, 8]} />
+                                                            <meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} />
+                                                        </mesh>
+                                                    </group>
                                                 </group>
                                             </group>
                                             <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>

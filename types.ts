@@ -1,7 +1,8 @@
+
 import { Vector3 } from 'three';
 import React from 'react';
 
-// --- FIX: Add missing JSX Intrinsic Elements for React Three Fiber ---
+// ... (Existing ThreeElements interface) ...
 interface ThreeElements {
   group: any;
   mesh: any;
@@ -144,7 +145,26 @@ export interface AnimationClip {
     basePose?: MechPose; 
 }
 
-// UPDATED: Matches the initial JSX rotations in Player.tsx exactly
+// --- SLASH VFX CONFIGURATION TYPES ---
+export interface SlashSpec {
+    color: string;
+    pos: [number, number, number];
+    rot: [number, number, number];
+    startAngle: number;
+    speed: number;
+    delay: number;
+}
+
+export interface SlashSpecsGroup {
+    SIZE: number;
+    WIDTH: number;
+    ARC: number;
+    SLASH_1: SlashSpec;
+    SLASH_2: SlashSpec;
+    SLASH_3: SlashSpec;
+}
+
+// Matches the initial JSX rotations in Player.tsx exactly
 export const DEFAULT_MECH_POSE: MechPose = {
     TORSO: { x: 0, y: 0, z: 0 },
     CHEST: { x: 0, y: 0, z: 0 },

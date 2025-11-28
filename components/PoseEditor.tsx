@@ -1,10 +1,12 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, PerspectiveCamera, Html } from '@react-three/drei';
-import { DoubleSide, Vector3, Matrix4, Quaternion, Euler, MathUtils } from 'three'; 
-import { MechPose, DEFAULT_MECH_POSE, RotationVector, AnimationClip, AnimationTrack, Keyframe } from '../types';
+import { DoubleSide, Vector3, Matrix4, Quaternion, Euler, MathUtils, Group } from 'three'; 
+import { MechPose, DEFAULT_MECH_POSE, RotationVector, AnimationClip, AnimationTrack, Keyframe, SlashSpecsGroup, SlashSpec } from '../types';
 import { PosableUnit } from './PosableUnit';
 import { clonePose } from './AnimationSystem';
+import { ProceduralSlashEffect, DEFAULT_SLASH_SPECS } from './Player';
 
 // --- HELPER TYPES & UTILS ---
 
@@ -191,6 +193,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // Dragging
     const [draggingKfIndex, setDraggingKfIndex] = useState<number | null>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
+    const unitGroupRef = useRef<Group>(null);
 
     // Editing
     // This holds the pose currently being edited/viewed
@@ -200,6 +203,12 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [guideVisible, setGuideVisible] = useState(false);
     const [guidePos, setGuidePos] = useState({ x: 0, y: 1.5, z: 0 });
     const [guideRot, setGuideRot] = useState({ x: 0, y: 0, z: 0 });
+
+    // --- SLASH FX STATE ---
+    const [slashSpecs, setSlashSpecs] = useState<SlashSpecsGroup>(JSON.parse(JSON.stringify(DEFAULT_SLASH_SPECS)));
+    const [selectedSlash, setSelectedSlash] = useState<'SLASH_1' | 'SLASH_2' | 'SLASH_3'>('SLASH_1');
+    const [isSlashPreviewOn, setIsSlashPreviewOn] = useState(false);
+    const [syncSlashToTimeline, setSyncSlashToTimeline] = useState(false);
 
     // --- LOGIC ---
 
@@ -381,6 +390,71 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
          }
     };
 
+    // --- SLASH HANDLERS ---
+    const handleSlashChange = (key: keyof SlashSpec, val: any) => {
+        setSlashSpecs(prev => ({
+            ...prev,
+            [selectedSlash]: {
+                ...prev[selectedSlash],
+                [key]: val
+            }
+        }));
+    };
+
+    const handleSlashVectorChange = (key: 'pos' | 'rot', idx: number, val: number) => {
+        setSlashSpecs(prev => {
+            const newVec = [...prev[selectedSlash][key]] as [number, number, number];
+            newVec[idx] = val;
+            return {
+                ...prev,
+                [selectedSlash]: {
+                    ...prev[selectedSlash],
+                    [key]: newVec
+                }
+            };
+        });
+    };
+
+    const handleSlashGlobalChange = (key: keyof SlashSpecsGroup, val: number) => {
+        setSlashSpecs(prev => ({
+            ...prev,
+            [key]: val
+        }));
+    };
+
+    const importSlashJSON = () => {
+        try {
+            // eslint-disable-next-line no-new-func
+            const parseFn = new Function(`return ${importText}`);
+            const data = parseFn();
+            if (data.SLASH_1 && data.SIZE) {
+                setSlashSpecs(data);
+                alert("Slash Specs Imported!");
+                setShowImport(false);
+            } else {
+                alert("Invalid Slash JSON format.");
+            }
+        } catch (e) {
+            alert("Failed to parse slash data.");
+        }
+    };
+
+    // Export as Compact JS Object for direct pasting
+    const exportSlashJS = () => {
+        const r = (n: number) => parseFloat(n.toFixed(3));
+        const fSpec = (s: SlashSpec) => `{ color: '${s.color}', pos: [${s.pos.map(r)}], rot: [${s.rot.map(r)}], startAngle: ${r(s.startAngle)}, speed: ${r(s.speed)}, delay: ${r(s.delay)} }`;
+        
+        // Single line format for each spec to keep it clean
+        const js = `{
+    SIZE: ${r(slashSpecs.SIZE)}, WIDTH: ${r(slashSpecs.WIDTH)}, ARC: ${r(slashSpecs.ARC)},
+    SLASH_1: ${fSpec(slashSpecs.SLASH_1)},
+    SLASH_2: ${fSpec(slashSpecs.SLASH_2)},
+    SLASH_3: ${fSpec(slashSpecs.SLASH_3)}
+}`;
+        navigator.clipboard.writeText(js);
+        alert("Slash Specs JS Object copied to clipboard!");
+    };
+
     // --- EXPORT CLIP ---
     const exportClipJSON = () => {
         const clipName = "CUSTOM_ANIM";
@@ -430,6 +504,12 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
     // --- IMPORT ---
     const handleImport = () => {
+        // If textarea contains SLASH_, try slash import
+        if (importText.includes("SLASH_1")) {
+            importSlashJSON();
+            return;
+        }
+
         try {
             // eslint-disable-next-line no-new-func
             const parseFn = new Function(`return ${importText}`);
@@ -526,10 +606,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <div className="absolute inset-0 z-[110] bg-black/80 flex items-center justify-center p-4">
                     <div className="bg-gray-900 border border-gray-600 p-6 rounded-lg w-full max-w-2xl shadow-2xl">
                         <h3 className="text-lg font-bold text-white mb-4">IMPORT DATA</h3>
-                         <div className="text-xs text-gray-400 mb-2">Paste either a single Pose Object OR a full Animation Clip JSON</div>
+                         <div className="text-xs text-gray-400 mb-2">Paste Single Pose, Animation Clip, or Slash Specs (JS Object)</div>
                         <textarea 
                             className="w-full h-64 bg-black/50 border border-gray-700 p-4 font-mono text-xs text-green-400 mb-4 focus:outline-none focus:border-cyan-500"
-                            placeholder="{ TORSO: ... } OR { tracks: ... }"
+                            placeholder="{ TORSO: ... } OR { tracks: ... } OR { SLASH_1: ... }"
                             value={importText}
                             onChange={(e) => setImportText(e.target.value)}
                         />
@@ -560,8 +640,17 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         <OrbitControls makeDefault target={[0, 1, 0]} />
                         <ambientLight intensity={0.6} />
                         <directionalLight position={[5, 10, 5]} intensity={1.8} />
-                        <group position={[0, 0, 0]}>
+                        <group position={[0, 0, 0]} ref={unitGroupRef}>
                             <PosableUnit pose={displayPose} weapon={weapon} />
+                            
+                            {/* Render Slash Effect */}
+                            <ProceduralSlashEffect 
+                                parentRef={unitGroupRef} 
+                                overrideSpecs={slashSpecs}
+                                manualProgress={isSlashPreviewOn || syncSlashToTimeline ? (syncSlashToTimeline ? currentTime : (Math.sin(Date.now() / 200) * 0.5 + 0.5)) : null}
+                                manualMode={isSlashPreviewOn || syncSlashToTimeline ? selectedSlash : null}
+                            />
+
                             <SlashPlaneGuide visible={guideVisible} position={guidePos} rotation={guideRot} />
                         </group>
                         <Grid position={[0, -0.01, 0]} args={[20, 20]} />
@@ -685,6 +774,78 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             {/* CONTROLS SIDEBAR */}
             <div className="w-full md:w-96 bg-[#0f1115] border-l border-gray-800 h-[40vh] md:h-auto overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-700">
+                 
+                 {/* --- SLASH VFX EDITOR --- */}
+                 <section className="bg-gray-900/80 p-3 rounded border border-gray-700 mb-6">
+                    <div className="flex items-center justify-between mb-3 border-b border-gray-700 pb-2">
+                        <h3 className="text-[10px] font-bold text-pink-400 uppercase">SLASH VFX</h3>
+                        <div className="flex space-x-1">
+                            {(['SLASH_1', 'SLASH_2', 'SLASH_3'] as const).map(s => (
+                                <button 
+                                    key={s}
+                                    onClick={() => setSelectedSlash(s)}
+                                    className={`text-[8px] px-2 py-0.5 rounded border ${selectedSlash === s ? 'bg-pink-600 border-pink-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+                                >
+                                    {s.replace('SLASH_', 'S')}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-2 mb-3">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                            <button 
+                                onClick={() => setIsSlashPreviewOn(!isSlashPreviewOn)}
+                                className={`py-1 text-[9px] font-bold rounded border ${isSlashPreviewOn ? 'bg-pink-600 border-pink-400 text-white animate-pulse' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+                            >
+                                {isSlashPreviewOn ? 'STOP PREVIEW' : 'PLAY PREVIEW'}
+                            </button>
+                            <button 
+                                onClick={() => setSyncSlashToTimeline(!syncSlashToTimeline)}
+                                className={`py-1 text-[9px] font-bold rounded border ${syncSlashToTimeline ? 'bg-blue-600 border-blue-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+                            >
+                                SYNC TIMELINE
+                            </button>
+                        </div>
+
+                        {/* Global Props */}
+                        <div className="bg-black/30 p-2 rounded mb-2">
+                            <div className="text-[9px] text-gray-500 mb-1 font-bold">GLOBAL SETTINGS</div>
+                            <RangeControl label="SIZE" value={slashSpecs.SIZE} min={1} max={10} step={0.1} onChange={(v) => handleSlashGlobalChange('SIZE', v)} />
+                            <RangeControl label="WIDTH" value={slashSpecs.WIDTH} min={0.1} max={5} step={0.1} onChange={(v) => handleSlashGlobalChange('WIDTH', v)} />
+                            <RangeControl label="ARC" value={slashSpecs.ARC} min={0.1} max={Math.PI * 2} step={0.1} onChange={(v) => handleSlashGlobalChange('ARC', v)} />
+                        </div>
+
+                        {/* Specific Props */}
+                        <div className="bg-black/30 p-2 rounded">
+                            <div className="text-[9px] text-pink-400 mb-1 font-bold">{selectedSlash} SETTINGS</div>
+                            <div className="flex items-center space-x-2 mb-2">
+                                <span className="text-[9px] text-gray-400">COLOR</span>
+                                <input type="color" value={slashSpecs[selectedSlash].color} onChange={(e) => handleSlashChange('color', e.target.value)} className="h-4 w-8 bg-transparent border-none" />
+                            </div>
+                            
+                            <VectorControl 
+                                label="OFFSET (POS)" 
+                                vector={{ x: slashSpecs[selectedSlash].pos[0], y: slashSpecs[selectedSlash].pos[1], z: slashSpecs[selectedSlash].pos[2] }} 
+                                onChange={(axis, val) => handleSlashVectorChange('pos', axis === 'x' ? 0 : axis === 'y' ? 1 : 2, val)} 
+                            />
+                            <VectorControl 
+                                label="TILT (ROT)" 
+                                vector={{ x: slashSpecs[selectedSlash].rot[0], y: slashSpecs[selectedSlash].rot[1], z: slashSpecs[selectedSlash].rot[2] }} 
+                                onChange={(axis, val) => handleSlashVectorChange('rot', axis === 'x' ? 0 : axis === 'y' ? 1 : 2, val)} 
+                            />
+                            
+                            <RangeControl label="START" value={slashSpecs[selectedSlash].startAngle} min={-Math.PI} max={Math.PI} onChange={(v) => handleSlashChange('startAngle', v)} />
+                            <RangeControl label="SPEED" value={slashSpecs[selectedSlash].speed} min={-10} max={10} onChange={(v) => handleSlashChange('speed', v)} />
+                            <RangeControl label="DELAY" value={slashSpecs[selectedSlash].delay} min={0} max={1.0} step={0.01} onChange={(v) => handleSlashChange('delay', v)} />
+                        </div>
+                    </div>
+
+                    <button onClick={exportSlashJS} className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-[9px] font-bold border border-gray-500 shadow-sm active:bg-gray-800">
+                        EXPORT SLASH JS OBJECT
+                    </button>
+                 </section>
+
                  {/* --- GUIDE CONTROLS --- */}
                  <section className="bg-gray-900/50 p-3 rounded border border-gray-700 mb-6">
                         <div className="flex items-center justify-between mb-3">

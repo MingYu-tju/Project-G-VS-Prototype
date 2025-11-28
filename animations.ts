@@ -372,7 +372,7 @@ export const ANIMATION_CLIPS = {
     { "bone": "SHIELD.ROTATION", "keyframes": [ { "time": 0.001, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.201, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.417, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.498, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.511, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.568, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.999, "value": { "x": -0.2, "y": 0, "z": 0 } } ] }
   ]
 },
-    MELEE_RECOVERY: createTransitionClip('RECOVERY', RAW_MELEE_SLASH_2, RAW_IDLE, 1.0),
+    MELEE_RECOVERY: createStaticClip('RECOVERY', DEFAULT_MECH_POSE),
     KNOCKDOWN: createStaticClip('KNOCKDOWN', RAW_KNOCKDOWN),
     WAKEUP: createTransitionClip('WAKEUP', RAW_KNOCKDOWN, RAW_WAKEUP, 1.0)
 };
