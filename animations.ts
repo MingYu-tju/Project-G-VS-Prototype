@@ -84,34 +84,79 @@ const createTransitionClip = (name: string, start: MechPose, end: MechPose, dura
     return { name, duration, loop: false, tracks, basePose: DEFAULT_MECH_POSE };
 };
 
+// --- HELPER: CREATE WINDUP->HOLD CLIP ---
+// Moves from 'prep' to 'hold' quickly, then stays at 'hold'
+const createWindupHoldClip = (name: string, prep: MechPose, hold: MechPose, duration: number): AnimationClip => {
+    const tracks: AnimationTrack[] = [];
+    const add = (bone: string, vPrep: any, vHold: any) => {
+        tracks.push({
+            bone,
+            keyframes: [
+                { time: 0.0, value: vPrep },
+                { time: 0.25, value: vHold, easing: 'easeOut' }, // Transition finish at 25%
+                { time: 1.0, value: vHold }  // Hold
+            ]
+        });
+    };
+
+    // Core
+    add('TORSO', prep.TORSO, hold.TORSO);
+    add('CHEST', prep.CHEST, hold.CHEST);
+    add('HEAD', prep.HEAD, hold.HEAD);
+    
+    add('LEFT_ARM.SHOULDER', prep.LEFT_ARM.SHOULDER, hold.LEFT_ARM.SHOULDER);
+    add('LEFT_ARM.ELBOW', prep.LEFT_ARM.ELBOW, hold.LEFT_ARM.ELBOW);
+    add('LEFT_ARM.FOREARM', prep.LEFT_ARM.FOREARM, hold.LEFT_ARM.FOREARM);
+    add('LEFT_ARM.WRIST', prep.LEFT_ARM.WRIST, hold.LEFT_ARM.WRIST);
+
+    add('RIGHT_ARM.SHOULDER', prep.RIGHT_ARM.SHOULDER, hold.RIGHT_ARM.SHOULDER);
+    add('RIGHT_ARM.ELBOW', prep.RIGHT_ARM.ELBOW, hold.RIGHT_ARM.ELBOW);
+    add('RIGHT_ARM.FOREARM', prep.RIGHT_ARM.FOREARM, hold.RIGHT_ARM.FOREARM);
+    add('RIGHT_ARM.WRIST', prep.RIGHT_ARM.WRIST, hold.RIGHT_ARM.WRIST);
+
+    add('LEFT_LEG.THIGH', prep.LEFT_LEG.THIGH, hold.LEFT_LEG.THIGH);
+    add('LEFT_LEG.KNEE', prep.LEFT_LEG.KNEE, hold.LEFT_LEG.KNEE);
+    add('LEFT_LEG.ANKLE', prep.LEFT_LEG.ANKLE, hold.LEFT_LEG.ANKLE);
+
+    add('RIGHT_LEG.THIGH', prep.RIGHT_LEG.THIGH, hold.RIGHT_LEG.THIGH);
+    add('RIGHT_LEG.KNEE', prep.RIGHT_LEG.KNEE, hold.RIGHT_LEG.KNEE);
+    add('RIGHT_LEG.ANKLE', prep.RIGHT_LEG.ANKLE, hold.RIGHT_LEG.ANKLE);
+
+    return { name, duration, loop: false, tracks, basePose: prep };
+};
+
 
 // --- RAW POSE DATA ---
 
 const RAW_IDLE: MechPose = {
-    TORSO: { x: 0.25, y: 0, z: 0.0 },
+    TORSO: { x: 0.25, y: 0, z: 0 },
     CHEST: { x: 0, y: 0, z: 0 },
     HEAD: { x: -0.25, y: 0.25, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: -0, y: -0.3, z: -0.25},
-        ELBOW:    { x: -0.6, y: -0.3, z: 0.0 },
-        FOREARM:  { x: 0, y: 0, z: 0 },
-        WRIST:    { x: 0, y: 0, z: 0 }
+        SHOULDER: { x: 0, y: -0.3, z: -0.25 },
+        ELBOW: { x: -0.6, y: -0.3, z: 0 },
+        FOREARM: { x: 0, y: 0, z: 0 },
+        WRIST: { x: 0.71, y: 0.21, z: -0.09 }
     },
     RIGHT_ARM: {
         SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-        ELBOW:    { x: -1, y: -0.4, z: 0.0 },
-        FOREARM:  { x: 0, y: 0, z: 0 },
-        WRIST:    { x: 0, y: 0, z: 0 }
+        ELBOW: { x: -1, y: -0.4, z: 0 },
+        FOREARM: { x: 0, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
         THIGH: { x: -0.4, y: -0.1, z: -0.3 },
-        KNEE:  0.6,
+        KNEE: 0.6,
         ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
     },
     RIGHT_LEG: {
         THIGH: { x: -0.5, y: 0.1, z: 0.3 },
-        KNEE:  0.6,
+        KNEE: 0.6,
         ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.5, z: 0.1 },
+        ROTATION: { x: -0.2, y: 0, z: 0 }
     }
 };
 
@@ -161,6 +206,38 @@ const RAW_DASH_SABER: MechPose = {
     }
 };
 
+const RAW_ASCEND: MechPose = {
+    TORSO: { x: 0.06, y: 0.01, z: 0 },
+    CHEST: { x: -0.29, y: 0, z: 0 },
+    HEAD: { x: -0.44, y: 0, z: 0 },
+    LEFT_ARM: {
+        SHOULDER: { x: 0.71, y: 0, z: -0.3 },
+        ELBOW: { x: -0.4, y: 0, z: 0 },
+        FOREARM: { x: 0.06, y: 0, z: 0 },
+        WRIST: { x: 0.61, y: 0, z: 0 }
+    },
+    RIGHT_ARM: {
+        SHOULDER: { x: 0.91, y: 0, z: 0.3 },
+        ELBOW: { x: -0.4, y: 0, z: 0 },
+        FOREARM: { x: 0.11, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
+    },
+    LEFT_LEG: {
+        THIGH: { x: 0.01, y: 0, z: -0.04 },
+        KNEE: 0.45,
+        ANKLE: { x: 0.76, y: 0, z: 0.01 }
+    },
+    RIGHT_LEG: {
+        THIGH: { x: -0.34, y: 0, z: 0.06 },
+        KNEE: 1.1,
+        ANKLE: { x: 0.01, y: 0, z: -0.19 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.5, z: 0.1 },
+        ROTATION: { x: -0.2, y: 0, z: 0 }
+    }
+};
+
 const RAW_MELEE_STARTUP: MechPose = {
     TORSO: { x: -0.04, y: -0.44, z: -0.34 },
     CHEST: { x: -0.14, y: -0.09, z: 0 },
@@ -189,31 +266,33 @@ const RAW_MELEE_STARTUP: MechPose = {
     }
 };
 
-const RAW_MELEE_SLASH: MechPose = {
-    TORSO: { x: 0.76, y: 0.36, z: 0.11 },
-    CHEST: { x: 0.56, y: 0.76, z: -0.19 },
-    HEAD: { x: -0.24, y: -0.84, z: -0.14 },
+// NEW: Side Melee Poses
+// Prep: Tucked in, ready to spring
+const RAW_SIDE_MELEE_PREP: MechPose = {
+    TORSO: { x: -0.09, y: 0.36, z: 0.46 },
+    CHEST: { x: 1.36, y: 0.56, z: -1.04 },
+    HEAD: { x: -0.4, y: -0.991, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: -0.84, y: 0.01, z: 0.21 },
-        ELBOW: { x: 0, y: -0.39, z: 0 },
-        FOREARM: { x: -0.34, y: 0, z: 0 },
-        WRIST: { x: -0.12, y: -0.18, z: -0.04 }
+        SHOULDER: { x: -2.44, y: 0.36, z: -1.089 },
+        ELBOW: { x: 0.26, y: 1.51, z: -0.34 },
+        FOREARM: { x: -0.84, y: 0.06, z: 0 },
+        WRIST: { x: -0.34, y: 0.11, z: 0 }
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0.91, y: 0.01, z: 0.66 },
-        ELBOW: { x: -0.69, y: 0, z: 0 },
-        FOREARM: { x: 0, y: 1.16, z: 0 },
+        SHOULDER: { x: 0.46, y: 0.3, z: 0 },
+        ELBOW: { x: -0.69, y: 1.56, z: 0 },
+        FOREARM: { x: -0.24, y: -1.49, z: -0.09 },
         WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
-        THIGH: { x: 0.71, y: 0, z: 0.36 },
-        KNEE: 0.4,
-        ANKLE: { x: 0, y: 0, z: 0 }
+        THIGH: { x: 0.81, y: 0.16, z: -0.19 },
+        KNEE: 0.3,
+        ANKLE: { x: 0.56, y: 0, z: 0 }
     },
     RIGHT_LEG: {
-        THIGH: { x: -0.29, y: 0, z: 0.46 },
-        KNEE: 1.9,
-        ANKLE: { x: 0.61, y: 0, z: 0 }
+        THIGH: { x: -0.59, y: -0.09, z: 1.51 },
+        KNEE: 2.25,
+        ANKLE: { x: 0.51, y: 0, z: 0 }
     },
     SHIELD: {
         POSITION: { x: 0, y: -0.5, z: 0.1 },
@@ -221,31 +300,36 @@ const RAW_MELEE_SLASH: MechPose = {
     }
 };
 
-const RAW_MELEE_SLASH_2: MechPose = {
-    TORSO: { x: -0.13, y: -0.2, z: -0.49 },
-    CHEST: { x: 0.28, y: -0.34, z: -0.24 },
-    HEAD: { x: -0.36, y: 0.01, z: 0.01 },
+// Hold: Wide stance, sword arm extended laterally
+const RAW_SIDE_MELEE_HOLD: MechPose = {
+    TORSO: { x: -0.288, y: 0.809, z: 0.46 },
+    CHEST: { x: 1.36, y: 0.858, z: -1.04 },
+    HEAD: { x: -0.34, y: -1.389, z: -0.14 },
     LEFT_ARM: {
-        SHOULDER: { x: -2.04, y: 0.11, z: -1.19 },
-        ELBOW: { x: 0.61, y: -1.89, z: 0.76 },
-        FOREARM: { x: 0.51, y: 0.16, z: 0.01 },
-        WRIST: { x: 1.31, y: -0.03, z: -0.01 }
+        SHOULDER: { x: -2.44, y: 0.26, z: -0.445 },
+        ELBOW: { x: 0.26, y: 1.51, z: -0.34 },
+        FOREARM: { x: -0.84, y: 0.06, z: 0 },
+        WRIST: { x: -0.34, y: 0.11, z: 0 }
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0.86, y: 0.06, z: 0.48 },
-        ELBOW: { x: -0.23, y: -0.18, z: 0.29 },
-        FOREARM: { x: -0.08, y: 1.48, z: 0.15 },
-        WRIST: { x: -0.04, y: 0, z: 0 }
+        SHOULDER: { x: 0.86, y: 0.3, z: 0 },
+        ELBOW: { x: -1.09, y: 1.71, z: 0.308 },
+        FOREARM: { x: -0.49, y: -1.19, z: -0.69 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
-        THIGH: { x: -0.95, y: 0.19, z: -0.33 },
-        KNEE: 1.69,
-        ANKLE: { x: 0.7, y: 0, z: 0 }
+        THIGH: { x: 0.611, y: 0.309, z: 0.059 },
+        KNEE: 0.648,
+        ANKLE: { x: 0.51, y: 0, z: 0.16 }
     },
     RIGHT_LEG: {
-        THIGH: { x: 0.26, y: -0.41, z: 0.32 },
-        KNEE: 1.02,
-        ANKLE: { x: 0.61, y: 0, z: 0 }
+        THIGH: { x: -0.241, y: 0.457, z: 1.41 },
+        KNEE: 2.498,
+        ANKLE: { x: 0.51, y: 0, z: 0 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.5, z: 0.1 },
+        ROTATION: { x: -0.2, y: 0, z: 0 }
     }
 };
 
@@ -293,7 +377,12 @@ export const ANIMATION_CLIPS = {
     NEUTRAL: createStaticClip('NEUTRAL', DEFAULT_MECH_POSE),
     DASH_GUN: createStaticClip('DASH_GUN', RAW_DASH_GUN),
     DASH_SABER: createStaticClip('DASH_SABER', RAW_DASH_SABER),
+    ASCEND: createStaticClip('ASCEND', RAW_ASCEND),
     MELEE_STARTUP: createStaticClip('MELEE_STARTUP', RAW_MELEE_STARTUP),
+    
+    // Updated: Side Lunge with Windup->Hold transition
+    MELEE_SIDE_LUNGE: createWindupHoldClip('MELEE_SIDE_LUNGE', RAW_SIDE_MELEE_PREP, RAW_SIDE_MELEE_HOLD, 1.0),
+    
     MELEE_SLASH_1: {
   "name": "CUSTOM_ANIM",
   "duration": 1.0,
@@ -372,7 +461,33 @@ export const ANIMATION_CLIPS = {
     { "bone": "SHIELD.ROTATION", "keyframes": [ { "time": 0.001, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.201, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.417, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.498, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.511, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.568, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.999, "value": { "x": -0.2, "y": 0, "z": 0 } } ] }
   ]
 },
-    MELEE_RECOVERY: createStaticClip('RECOVERY', DEFAULT_MECH_POSE),
+    SIDE_SLASH_1:{
+  "name": "CUSTOM_ANIM",
+  "duration": 1.0,
+  "loop": false,
+  "tracks": [
+    { "bone": "TORSO", "keyframes": [ { "time": 0, "value": { "x": -0.288, "y": 0.809, "z": 0.46 } }, { "time": 0.217, "value": { "x": 0.558, "y": 0.212, "z": 0.31 } }, { "time": 0.304, "value": { "x": 0.556, "y": 0.354, "z": 0.262 } }, { "time": 0.355, "value": { "x": 0.554, "y": 0.51, "z": 0.21 } }, { "time": 0.392, "value": { "x": 1.104, "y": -0.331, "z": 0.606 } }, { "time": 0.432, "value": { "x": 0.987, "y": -0.474, "z": 0.413 } }, { "time": 0.477, "value": { "x": 0.852, "y": -0.638, "z": 0.193 } }, { "time": 0.541, "value": { "x": 0.751, "y": -0.761, "z": 0.027 } }, { "time": 0.999, "value": { "x": 0.751, "y": -0.761, "z": 0.027 } } ] },
+    { "bone": "CHEST", "keyframes": [ { "time": 0, "value": { "x": 1.36, "y": 0.858, "z": -1.04 } }, { "time": 0.217, "value": { "x": 1.36, "y": 0.858, "z": -1.04 } }, { "time": 0.304, "value": { "x": 0.885, "y": 0.74, "z": -0.446 } }, { "time": 0.355, "value": { "x": 0.36, "y": 0.61, "z": 0.21 } }, { "time": 0.392, "value": { "x": 0.657, "y": 0.462, "z": 0.062 } }, { "time": 0.432, "value": { "x": 0.63, "y": 0.287, "z": 0.055 } }, { "time": 0.477, "value": { "x": 0.599, "y": 0.087, "z": 0.046 } }, { "time": 0.541, "value": { "x": 0.576, "y": -0.064, "z": 0.04 } }, { "time": 0.999, "value": { "x": 0.576, "y": -0.064, "z": 0.04 } } ] },
+    { "bone": "HEAD", "keyframes": [ { "time": 0, "value": { "x": -0.34, "y": -1.389, "z": -0.14 } }, { "time": 0.217, "value": { "x": -0.34, "y": -1.389, "z": -0.14 } }, { "time": 0.304, "value": { "x": -0.34, "y": -1.389, "z": -0.14 } }, { "time": 0.355, "value": { "x": -0.34, "y": -1.389, "z": -0.14 } }, { "time": 0.392, "value": { "x": -0.34, "y": -1.389, "z": -0.14 } }, { "time": 0.432, "value": { "x": -0.517, "y": -0.779, "z": 0.101 } }, { "time": 0.477, "value": { "x": -0.719, "y": -0.082, "z": 0.376 } }, { "time": 0.541, "value": { "x": -0.871, "y": 0.443, "z": 0.583 } }, { "time": 0.999, "value": { "x": -0.871, "y": 0.443, "z": 0.583 } } ] },
+    { "bone": "LEFT_ARM.SHOULDER", "keyframes": [ { "time": 0, "value": { "x": -2.44, "y": 0.26, "z": -0.445 } }, { "time": 0.217, "value": { "x": -3.09, "y": 0.61, "z": -1.14 } }, { "time": 0.304, "value": { "x": -2.79, "y": 0.51, "z": -2.19 } }, { "time": 0.355, "value": { "x": -2.59, "y": 0.61, "z": -2.79 } }, { "time": 0.392, "value": { "x": -2.639, "y": -0.34, "z": -2.39 } }, { "time": 0.432, "value": { "x": -1.74, "y": -1.04, "z": -1.589 } }, { "time": 0.477, "value": { "x": -0.573, "y": -1.512, "z": -0.673 } }, { "time": 0.541, "value": { "x": 0.305, "y": -1.868, "z": 0.017 } }, { "time": 0.999, "value": { "x": 0.305, "y": -1.868, "z": 0.017 } } ] },
+    { "bone": "LEFT_ARM.ELBOW", "keyframes": [ { "time": 0, "value": { "x": 0.26, "y": 1.51, "z": -0.34 } }, { "time": 0.217, "value": { "x": 0.26, "y": 1.51, "z": -0.34 } }, { "time": 0.304, "value": { "x": 0.26, "y": 1.51, "z": -0.34 } }, { "time": 0.355, "value": { "x": 0.26, "y": 1.51, "z": -0.34 } }, { "time": 0.392, "value": { "x": 0.26, "y": 1.411, "z": -0.736 } }, { "time": 0.432, "value": { "x": 0.26, "y": 0.81, "z": -0.574 } }, { "time": 0.477, "value": { "x": 0.26, "y": 1.227, "z": -0.388 } }, { "time": 0.541, "value": { "x": 0.26, "y": 1.54, "z": -0.249 } }, { "time": 0.999, "value": { "x": 0.26, "y": 1.54, "z": -0.249 } } ] },
+    { "bone": "LEFT_ARM.FOREARM", "keyframes": [ { "time": 0, "value": { "x": -0.84, "y": 0.06, "z": 0 } }, { "time": 0.217, "value": { "x": -0.59, "y": 0.06, "z": 0.26 } }, { "time": 0.304, "value": { "x": -0.59, "y": 0.06, "z": 0.16 } }, { "time": 0.355, "value": { "x": -0.39, "y": 0.06, "z": 0.259 } }, { "time": 0.392, "value": { "x": -0.489, "y": 0.06, "z": 0.359 } }, { "time": 0.432, "value": { "x": -0.342, "y": 0.158, "z": 0.179 } }, { "time": 0.477, "value": { "x": -0.174, "y": 0.27, "z": -0.026 } }, { "time": 0.541, "value": { "x": -0.048, "y": 0.355, "z": -0.18 } }, { "time": 0.999, "value": { "x": -0.048, "y": 0.355, "z": -0.18 } } ] },
+    { "bone": "LEFT_ARM.WRIST", "keyframes": [ { "time": 0, "value": { "x": -0.34, "y": 0.11, "z": 0 } }, { "time": 0.217, "value": { "x": -0.09, "y": 0.01, "z": 0 } }, { "time": 0.304, "value": { "x": 0.06, "y": -0.14, "z": 0.029 } }, { "time": 0.355, "value": { "x": -0.04, "y": -0.04, "z": 0.36 } }, { "time": 0.392, "value": { "x": 0.01, "y": -0.44, "z": 0.063 } }, { "time": 0.432, "value": { "x": 1.01, "y": -0.44, "z": 0.71 } }, { "time": 0.477, "value": { "x": 0.56, "y": -0.84, "z": 0.61 } }, { "time": 0.541, "value": { "x": 0.71, "y": -0.39, "z": -0.24 } }, { "time": 0.999, "value": { "x": 0.708, "y": -0.39, "z": -0.239 } } ] },
+    { "bone": "RIGHT_ARM.SHOULDER", "keyframes": [ { "time": 0, "value": { "x": 0.86, "y": 0.3, "z": 0 } }, { "time": 0.217, "value": { "x": 0.86, "y": 0.3, "z": 0 } }, { "time": 0.304, "value": { "x": 0.86, "y": 0.3, "z": 0 } }, { "time": 0.355, "value": { "x": 0.86, "y": 0.3, "z": 0 } }, { "time": 0.392, "value": { "x": 0.81, "y": 0.3, "z": 0 } }, { "time": 0.432, "value": { "x": 0.242, "y": 0.303, "z": 0.604 } }, { "time": 0.477, "value": { "x": -0.407, "y": 0.307, "z": 1.293 } }, { "time": 0.541, "value": { "x": -0.895, "y": 0.31, "z": 1.813 } }, { "time": 0.999, "value": { "x": -0.896, "y": 0.31, "z": 1.813 } } ] },
+    { "bone": "RIGHT_ARM.ELBOW", "keyframes": [ { "time": 0, "value": { "x": -1.09, "y": 1.71, "z": 0.308 } }, { "time": 0.217, "value": { "x": -1.09, "y": 1.71, "z": 0.308 } }, { "time": 0.304, "value": { "x": -1.09, "y": 1.71, "z": 0.308 } }, { "time": 0.355, "value": { "x": -1.09, "y": 1.71, "z": 0.308 } }, { "time": 0.392, "value": { "x": -1.09, "y": 1.71, "z": 0.308 } }, { "time": 0.432, "value": { "x": -0.747, "y": 1.106, "z": 0.211 } }, { "time": 0.477, "value": { "x": -0.356, "y": 0.417, "z": 0.1 } }, { "time": 0.541, "value": { "x": -0.061, "y": -0.103, "z": 0.016 } }, { "time": 0.999, "value": { "x": -0.061, "y": -0.103, "z": 0.016 } } ] },
+    { "bone": "RIGHT_ARM.FOREARM", "keyframes": [ { "time": 0, "value": { "x": -0.49, "y": -1.19, "z": -0.69 } }, { "time": 0.217, "value": { "x": -0.49, "y": -1.19, "z": -0.69 } }, { "time": 0.304, "value": { "x": -0.49, "y": -1.19, "z": -0.69 } }, { "time": 0.355, "value": { "x": -0.49, "y": -1.19, "z": -0.69 } }, { "time": 0.392, "value": { "x": -0.49, "y": -1.19, "z": -0.69 } }, { "time": 0.432, "value": { "x": -0.376, "y": -0.619, "z": -0.625 } }, { "time": 0.477, "value": { "x": -0.245, "y": 0.033, "z": -0.55 } }, { "time": 0.541, "value": { "x": -0.147, "y": 0.524, "z": -0.494 } }, { "time": 0.999, "value": { "x": -0.147, "y": 0.524, "z": -0.494 } } ] },
+    { "bone": "RIGHT_ARM.WRIST", "keyframes": [ { "time": 0, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.217, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.304, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.355, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.392, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.432, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.477, "value": { "x": 0, "y": 0, "z": 0 } }, { "time": 0.541, "value": { "x": -0.14, "y": 0, "z": 0 } }, { "time": 0.999, "value": { "x": -0.14, "y": 0, "z": 0 } } ] },
+    { "bone": "LEFT_LEG.THIGH", "keyframes": [ { "time": 0, "value": { "x": 0.611, "y": 0.309, "z": 0.059 } }, { "time": 0.217, "value": { "x": 0.023, "y": 0.268, "z": -0.297 } }, { "time": 0.304, "value": { "x": -0.102, "y": 0.259, "z": -0.373 } }, { "time": 0.355, "value": { "x": -0.241, "y": 0.249, "z": -0.457 } }, { "time": 0.392, "value": { "x": -0.241, "y": 0.249, "z": -0.457 } }, { "time": 0.432, "value": { "x": -0.415, "y": 0.237, "z": -0.563 } }, { "time": 0.477, "value": { "x": -0.614, "y": 0.222, "z": -0.683 } }, { "time": 0.541, "value": { "x": -0.764, "y": 0.212, "z": -0.774 } }, { "time": 0.999, "value": { "x": -0.764, "y": 0.212, "z": -0.774 } } ] },
+    { "bone": "LEFT_LEG.KNEE", "keyframes": [ { "time": 0, "value": 0.648 }, { "time": 0.217, "value": 0.942 }, { "time": 0.304, "value": 1.005 }, { "time": 0.355, "value": 1.074 }, { "time": 0.392, "value": 1.074 }, { "time": 0.432, "value": 1.162 }, { "time": 0.477, "value": 1.262 }, { "time": 0.541, "value": 1.337 }, { "time": 0.999, "value": 1.337 } ] },
+    { "bone": "LEFT_LEG.ANKLE", "keyframes": [ { "time": 0, "value": { "x": 0.51, "y": 0, "z": 0.16 } }, { "time": 0.217, "value": { "x": 0.112, "y": 0, "z": 0.055 } }, { "time": 0.304, "value": { "x": 0.027, "y": 0, "z": 0.033 } }, { "time": 0.355, "value": { "x": -0.067, "y": 0, "z": 0.008 } }, { "time": 0.392, "value": { "x": -0.067, "y": 0, "z": 0.008 } }, { "time": 0.432, "value": { "x": -0.185, "y": 0, "z": -0.023 } }, { "time": 0.477, "value": { "x": -0.321, "y": 0, "z": -0.059 } }, { "time": 0.541, "value": { "x": -0.423, "y": 0, "z": -0.085 } }, { "time": 0.999, "value": { "x": -0.423, "y": 0, "z": -0.085 } } ] },
+    { "bone": "RIGHT_LEG.THIGH", "keyframes": [ { "time": 0, "value": { "x": -0.241, "y": 0.457, "z": 1.41 } }, { "time": 0.217, "value": { "x": 0.011, "y": 0.207, "z": 1.159 } }, { "time": 0.304, "value": { "x": 0.065, "y": 0.153, "z": 1.105 } }, { "time": 0.355, "value": { "x": 0.125, "y": 0.094, "z": 1.045 } }, { "time": 0.392, "value": { "x": 0.125, "y": 0.094, "z": 1.045 } }, { "time": 0.432, "value": { "x": 0.2, "y": 0.02, "z": 0.97 } }, { "time": 0.477, "value": { "x": 0.285, "y": -0.065, "z": 0.885 } }, { "time": 0.541, "value": { "x": 0.349, "y": -0.129, "z": 0.821 } }, { "time": 0.999, "value": { "x": 0.349, "y": -0.129, "z": 0.821 } } ] },
+    { "bone": "RIGHT_LEG.KNEE", "keyframes": [ { "time": 0, "value": 2.498 }, { "time": 0.217, "value": 1.849 }, { "time": 0.304, "value": 1.71 }, { "time": 0.355, "value": 1.557 }, { "time": 0.392, "value": 1.557 }, { "time": 0.432, "value": 1.364 }, { "time": 0.477, "value": 1.144 }, { "time": 0.541, "value": 0.978 }, { "time": 0.999, "value": 0.978 } ] },
+    { "bone": "RIGHT_LEG.ANKLE", "keyframes": [ { "time": 0, "value": { "x": 0.51, "y": 0, "z": 0 } }, { "time": 0.217, "value": { "x": 0.384, "y": 0, "z": 0 } }, { "time": 0.304, "value": { "x": 0.357, "y": 0, "z": 0 } }, { "time": 0.355, "value": { "x": 0.328, "y": 0, "z": 0 } }, { "time": 0.392, "value": { "x": 0.328, "y": 0, "z": 0 } }, { "time": 0.432, "value": { "x": 0.291, "y": 0, "z": 0 } }, { "time": 0.477, "value": { "x": 0.248, "y": 0, "z": 0 } }, { "time": 0.541, "value": { "x": 0.216, "y": 0, "z": 0 } }, { "time": 0.999, "value": { "x": 0.216, "y": 0, "z": 0 } } ] },
+    { "bone": "SHIELD.POSITION", "keyframes": [ { "time": 0, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.217, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.304, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.355, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.392, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.432, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.477, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.541, "value": { "x": 0, "y": -0.5, "z": 0.1 } }, { "time": 0.999, "value": { "x": 0, "y": -0.5, "z": 0.1 } } ] },
+    { "bone": "SHIELD.ROTATION", "keyframes": [ { "time": 0, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.217, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.304, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.355, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.392, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.432, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.477, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.541, "value": { "x": -0.2, "y": 0, "z": 0 } }, { "time": 0.999, "value": { "x": -0.2, "y": 0, "z": 0 } } ] }
+  ]
+},
+    MELEE_RECOVERY: createStaticClip('RECOVERY', RAW_IDLE),
     KNOCKDOWN: createStaticClip('KNOCKDOWN', RAW_KNOCKDOWN),
     WAKEUP: createTransitionClip('WAKEUP', RAW_KNOCKDOWN, RAW_WAKEUP, 1.0)
 };
@@ -382,7 +497,6 @@ export {
     RAW_IDLE as IDLE_POSE, 
     RAW_DASH_GUN as DASH_POSE_GUN, 
     RAW_DASH_SABER as DASH_POSE_SABER,
-    RAW_MELEE_STARTUP as MELEE_STARTUP_POSE, 
-    RAW_MELEE_SLASH as MELEE_SLASH_POSE, 
-    RAW_MELEE_SLASH_2 as MELEE_SLASH_2_POSE 
+    RAW_ASCEND as ASCEND_POSE,
+    RAW_MELEE_STARTUP as MELEE_STARTUP_POSE
 };

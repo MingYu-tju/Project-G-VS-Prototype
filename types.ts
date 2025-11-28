@@ -265,17 +265,21 @@ export const GLOBAL_CONFIG = {
     RAINBOW_STEP_RECOVERY_FRAMES: 20,
     RAINBOW_STEP_TRAIL_DURATION:17,
     
-    // Melee
+    // Melee - Neutral
     MELEE_LUNGE_SPEED: 0.62,
     MELEE_BOOST_CONSUMPTION: 0.4,
     MELEE_MAX_LUNGE_TIME: 50,
     MELEE_STARTUP_FRAMES: 10,
-    // MELEE_ATTACK_FRAMES removed - now per-combo
     MELEE_RECOVERY_FRAMES: 15,
     MELEE_RANGE: 3.2,
     MELEE_HIT_TOLERANCE: 0, 
     
-    // --- MELEE COMBO ADJUSTMENTS ---
+    // Melee - Side (Horizontal)
+    SIDE_MELEE_LUNGE_SPEED: 0.62, // Slightly faster to flank
+    SIDE_MELEE_ARC_STRENGTH: 0.8, // Controls how wide the curve is
+    SIDE_MELEE_STARTUP_FRAMES: 11, // Frames to play prep animation during lunge
+    
+    // --- MELEE COMBO ADJUSTMENTS (NEUTRAL) ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
             DURATION_FRAMES: 17,
@@ -297,7 +301,6 @@ export const GLOBAL_CONFIG = {
             HIT_STOP_FRAMES: 8,
             DAMAGE_DELAY: 7, 
         },
-        // NEW: Third hit in combo
         SLASH_3: {
             DURATION_FRAMES: 36, // Slower, heavier hit
             KNOCKBACK_POWER: 9.0, 
@@ -310,10 +313,45 @@ export const GLOBAL_CONFIG = {
             IS_KNOCKDOWN: true, 
         }
     },
+
+    // --- SIDE MELEE COMBO DATA (Independent) ---
+    SIDE_MELEE_COMBO_DATA: {
+        SLASH_1: {
+            DURATION_FRAMES: 20,
+            KNOCKBACK_POWER: 2.0,
+            CHASE_VELOCITY: 0.6,
+            APPROACH_SPEED: 0.8,
+            FORWARD_STEP_SPEED: 0.1,
+            STUN_DURATION: 1000,
+            HIT_STOP_FRAMES: 8,
+            DAMAGE_DELAY: 5,
+        },
+        SLASH_2: {
+            DURATION_FRAMES: 15,
+            KNOCKBACK_POWER: 2.5,
+            CHASE_VELOCITY: 0.6,
+            APPROACH_SPEED: 1.2,
+            FORWARD_STEP_SPEED: 0.1,
+            STUN_DURATION: 800,
+            HIT_STOP_FRAMES: 6,
+            DAMAGE_DELAY: 5,
+        },
+        SLASH_3: {
+            DURATION_FRAMES: 30, // Spinning finish?
+            KNOCKBACK_POWER: 8.0, // Spiral knockdown
+            CHASE_VELOCITY: 0.4,
+            APPROACH_SPEED: 0.5,
+            FORWARD_STEP_SPEED: 0.1,
+            STUN_DURATION: 2000,
+            HIT_STOP_FRAMES: 15,
+            DAMAGE_DELAY: 12,
+            IS_KNOCKDOWN: true,
+        }
+    },
     
     // --- CINEMATIC CAMERA ---
     CINEMATIC_CAMERA: {
-        OFFSET: { x: 8, y: 4.0, z: 8.0 }, // Left-Front relative to player
+        OFFSET: { x: 8, y: 4.0, z: 6.0 }, // Left-Front relative to player
         FOV: 75,
         SMOOTHING: 0.8,
         DURATION: 1200 // Duration in ms
