@@ -1,3 +1,4 @@
+
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Grid, Stars, Sparkles, Float } from '@react-three/drei';
@@ -162,7 +163,7 @@ const SceneManager: React.FC = () => {
 
     useFrame((state, delta) => {
         // Run every frame
-        decrementHitStop(); // Decrease freeze timer
+        decrementHitStop(delta); // Decrease freeze timer based on delta
         updateProjectiles(delta);
     });
     return null;

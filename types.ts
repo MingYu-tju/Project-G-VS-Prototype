@@ -264,7 +264,7 @@ export const GLOBAL_CONFIG = {
             APPROACH_SPEED: 1, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 13,
+            HIT_STOP_FRAMES: 5,
             DAMAGE_DELAY: 5, 
         },
         SLASH_2: {
@@ -274,7 +274,7 @@ export const GLOBAL_CONFIG = {
             APPROACH_SPEED: 1, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 20,
+            HIT_STOP_FRAMES: 8,
             DAMAGE_DELAY: 7, 
         },
         // NEW: Third hit in combo
@@ -285,7 +285,7 @@ export const GLOBAL_CONFIG = {
             APPROACH_SPEED: 0.5, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 50, 
+            HIT_STOP_FRAMES: 20, 
             DAMAGE_DELAY: 19,
             IS_KNOCKDOWN: true, 
         }

@@ -1320,12 +1320,25 @@ if (stunned) {
                             }
                         }
                         
-                        // Check for input during hit window (if hit happened)
-                        if (hasMeleeHitRef.current && meleeComboBuffer.current && !useGameStore.getState().isCinematicCameraActive) {
-                             setCinematicCamera(true);
-                             cinematicTimer.current = GLOBAL_CONFIG.CINEMATIC_CAMERA.DURATION;
-                        }
+                        if (!hasMeleeHitRef.current && passed > config.DAMAGE_DELAY && currentTarget) {
+                            const dist = position.current.distanceTo(currentTarget.position);
+                            const tolerance = activeTracking ? GLOBAL_CONFIG.MELEE_HIT_TOLERANCE : 0;
 
+                            if (dist < GLOBAL_CONFIG.MELEE_RANGE + tolerance) { 
+                                const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                applyHit(currentTarget.id, knockback, config.KNOCKBACK_POWER, config.STUN_DURATION, config.HIT_STOP_FRAMES); 
+                                
+                                velocity.current.set(0, 0, 0);
+                                const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
+                                chaseDir.y = 0;
+                                velocity.current.add(chaseDir.multiplyScalar(config.CHASE_VELOCITY));
+
+                                performMeleeSnap(currentTarget);
+                                playHitSound(0);
+                                hasMeleeHitRef.current = true;
+                            }
+                        }
+                        
                         meleeTimer.current -= timeScale;
                         if (meleeTimer.current <= 0) {
                             if (meleeComboBuffer.current) {
@@ -1350,6 +1363,7 @@ if (stunned) {
                         }
                     }
                     else if (meleeState.current === 'SLASH_3') {
+
                         // NEW LOGIC FOR 3RD HIT
                         const config = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3;
                         const passed = config.DURATION_FRAMES - meleeTimer.current;

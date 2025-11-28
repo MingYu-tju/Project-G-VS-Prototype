@@ -59,7 +59,7 @@ interface GameState {
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
   applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void; // Updated signature
-  decrementHitStop: () => void;
+  decrementHitStop: (delta: number) => void;
   
   // New: Cut Tracking (Step)
   cutTracking: (targetId: string) => void;
@@ -313,10 +313,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
   },
 
-  decrementHitStop: () => {
+  decrementHitStop: (delta: number) => {
       set(state => {
           if (state.hitStop > 0) {
-              return { hitStop: Math.max(0, state.hitStop - 1) };
+              // Convert delta (seconds) to frames (assuming 60fps baseline)
+              const decay = delta * 60;
+              return { hitStop: Math.max(0, state.hitStop - decay) };
           }
           
           // Clean up old effects occasionally
