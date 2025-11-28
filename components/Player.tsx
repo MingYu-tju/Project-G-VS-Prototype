@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree, createPortal, extend } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage, PerspectiveCamera, ShaderMaterial } from 'three';
@@ -31,7 +30,10 @@ export const DEFAULT_SLASH_SPECS: SlashSpecsGroup ={
     SIZE: 4.4, WIDTH: 2.5, ARC: 2.9,
     SLASH_1: { color: '#ff00aa', pos: [0.06,1.21,-0.34], rot: [-1.64,1.31,-0.39], startAngle: 2.208, speed: 1, delay: 0 },
     SLASH_2: { color: '#ff00aa', pos: [-0.54,1.86,0], rot: [1.371,1.86,0.86], startAngle: 0.708, speed: -1, delay: 0.1 },
-    SLASH_3: { color: '#ff00aa', pos: [0.06,1.31,-0.04], rot: [-1.34,1.21,1.21], startAngle: 1.708, speed: 1, delay: 0.3 }
+    SLASH_3: { color: '#ff00aa', pos: [0.06,1.31,-0.04], rot: [-1.34,1.21,1.21], startAngle: 1.708, speed: 1, delay: 0.3 },
+    SIDE_SLASH_1: { color: '#ff00aa', pos: [-0.19,1.66,-0.19], rot: [1.21,0.51,0.31], startAngle: 0.108, speed: 0.4, delay: 0.08 },
+    SIDE_SLASH_2: { color: '#ff00aa', pos: [-0.54,1.86,0], rot: [1.371,1.86,0.86], startAngle: 0.708, speed: -1, delay: 0.1 },
+    SIDE_SLASH_3: { color: '#ff00aa', pos: [0.06,1.31,-0.04], rot: [-1.34,1.21,1.21], startAngle: 1.708, speed: 1, delay: 0.3 }
 };
 
 //  Audio Manager 
@@ -461,7 +463,7 @@ interface SlashEffectProps {
     parentRef?: React.RefObject<Group>;
     overrideSpecs?: SlashSpecsGroup; // Optional overrides for editor
     manualProgress?: number | null; // If set, drives animation manually
-    manualMode?: MeleePhase | null; // If set, forces specific slash type
+    manualMode?: string | null; // If set, forces specific slash type
 }
 
 export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({ 
@@ -486,7 +488,7 @@ export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({
         active: false,
         progress: 0,
         age: 0, 
-        currentSlash: 'NONE' as MeleePhase,
+        currentSlash: 'NONE' as string,
         spec: SPECS.SLASH_1 
     });
 
@@ -501,8 +503,11 @@ export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({
         if (manualProgress !== null && manualMode) {
             // Force rendering based on manual inputs
             let spec = SPECS.SLASH_1;
-            if (manualMode === 'SLASH_2' || manualMode === 'SIDE_SLASH_2') spec = SPECS.SLASH_2;
-            if (manualMode === 'SLASH_3' || manualMode === 'SIDE_SLASH_3') spec = SPECS.SLASH_3;
+            if (manualMode === 'SLASH_2') spec = SPECS.SLASH_2;
+            else if (manualMode === 'SLASH_3') spec = SPECS.SLASH_3;
+            else if (manualMode === 'SIDE_SLASH_1') spec = SPECS.SIDE_SLASH_1;
+            else if (manualMode === 'SIDE_SLASH_2') spec = SPECS.SIDE_SLASH_2;
+            else if (manualMode === 'SIDE_SLASH_3') spec = SPECS.SIDE_SLASH_3;
 
             // Apply transforms immediately
             meshRef.current.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
@@ -538,14 +543,17 @@ export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({
         // DETECT START
         if (currentPhase.includes('SLASH') && currentPhase !== s.currentSlash) {
             s.active = true;
-            s.currentSlash = currentPhase as MeleePhase;
+            s.currentSlash = currentPhase;
             s.progress = 0;
             s.age = 0;
             
-            // Load Spec - Map both neutral and side slashes to the same visuals for now
-            if (currentPhase.includes('SLASH_1')) s.spec = SPECS.SLASH_1;
-            else if (currentPhase.includes('SLASH_2')) s.spec = SPECS.SLASH_2;
-            else if (currentPhase.includes('SLASH_3')) s.spec = SPECS.SLASH_3;
+            // Load Spec
+            if (currentPhase === 'SLASH_1') s.spec = SPECS.SLASH_1;
+            else if (currentPhase === 'SLASH_2') s.spec = SPECS.SLASH_2;
+            else if (currentPhase === 'SLASH_3') s.spec = SPECS.SLASH_3;
+            else if (currentPhase === 'SIDE_SLASH_1') s.spec = SPECS.SIDE_SLASH_1;
+            else if (currentPhase === 'SIDE_SLASH_2') s.spec = SPECS.SIDE_SLASH_2;
+            else if (currentPhase === 'SIDE_SLASH_3') s.spec = SPECS.SIDE_SLASH_3;
             else s.active = false; 
 
             if (s.active) {
@@ -1771,7 +1779,7 @@ export const Player: React.FC = () => {
                 blend = 0.05; 
             }
             else if (meleeState.current === 'SLASH_2' || meleeState.current === 'SIDE_SLASH_2') {
-                activeClip = ANIMATION_CLIPS.MELEE_SLASH_2;
+                activeClip = (meleeState.current === 'SIDE_SLASH_2') ? ANIMATION_CLIPS.SIDE_SLASH_2 : ANIMATION_CLIPS.MELEE_SLASH_2;
                 const dur = meleeState.current === 'SIDE_SLASH_2' 
                     ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_2.DURATION_FRAMES 
                     : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2.DURATION_FRAMES;
@@ -1779,7 +1787,7 @@ export const Player: React.FC = () => {
                 blend = 0.05;
             }
             else if (meleeState.current === 'SLASH_3' || meleeState.current === 'SIDE_SLASH_3') {
-                activeClip = ANIMATION_CLIPS.MELEE_SLASH_3;
+                activeClip = (meleeState.current === 'SIDE_SLASH_3') ? ANIMATION_CLIPS.SIDE_SLASH_3 : ANIMATION_CLIPS.MELEE_SLASH_3;
                 const dur = meleeState.current === 'SIDE_SLASH_3' 
                     ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_3.DURATION_FRAMES 
                     : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3.DURATION_FRAMES;

@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, PerspectiveCamera, Html } from '@react-three/drei';
@@ -173,6 +172,10 @@ const formatPoseToObj = (pose: MechPose): string => {
 }`;
 };
 
+// Available slash keys
+const SLASH_KEYS = ['SLASH_1', 'SLASH_2', 'SLASH_3', 'SIDE_SLASH_1', 'SIDE_SLASH_2', 'SIDE_SLASH_3'] as const;
+type SlashKey = typeof SLASH_KEYS[number];
+
 export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // --- STATE ---
     const [weapon, setWeapon] = useState<'GUN' | 'SABER'>('SABER');
@@ -206,7 +209,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
     // --- SLASH FX STATE ---
     const [slashSpecs, setSlashSpecs] = useState<SlashSpecsGroup>(JSON.parse(JSON.stringify(DEFAULT_SLASH_SPECS)));
-    const [selectedSlash, setSelectedSlash] = useState<'SLASH_1' | 'SLASH_2' | 'SLASH_3'>('SLASH_1');
+    const [selectedSlash, setSelectedSlash] = useState<SlashKey>('SLASH_1');
     const [isSlashPreviewOn, setIsSlashPreviewOn] = useState(false);
     const [syncSlashToTimeline, setSyncSlashToTimeline] = useState(false);
 
@@ -449,7 +452,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     SIZE: ${r(slashSpecs.SIZE)}, WIDTH: ${r(slashSpecs.WIDTH)}, ARC: ${r(slashSpecs.ARC)},
     SLASH_1: ${fSpec(slashSpecs.SLASH_1)},
     SLASH_2: ${fSpec(slashSpecs.SLASH_2)},
-    SLASH_3: ${fSpec(slashSpecs.SLASH_3)}
+    SLASH_3: ${fSpec(slashSpecs.SLASH_3)},
+    SIDE_SLASH_1: ${fSpec(slashSpecs.SIDE_SLASH_1)},
+    SIDE_SLASH_2: ${fSpec(slashSpecs.SIDE_SLASH_2)},
+    SIDE_SLASH_3: ${fSpec(slashSpecs.SIDE_SLASH_3)}
 }`;
         navigator.clipboard.writeText(js);
         alert("Slash Specs JS Object copied to clipboard!");
@@ -779,14 +785,14 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                  <section className="bg-gray-900/80 p-3 rounded border border-gray-700 mb-6">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-700 pb-2">
                         <h3 className="text-[10px] font-bold text-pink-400 uppercase">SLASH VFX</h3>
-                        <div className="flex space-x-1">
-                            {(['SLASH_1', 'SLASH_2', 'SLASH_3'] as const).map(s => (
+                        <div className="grid grid-cols-3 gap-1">
+                            {SLASH_KEYS.map(s => (
                                 <button 
                                     key={s}
                                     onClick={() => setSelectedSlash(s)}
                                     className={`text-[8px] px-2 py-0.5 rounded border ${selectedSlash === s ? 'bg-pink-600 border-pink-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
                                 >
-                                    {s.replace('SLASH_', 'S')}
+                                    {s.replace('SLASH_', 'N_').replace('SIDE_SLASH_', 'S_')}
                                 </button>
                             ))}
                         </div>

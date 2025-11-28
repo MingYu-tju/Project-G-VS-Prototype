@@ -1,8 +1,7 @@
-
 import { Vector3 } from 'three';
 import React from 'react';
 
-// ... (Existing ThreeElements interface) ...
+// ... (ThreeElements interface unchanged) ...
 interface ThreeElements {
   group: any;
   mesh: any;
@@ -162,6 +161,9 @@ export interface SlashSpecsGroup {
     SLASH_1: SlashSpec;
     SLASH_2: SlashSpec;
     SLASH_3: SlashSpec;
+    SIDE_SLASH_1: SlashSpec;
+    SIDE_SLASH_2: SlashSpec;
+    SIDE_SLASH_3: SlashSpec;
 }
 
 // Matches the initial JSX rotations in Player.tsx exactly
@@ -327,25 +329,25 @@ export const GLOBAL_CONFIG = {
             DAMAGE_DELAY: 5,
         },
         SLASH_2: {
-            DURATION_FRAMES: 15,
-            KNOCKBACK_POWER: 2.5,
-            CHASE_VELOCITY: 0.6,
-            APPROACH_SPEED: 1.2,
+             DURATION_FRAMES: 17,
+            KNOCKBACK_POWER: 3,
+            CHASE_VELOCITY: 0.5, 
+            APPROACH_SPEED: 1, 
             FORWARD_STEP_SPEED: 0.1,
-            STUN_DURATION: 800,
-            HIT_STOP_FRAMES: 6,
-            DAMAGE_DELAY: 5,
+            STUN_DURATION: 1000,
+            HIT_STOP_FRAMES: 8,
+            DAMAGE_DELAY: 7, 
         },
         SLASH_3: {
-            DURATION_FRAMES: 30, // Spinning finish?
-            KNOCKBACK_POWER: 8.0, // Spiral knockdown
-            CHASE_VELOCITY: 0.4,
-            APPROACH_SPEED: 0.5,
+            DURATION_FRAMES: 36, // Slower, heavier hit
+            KNOCKBACK_POWER: 9.0, 
+            CHASE_VELOCITY: 0.5, 
+            APPROACH_SPEED: 0.5, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 15,
-            DAMAGE_DELAY: 12,
-            IS_KNOCKDOWN: true,
+            HIT_STOP_FRAMES: 20, 
+            DAMAGE_DELAY: 19,
+            IS_KNOCKDOWN: true, 
         }
     },
     
