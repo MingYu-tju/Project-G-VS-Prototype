@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree, createPortal, extend } from '@react-three/fiber';
 import { Vector3, Mesh, MathUtils, Group, DoubleSide, AdditiveBlending, Quaternion, Matrix4, Euler, MeshToonMaterial, Color, Object3D, InstancedMesh, DynamicDrawUsage, PerspectiveCamera, ShaderMaterial } from 'three';
@@ -706,6 +707,9 @@ export const Player: React.FC = () => {
     const keys = useRef<{ [key: string]: boolean }>({});
     const lastKeyPressTime = useRef(0);
     const lastKeyPressed = useRef<string>("");
+    // NEW: Track when specific direction keys were last released
+    const lastDirectionKeyReleaseTimes = useRef<Record<string, number>>({});
+
     const lPressStartTime = useRef(0);
     const lastLReleaseTime = useRef(0);
     const lConsumedByAction = useRef(false); 
@@ -879,7 +883,10 @@ export const Player: React.FC = () => {
             const now = Date.now();
             if (!keys.current[key]) {
                 if (['w', 'a', 's', 'd'].includes(key)) {
-                    if (key === lastKeyPressed.current && (now - lastKeyPressTime.current < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW)) {
+                    // Check against RELEASE time instead of PRESS time to allow "Release -> Press" triggering
+                    const lastRelease = lastDirectionKeyReleaseTimes.current[key] || 0;
+                    
+                    if (now - lastRelease < GLOBAL_CONFIG.DOUBLE_TAP_WINDOW) {
                         if (!isOverheated && boost > 0 && !isStunned && landingFrames.current <= 0) {
                             if (useGameStore.getState().isCinematicCameraActive) {
                                 setCinematicCamera(false);
@@ -1057,6 +1064,12 @@ export const Player: React.FC = () => {
         const handleKeyUp = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
             keys.current[key] = false;
+            
+            if (['w', 'a', 's', 'd'].includes(key)) {
+                // Track when this specific direction was released
+                lastDirectionKeyReleaseTimes.current[key] = Date.now();
+            }
+
             if (key === 'l') {
                 if (lConsumedByAction.current && !preserveDoubleTapOnRelease.current) {
                     lastLReleaseTime.current = 0;
