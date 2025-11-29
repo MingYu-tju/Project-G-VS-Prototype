@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AdditiveBlending,  BoxGeometry} from 'three';
+import { AdditiveBlending ,BoxGeometry} from 'three';
 import { useGLTF } from '@react-three/drei';
 import { MechPose } from '../types';
 
