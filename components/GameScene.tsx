@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, Environment, ContactShadows } from '@react-three/drei';
+import { Grid, Stars, Sparkles, ContactShadows } from '@react-three/drei';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -256,8 +256,7 @@ export const GameScene: React.FC = () => {
       <color attach="background" args={['#05070a']} />
       <fog attach="fog" args={['#05070a', 60, 180]} />
 
-      {/* ENVIRONMENT & LIGHTING: Replaces Edges for definition */}
-      <Environment preset="city" />
+
       <ambientLight intensity={0.8} color="#405060" />
       <hemisphereLight skyColor="#ffffff" groundColor="#202020" intensity={0.7} />
       
