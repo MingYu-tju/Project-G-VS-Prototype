@@ -12,7 +12,12 @@ interface Props {
 
 export const Projectile: React.FC<Props> = ({ data }) => {
   const meshRef = useRef<Mesh>(null);
+  
+  // State for rendering updates
   const [hit, setHit] = useState(false);
+  
+  // Ref for logic updates (Synchronous lock to prevent multi-frame hits at low FPS)
+  const isHitRef = useRef(false);
   
   const [impactPos, setImpactPos] = useState<Vector3 | null>(null);
   const [hitScale, setHitScale] = useState(0);
@@ -27,12 +32,17 @@ export const Projectile: React.FC<Props> = ({ data }) => {
     // Hit Stop Check: Freeze scaling and movement
     if (hitStop > 0) return;
 
+    // 1. Visual Effects Phase: If already hit (React state updated), shrink the explosion
     if (hit) {
         if (hitScale > 0) {
             setHitScale(prev => Math.max(0, prev - 0.08));
         }
         return; 
     }
+
+    // 2. Logic Guard Phase: If hit occurred logically (Ref updated) but React hasn't re-rendered 'hit' state yet,
+    // stop processing movement/collision to prevent bullet staying 'active' inside target.
+    if (isHitRef.current) return;
 
     if (!meshRef.current) return;
     
@@ -65,6 +75,10 @@ export const Projectile: React.FC<Props> = ({ data }) => {
   });
 
   const triggerHit = (targetId: string) => {
+      // Critical: Check Sync Ref to ensure we only trigger ONCE per projectile life
+      if (isHitRef.current) return;
+      isHitRef.current = true;
+
       setHit(true);
       setHitScale(1);
       setImpactPos(data.position.clone());
