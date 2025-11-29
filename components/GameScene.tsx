@@ -1,7 +1,6 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Grid, Stars, Sparkles, Float } from '@react-three/drei';
-import { EffectComposer, Outline } from '@react-three/postprocessing';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion, Euler } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -261,17 +260,6 @@ export const GameScene: React.FC = () => {
       
       <color attach="background" args={['#05070a']} />
       <fog attach="fog" args={['#05070a', 60, 180]} />
-      
-      {/* GLOBAL POST-PROCESSING EFFECTS */}
-      <EffectComposer autoClear={false}>
-         <Outline 
-             blur={false} 
-             edgeStrength={10} 
-             width={1000} 
-             visibleEdgeColor="black" 
-             hiddenEdgeColor="black" 
-         />
-      </EffectComposer>
 
       <SceneManager />
       <EffectManager />
