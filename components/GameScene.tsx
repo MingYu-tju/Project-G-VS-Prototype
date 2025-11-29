@@ -1,7 +1,7 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, Float } from '@react-three/drei';
-import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion, Euler } from 'three';
+import { Grid, Stars, Sparkles, Environment, ContactShadows } from '@react-three/drei';
+import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
 import { Projectile } from './Projectile';
@@ -155,14 +155,12 @@ const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
 
 // --- MANAGERS ---
 
-// Scene Manager: Handles Global Logic (Projectiles, HitStop Tick)
 const SceneManager: React.FC = () => {
     const updateProjectiles = useGameStore(state => state.updateProjectiles);
     const decrementHitStop = useGameStore(state => state.decrementHitStop);
 
     useFrame((state, delta) => {
-        // Run every frame
-        decrementHitStop(delta); // Decrease freeze timer based on delta
+        decrementHitStop(delta);
         updateProjectiles(delta);
     });
     return null;
@@ -171,8 +169,6 @@ const SceneManager: React.FC = () => {
 const EffectManager: React.FC = () => {
     const hitEffects = useGameStore(state => state.hitEffects);
     const now = Date.now();
-    // Filter visual renderers for only recent effects to save React tree overhead
-    // Keep them slightly longer (500ms) to allow fade out
     const activeEffects = hitEffects.filter(e => now - e.startTime < 500); 
 
     return (
@@ -257,21 +253,30 @@ export const GameScene: React.FC = () => {
 
   return (
     <Canvas camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true, toneMappingExposure: 1.3 }}>
-      
       <color attach="background" args={['#05070a']} />
       <fog attach="fog" args={['#05070a', 60, 180]} />
 
-      <SceneManager />
-      <EffectManager />
-
-      <ambientLight intensity={0.6} color="#405060" />
-      <hemisphereLight skyColor="#ffffff" groundColor="#202020" intensity={0.6} />
-      <directionalLight position={[50, 80, 30]} intensity={2.5} color="#ddeeff" />
-      <directionalLight position={[-30, 40, -30]} intensity={1.2} color="#6688aa" />
-      <pointLight position={[-100, 50, -100]} intensity={2000} color="#0088ff" distance={300} />
-      <pointLight position={[100, 50, 100]} intensity={2000} color="#ff00aa" distance={300} />
+      {/* ENVIRONMENT & LIGHTING: Replaces Edges for definition */}
+      <Environment preset="city" />
+      <ambientLight intensity={0.8} color="#405060" />
+      <hemisphereLight skyColor="#ffffff" groundColor="#202020" intensity={0.7} />
+      
+      {/* Key Light */}
+      <directionalLight position={[50, 80, 30]} intensity={2.0} color="#ddeeff" castShadow />
+      
+      {/* Rim Light (Backlight) - Creates the "Edge" effect */}
+      <spotLight position={[0, 10, -20]} angle={1} penumbra={1} intensity={10} color="#00ffff" distance={100} />
+      
+      <pointLight position={[-100, 50, -100]} intensity={1000} color="#0088ff" distance={300} />
+      <pointLight position={[100, 50, 100]} intensity={1000} color="#ff00aa" distance={300} />
 
       <Stars radius={200} depth={50} count={8000} factor={6} saturation={0} fade speed={0.2} />
+
+      {/* Grounding Shadows */}
+      <ContactShadows resolution={512} scale={40} blur={2} opacity={0.6} far={10} color="#000000" />
+
+      <SceneManager />
+      <EffectManager />
 
       <DigitalFloor />
       <SimulationWall />
