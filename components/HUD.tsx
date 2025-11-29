@@ -67,7 +67,7 @@ export const HUD: React.FC = () => {
       )}
 
       {/* AI TOGGLE BUTTON - Top Left (Below Pose Editor Button area) */}
-      <div className="absolute top-28 left-4 z-50 pointer-events-auto">
+      <div className="absolute top-36 left-4 z-50 pointer-events-auto">
           <button 
               onClick={toggleNPCsPaused}
               className={`px-3 py-1 rounded border text-[10px] font-mono font-bold transition-all ${areNPCsPaused ? 'bg-red-900/80 border-red-500 text-red-300' : 'bg-green-900/80 border-green-500 text-green-300'}`}
