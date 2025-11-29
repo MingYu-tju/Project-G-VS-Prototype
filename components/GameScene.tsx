@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, ContactShadows } from '@react-three/drei';
+import { Grid, Stars, Sparkles } from '@react-three/drei';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -270,9 +270,6 @@ export const GameScene: React.FC = () => {
       <pointLight position={[100, 50, 100]} intensity={1000} color="#ff00aa" distance={300} />
 
       <Stars radius={200} depth={50} count={8000} factor={6} saturation={0} fade speed={0.2} />
-
-      {/* Grounding Shadows */}
-      <ContactShadows resolution={512} scale={40} blur={2} opacity={0.6} far={10} color="#000000" />
 
       <SceneManager />
       <EffectManager />
