@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, Float } from '@react-three/drei';
+import { Grid, Stars, Sparkles, Environment, Lightformer } from '@react-three/drei';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion, Euler } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -8,6 +8,7 @@ import { Projectile } from './Projectile';
 import { LockReticle } from './LockReticle';
 import { useGameStore } from '../store';
 import { GLOBAL_CONFIG, HitEffectData } from '../types';
+
 
 // --- VISUAL EFFECT COMPONENT (METAL SPARKS & FIRE) ---
 const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
@@ -155,14 +156,12 @@ const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
 
 // --- MANAGERS ---
 
-// Scene Manager: Handles Global Logic (Projectiles, HitStop Tick)
 const SceneManager: React.FC = () => {
     const updateProjectiles = useGameStore(state => state.updateProjectiles);
     const decrementHitStop = useGameStore(state => state.decrementHitStop);
 
     useFrame((state, delta) => {
-        // Run every frame
-        decrementHitStop(delta); // Decrease freeze timer based on delta
+        decrementHitStop(delta);
         updateProjectiles(delta);
     });
     return null;
@@ -171,8 +170,6 @@ const SceneManager: React.FC = () => {
 const EffectManager: React.FC = () => {
     const hitEffects = useGameStore(state => state.hitEffects);
     const now = Date.now();
-    // Filter visual renderers for only recent effects to save React tree overhead
-    // Keep them slightly longer (500ms) to allow fade out
     const activeEffects = hitEffects.filter(e => now - e.startTime < 500); 
 
     return (
@@ -256,30 +253,70 @@ export const GameScene: React.FC = () => {
   const { targets, currentTargetIndex, projectiles } = useGameStore();
 
   return (
-    <Canvas camera={{ position: [0, 5, 10], fov: 60 }} gl={{ antialias: true, toneMappingExposure: 1.3 }}>
-      
+    <Canvas 
+        camera={{ position: [0, 5, 10], fov: 60 }} 
+        gl={{ 
+            antialias: true, 
+            toneMappingExposure: 1.1 // Slight overexposure for bloom-like effect on bright parts
+        }}
+        shadows={false} // Disable shadow maps for performance
+    >
       <color attach="background" args={['#05070a']} />
-      <fog attach="fog" args={['#05070a', 60, 180]} />
+      <fog attach="fog" args={['#05070a', 50, 150]} />
+
+      {/* 1. PROCEDURAL STUDIO ENVIRONMENT */}
+      {/* This creates the metallic reflections. We use high contrast light formers. */}
+      <Environment resolution={512}>
+        <group rotation={[-Math.PI / 4, -0.3, 0]}>
+            {/* Main Reflection (Soft White) */}
+            <Lightformer intensity={1.5} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} />
+            {/* Rim Reflection Left (Cool Blue) - Defines the left edge */}
+            <Lightformer intensity={4} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[20, 1, 1]} color="#00ffff" />
+            {/* Rim Reflection Right (Warm Orange) - Defines the right edge */}
+            <Lightformer intensity={4} rotation-y={-Math.PI / 2} position={[5, 1, -1]} scale={[20, 1, 1]} color="#ffaa00" />
+            {/* Bottom Fill */}
+            <Lightformer intensity={0.5} rotation-x={-Math.PI / 2} position={[0, -5, 0]} scale={[10, 10, 1]} color="white" />
+        </group>
+      </Environment>
+
+      {/* 2. DRAMATIC LIGHTING */}
+      {/* Ambient: Low to keep shadows dark and contrasty */}
+      <ambientLight intensity={0.3} color="#202030" />
+      
+      {/* Key Light: Sharp sunlight */}
+      <directionalLight position={[30, 50, 20]} intensity={2.5} color="#ffffff" />
+      
+      {/* Rim Light (Back): VERY bright cyan light to separate mech from background (The "Edge" replacement) */}
+      <spotLight 
+        position={[0, 10, -20]} 
+        angle={0.8} 
+        penumbra={0.5} 
+        intensity={20} 
+        color="#00ffff" 
+        distance={80} 
+        target-position={[0, 0, 0]}
+      />
+      
+      {/* Fill Light (Side): Subtle purple fill */}
+      <pointLight position={[-30, 10, 0]} intensity={500} color="#aa00ff" distance={50} />
+
+
+      {/* Atmosphere */}
+      <Stars radius={200} depth={50} count={3000} factor={4} saturation={0} fade speed={0.2} />
 
       <SceneManager />
       <EffectManager />
 
-      <ambientLight intensity={0.6} color="#405060" />
-      <hemisphereLight skyColor="#ffffff" groundColor="#202020" intensity={0.6} />
-      <directionalLight position={[50, 80, 30]} intensity={2.5} color="#ddeeff" />
-      <directionalLight position={[-30, 40, -30]} intensity={1.2} color="#6688aa" />
-      <pointLight position={[-100, 50, -100]} intensity={2000} color="#0088ff" distance={300} />
-      <pointLight position={[100, 50, 100]} intensity={2000} color="#ff00aa" distance={300} />
-
-      <Stars radius={200} depth={50} count={8000} factor={6} saturation={0} fade speed={0.2} />
-
+      {/* Re-import original visual components properly in real file */}
       <DigitalFloor />
       <SimulationWall />
       <FloatingDataDebris />
+      {/* Placeholder for visual components to ensure valid JSX in this snippet */}
+      <gridHelper args={[200, 20, 0x112233, 0x112233]} position={[0, -0.01, 0]} />
 
       <Player />
       
-    {targets.map((t, index) => (
+      {targets.map((t, index) => (
         <Unit 
           key={t.id}
           id={t.id}
