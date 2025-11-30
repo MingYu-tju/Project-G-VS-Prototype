@@ -1,14 +1,164 @@
 
 import React, { useRef, useState, useEffect, useMemo, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler, MeshToonMaterial, Color, BoxGeometry } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler, MeshToonMaterial, Color, BoxGeometry, CylinderGeometry } from 'three';
 import { Text, Html, useGLTF } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
 import { useGameStore } from '../store';
 import { ANIMATION_CLIPS } from '../animations'; 
 import { AnimationController, clonePose } from './AnimationSystem';
+import * as THREE from 'three';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const FRAME_DURATION = 1 / 60;
+
+// --- GEOMETRY FACTORY & HIP VISUALS (OPTIMIZED) ---
+const GeoFactory = {
+    // 基础方块
+    box: (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d),
+    
+    // 梯形 (先变形，后返回)
+    trapz: (args: number[]) => {
+        const [w, h, d, tx, tz] = args;
+        const g = new THREE.BoxGeometry(w, h, d);
+        const pos = g.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            if (pos.getY(i) > 0) {
+                pos.setX(i, pos.getX(i) * tx);
+                pos.setZ(i, pos.getZ(i) * tz);
+            }
+        }
+        g.computeVertexNormals();
+        return g;
+    },
+
+    // 棱柱 (4段圆柱旋转45度)
+    prism: (args: number[]) => {
+        const g = new THREE.CylinderGeometry(args[0], args[1], args[2], 4);
+        g.rotateY(Math.PI / 4);
+        return g;
+    }
+};
+
+// --- 强大的合并组件 (与 Player.tsx 保持一致) ---
+const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
+    
+    const { whiteGeo, darkGeo, redGeo, yellowGeo } = useMemo(() => {
+        const buckets: Record<string, THREE.BufferGeometry[]> = {
+            white: [], dark: [], red: [], yellow: []
+        };
+
+        const add = (
+            geo: THREE.BufferGeometry, 
+            bucketKey: string, 
+            local: { p: number[], r: number[], s: number[] },
+            parent?: { p: number[], r: number[], s: number[] }
+        ) => {
+            // 1. 应用自身变换
+            if (local.s) geo.scale(local.s[0], local.s[1], local.s[2]);
+            
+            // FIXED ROTATION ORDER: To match Euler 'XYZ', apply Z then Y then X
+            if (local.r) { 
+                geo.rotateZ(local.r[2]); 
+                geo.rotateY(local.r[1]); 
+                geo.rotateX(local.r[0]); 
+            }
+            
+            if (local.p) geo.translate(local.p[0], local.p[1], local.p[2]);
+
+            // 2. 应用父级变换
+            if (parent) {
+                if (parent.s) geo.scale(parent.s[0], parent.s[1], parent.s[2]);
+                
+                if (parent.r) { 
+                     const parentRot = new THREE.Matrix4().makeRotationFromEuler(
+                        new THREE.Euler(parent.r[0], parent.r[1], parent.r[2], 'XYZ')
+                     );
+                     geo.applyMatrix4(parentRot);
+                }
+                
+                if (parent.p) geo.translate(parent.p[0], parent.p[1], parent.p[2]);
+            }
+
+            buckets[bucketKey].push(geo);
+        };
+
+        // ================= DATA (HIP) =================
+
+        // HIP_1 (Dark)
+        add(GeoFactory.box(0.5, 0.5, 0.5), 'dark', { p:[0, -0.296, 0], r:[0,0,0], s:[0.4, 1, 1] });
+
+        // HIP_2 (White) - Front Crotch
+        add(GeoFactory.trapz([0.1, 0.3, 0.15, 4.45, 1]), 'white', { p:[0, -0.318, 0.365], r:[-1.571, -1.571, 0], s:[1, 0.8, 1.3] });
+
+        // HIP_3 (White)
+        add(GeoFactory.trapz([0.2, 0.2, 0.25, 1, 0.45]), 'white', { p:[0, -0.125, 0.257], r:[0,0,0], s:[1, 0.8, 1.1] });
+
+        // HIP_4 (Red)
+        add(GeoFactory.box(0.2, 0.05, 0.15), 'red', { p:[0, -0.125, 0.356], r:[1.13, 0, 0], s:[0.9, 0.5, 1] });
+
+        // HIP_5 (Red)
+        add(GeoFactory.box(0.2, 0.05, 0.2), 'red', { p:[0, -0.207, 0.408], r:[0.6, 0, 0], s:[0.9, 0.4, 0.8] });
+
+        // HIP_6 (Front Left)
+        const p6 = { p: [0.037, 0, 0.077], r: [0, -0.1, -0.1], s: [0.9, 1, 1] };
+        add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, 0.253], r:[0, 0, -1.6], s:[1,1,1] }, p6);
+        add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p6);
+        add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p6);
+
+        // HIP_7 (Front Right)
+        const p7 = { p: [-0.037, 0, 0.077], r: [0, 0.1, 0.1], s: [0.9, 1, 1] };
+        add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, 0.253], r:[0, 0, 1.6], s:[1,1,1] }, p7);
+        add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p7);
+        add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p7);
+
+        // HIP_8 (Rear Left)
+        const p8 = { p: [-0.037, 0, 0.121], r: [0, -0.1, 0.1], s: [0.9, 1, 1] };
+        add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, -0.418], r:[0, 0, 1.6], s:[1,1,1] }, p8);
+        add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p8);
+        add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, -0.475], r:[-1.57, 0, 0], s:[1,1,1] }, p8);
+
+        // HIP_9 (Rear Right)
+        const p9 = { p: [0.037, 0, 0.121], r: [0, 0.1, -0.1], s: [0.9, 1, 1] };
+        add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, -0.418], r:[0, 0, -1.6], s:[1,1,1] }, p9);
+        add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p9);
+        add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, -0.475], r:[-1.57, 0, 0], s:[1,1,1] }, p9);
+
+        // HIP_10 (Back Butt Plate)
+        const p10 = { p: [0, 0, -1.522], r: [0,0,0], s: [1,1,1] };
+        add(GeoFactory.box(0.2, 0.35, 0.2), 'white', { p:[0, -0.211, 1.2], r:[0,0,0], s:[1,1,1] }, p10);
+        add(GeoFactory.trapz([0.2, 0.2, 0.4, 1, 0.25]), 'white', { p:[0, -0.369, 1.2], r:[-1.57, 0, 0], s:[1,1,1] }, p10);
+
+        // HIP_11 (Side Skirt Left)
+        const p11 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
+        add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[0.48, -0.178, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
+        add(GeoFactory.box(0.1, 0.3, 0.25), 'white', { p:[0.506, -0.088, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
+
+        // HIP_12 (Side Skirt Right)
+        const p12 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
+        add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[-0.48, -0.178, 0], r:[0, 0, -0.3], s:[1,1,1] }, p12);
+        add(GeoFactory.box(0.1, 0.3, 0.25), 'white', { p:[-0.506, -0.088, 0], r:[0, 0, -0.3], s:[1,1,1] }, p12);
+
+        const merge = (arr: THREE.BufferGeometry[]) => arr.length > 0 ? BufferGeometryUtils.mergeGeometries(arr) : null;
+
+        return {
+            whiteGeo: merge(buckets.white),
+            darkGeo: merge(buckets.dark),
+            redGeo: merge(buckets.red),
+            yellowGeo: merge(buckets.yellow)
+        };
+    }, []);
+
+    return (
+        <group name="HipMerged">
+            {darkGeo && <mesh geometry={darkGeo}><meshToonMaterial color="#444444" /></mesh>}
+            {whiteGeo && <mesh geometry={whiteGeo}><meshToonMaterial color={armorColor} /></mesh>}
+            {redGeo && <mesh geometry={redGeo}><meshToonMaterial color="#ff0000" /></mesh>}
+            {yellowGeo && <mesh geometry={yellowGeo}><meshToonMaterial color="#ffaa00" /></mesh>}
+        </group>
+    );
+});
+
 
 // --- VISUALS ---
 
@@ -968,128 +1118,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 <group position={[0, 0.021, -0.044]} rotation={[-3.143, 0, 0]} scale={[0.8, 0.9, 0.9]}>
                     <Trapezoid args={[0.75, 0.3, 0.35, 1.15, 1.35]} color={waistColor} />
                 </group>
-                {/* --- WAIST / HIP VISUALS (New Detailed Hip) --- */}
-                <group name="Hip">
-                    {/* HIP_1 (Center Block) */}
-                    <group position={[0, -0.296, 0]} scale={[0.4, 1, 1]}>
-                        <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><meshToonMaterial color="#444444" /></mesh>
-                    </group>
-
-                    {/* HIP_2 (Front Crotch Armor) */}
-                    <group position={[0, -0.318, 0.365]} rotation={[-1.571, -1.571, 0]} scale={[1, 0.8, 1.3]}>
-                         <Trapezoid args={[0.1, 0.3, 0.15, 4.45, 1]} color={armorColor} />
-                    </group>
-
-                    {/* HIP_3 (Upper Front) */}
-                    <group position={[0, -0.125, 0.257]} scale={[1, 0.8, 1.1]}>
-                         <Trapezoid args={[0.2, 0.2, 0.25, 1, 0.45]} color={armorColor} />
-                    </group>
-
-                    {/* HIP_4 (Red Trim Top) */}
-                    <group position={[0, -0.125, 0.356]} rotation={[1.13, 0, 0]} scale={[0.9, 0.5, 1]}>
-                        <mesh><boxGeometry args={[0.2, 0.05, 0.15]} /><meshToonMaterial color="#ff0000" /></mesh>
-                    </group>
-
-                    {/* HIP_5 (Red Trim Bottom) */}
-                    <group position={[0, -0.207, 0.408]} rotation={[0.6, 0, 0]} scale={[0.9, 0.4, 0.8]}>
-                        <mesh><boxGeometry args={[0.2, 0.05, 0.2]} /><meshToonMaterial color="#ff0000" /></mesh>
-                    </group>
-
-                    {/* HIP_6 (Front Skirt Left) */}
-                    <group position={[0.037, 0, 0.077]} rotation={[0, -0.1, -0.1]} scale={[0.9, 1, 1]}>
-                        <group position={[-0.303, -0.266, 0.253]} rotation={[0, 0, -1.6]}>
-                             <Trapezoid args={[0.3, 0.35, 0.1, 1.5, 1]} color={armorColor} />
-                        </group>
-                        <group position={[-0.299, -0.096, 0.253]}>
-                             <mesh><boxGeometry args={[0.35, 0.1, 0.1]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[-0.298, -0.215, 0.32]} rotation={[1.571, 0, 0]}>
-                             {/* Prism: Cylinder with 4 segments rotated 45 deg */}
-                             <mesh rotation={[0, Math.PI/4, 0]}>
-                                <cylinderGeometry args={[0.15, 0.2, 0.1, 4]} />
-                                <meshToonMaterial color="#ffaa00" />
-                             </mesh>
-                        </group>
-                    </group>
-
-                    {/* HIP_7 (Front Skirt Right) */}
-                    <group position={[-0.037, 0, 0.077]} rotation={[0, 0.1, 0.1]} scale={[0.9, 1, 1]}>
-                        <group position={[0.303, -0.266, 0.253]} rotation={[0, 0, 1.6]}>
-                             <Trapezoid args={[0.3, 0.35, 0.1, 1.5, 1]} color={armorColor} />
-                        </group>
-                        <group position={[0.299, -0.096, 0.253]}>
-                             <mesh><boxGeometry args={[0.35, 0.1, 0.1]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[0.298, -0.215, 0.32]} rotation={[1.571, 0, 0]}>
-                             <mesh rotation={[0, Math.PI/4, 0]}>
-                                <cylinderGeometry args={[0.15, 0.2, 0.1, 4]} />
-                                <meshToonMaterial color="#ffaa00" />
-                             </mesh>
-                        </group>
-                    </group>
-
-                    {/* HIP_8 (Rear Skirt Left) */}
-                    <group position={[-0.037, 0, 0.121]} rotation={[0, -0.1, 0.1]} scale={[0.9, 1, 1]}>
-                        <group position={[0.303, -0.266, -0.418]} rotation={[0, 0, 1.6]}>
-                             <Trapezoid args={[0.3, 0.35, 0.1, 1.5, 1]} color={armorColor} />
-                        </group>
-                        <group position={[0.299, -0.096, -0.418]}>
-                             <mesh><boxGeometry args={[0.35, 0.1, 0.1]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[0.298, -0.215, -0.475]} rotation={[-1.571, 0, 0]}>
-                             <mesh rotation={[0, Math.PI/4, 0]}>
-                                <cylinderGeometry args={[0.15, 0.2, 0.1, 4]} />
-                                <meshToonMaterial color="#ffaa00" />
-                             </mesh>
-                        </group>
-                    </group>
-
-                    {/* HIP_9 (Rear Skirt Right) */}
-                    <group position={[0.037, 0, 0.121]} rotation={[0, 0.1, -0.1]} scale={[0.9, 1, 1]}>
-                        <group position={[-0.303, -0.266, -0.418]} rotation={[0, 0, -1.6]}>
-                             <Trapezoid args={[0.3, 0.35, 0.1, 1.5, 1]} color={armorColor} />
-                        </group>
-                        <group position={[-0.299, -0.096, -0.418]}>
-                             <mesh><boxGeometry args={[0.35, 0.1, 0.1]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[-0.298, -0.215, -0.475]} rotation={[-1.571, 0, 0]}>
-                             <mesh rotation={[0, Math.PI/4, 0]}>
-                                <cylinderGeometry args={[0.15, 0.2, 0.1, 4]} />
-                                <meshToonMaterial color="#ffaa00" />
-                             </mesh>
-                        </group>
-                    </group>
-
-                    {/* HIP_10 (Back Butt Plate) */}
-                    <group position={[0, 0, -1.522]}>
-                        <group position={[0, -0.211, 1.2]}>
-                             <mesh><boxGeometry args={[0.2, 0.35, 0.2]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[0, -0.369, 1.2]} rotation={[-1.571, 0, 0]}>
-                             <Trapezoid args={[0.2, 0.2, 0.4, 1, 0.25]} color={armorColor} />
-                        </group>
-                    </group>
-
-                    {/* HIP_11 (Side Skirt Left) */}
-                    <group scale={[0.9, 1, 1]}>
-                        <group position={[0.48, -0.178, 0]} rotation={[0, 0, 0.3]}>
-                             <mesh><boxGeometry args={[0.1, 0.4, 0.4]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[0.506, -0.088, 0]} rotation={[0, 0, 0.3]}>
-                             <mesh><boxGeometry args={[0.1, 0.3, 0.25]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                    </group>
-
-                    {/* HIP_12 (Side Skirt Right) */}
-                    <group scale={[0.9, 1, 1]}>
-                        <group position={[-0.48, -0.178, 0]} rotation={[0, 0, -0.3]}>
-                             <mesh><boxGeometry args={[0.1, 0.4, 0.4]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                        <group position={[-0.506, -0.088, 0]} rotation={[0, 0, -0.3]}>
-                             <mesh><boxGeometry args={[0.1, 0.3, 0.25]} /><meshToonMaterial color={armorColor} /></mesh>
-                        </group>
-                    </group>
-                </group>
+                
+                <HipVisuals armorColor={armorColor} feetColor={feetColor} waistColor={waistColor} />
 
                 {/* Hidden Logic Box (Original Waist) */}
                 <mesh position={[0, 0, 0]} visible={false}>
