@@ -229,7 +229,7 @@ const DigitalFloor: React.FC<{ isDark: boolean }> = ({ isDark }) => {
     // Light Mode: Dark Grey floor (to reduce glare) with Lighter Grey grid
     
     // FIX: Using #353535 instead of #111111 to prevent Mobile PBR Shader Black Screen issues
-    const planeColor = isDark ? "#1a1d26" : "#333333";
+    const planeColor = isDark ? "#1a1d26" : "#111111";
     const gridCellColor = isDark ? "#2f3b4c" : "#999999";
     const gridSectionColor = isDark ? "#0066cc" : "#555555";
     
@@ -367,8 +367,8 @@ export const GameScene: React.FC = () => {
 
   return (
     <Canvas 
-        // PERFORMANCE OPTIMIZATION: Limit DPR on mobile to 1.0 to save GPU load
-        // FIX: Use integer 1.5 or 1.0 to avoid Floating Point Render Target issues on some Android GPUs
+        // PERFORMANCE OPTIMIZATION: Limit DPR on mobile to 1.5 (integer-ish) to save GPU load
+        // FIX: Ensure valid DPR for Android stability
         dpr={isMobile ? 2 : [1.5, 2.5]}
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
@@ -416,16 +416,27 @@ export const GameScene: React.FC = () => {
           </>
       ) : (
           <>
-            {/* DAYLIGHT MODE */}
+            {/* DAYLIGHT MODE - FIX: PROCEDURAL ENVIRONMENT ONLY, NO EXTERNAL PRESETS */}
             <color attach="background" args={['#dceefb']} />
             <fog attach="fog" args={['#dceefb', 80, 200]} />
             <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={3} />
             
-            {/* BRIGHT ENVIRONMENT MAP */}
-            <Environment preset="city" />
+            {/* PROCEDURAL DAYLIGHT ENVIRONMENT (Replaces 'preset="city"' to fix mobile black screen) */}
+            <Environment resolution={256}>
+                 <group rotation={[-Math.PI / 4, -0.3, 0]}>
+                    {/* Overhead Sky Light (White/Blue) */}
+                    <Lightformer intensity={2} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} color="#ffffff" />
+                    
+                    {/* Warm Sun Reflection (Right) */}
+                    <Lightformer intensity={2} rotation-y={-Math.PI / 2} position={[10, 1, 0]} scale={[20, 10, 1]} color="#fff0d4" />
+                    
+                    {/* Cool Fill Reflection (Left) */}
+                    <Lightformer intensity={1} rotation-y={Math.PI / 2} position={[-10, 1, 0]} scale={[20, 10, 1]} color="#dceefb" />
+                </group>
+            </Environment>
 
             {/* SUNLIGHT */}
-            <ambientLight intensity={0.8} color="#ffffff" />
+            <ambientLight intensity={0.9} color="#ffffff" />
             <directionalLight 
                 position={[50, 100, 50]} 
                 intensity={1.5} 
@@ -434,7 +445,7 @@ export const GameScene: React.FC = () => {
                 shadow-mapSize={[1024, 1024]}
             />
             {/* Fill Light */}
-            <directionalLight position={[-10, 10, -10]} intensity={0.5} color="#e0f0ff" />
+            <directionalLight position={[-10, 10, -10]} intensity={0.6} color="#e0f0ff" />
 
              {/* Rim Light (Back): White/Subtle for daylight */}
              <spotLight 

@@ -266,8 +266,8 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
         <group name="HipMerged">
             {darkGeo && <mesh geometry={darkGeo}><MechMaterial color="#444444" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
             {whiteGeo && <mesh geometry={whiteGeo}><MechMaterial color={armorColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
-            {redGeo && <mesh geometry={redGeo}><MechMaterial color="#ff0000" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
-            {yellowGeo && <mesh geometry={yellowGeo}><MechMaterial color="#ffaa00" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
+            {redGeo && <mesh geometry={redGeo}><MechMaterial color={waistColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
+            {yellowGeo && <mesh geometry={yellowGeo}><MechMaterial color="#FFD966" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
         </group>
     );
 });
@@ -547,7 +547,7 @@ const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
     return (
         <mesh ref={ref} visible={false}>
             <sphereGeometry args={[0.5, 8, 8]} />
-            <meshBasicMaterial color="#ffaa00" transparent opacity={0.8} />
+            <meshBasicMaterial color="#FFD966" transparent opacity={0.8} />
         </mesh>
     );
 };
@@ -939,11 +939,11 @@ const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
                       <mesh geometry={nodes.Polygon_35.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps} > <MechMaterial color={mainColor} />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
                       <mesh geometry={nodes.Polygon_55.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#00ff00" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
                       <mesh geometry={nodes.Polygon_56.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#00ff00" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
-                      <mesh geometry={nodes.Polygon_57.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#ff0000" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
+                      <mesh geometry={nodes.Polygon_57.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#D94850" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
                       <mesh geometry={nodes.Polygon_58.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}><MechMaterial color={mainColor} />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
-                      <mesh geometry={nodes.Polygon_59.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#ffff00" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
+                      <mesh geometry={nodes.Polygon_59.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color={mainColor} />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
                       <mesh geometry={nodes.Polygon_60.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#000000" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
-                      <mesh geometry={nodes.Polygon_61.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#ff0000" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
+                      <mesh geometry={nodes.Polygon_61.geometry} position={[6.218, 171.76, 3.453]} scale={0.175} {...meshProps}> <MechMaterial color="#D94850" />{isOutlineOn && <Outlines thickness={3} color="#111" />}</mesh>
                     </group>
                 </group>
             </group>
@@ -2471,10 +2471,10 @@ export const Player: React.FC = () => {
     const isAscending = visualState === 'ASCEND';
     const isThrusting = isDashingOrAscending;
 
-    const armorColor = '#eeeeee';
-    const chestColor = '#2244aa';
-    const feetColor = '#aa2222';
-    const waistColor = '#ff0000'
+    const armorColor = '#E9EAEB';
+    const chestColor = '#727CDB';
+    const feetColor = '#D94850';
+    const waistColor = '#D94850'
     
     return (
         <group>
@@ -2521,7 +2521,7 @@ export const Player: React.FC = () => {
                         <group position={[0, 0.321, -0.016]} rotation={[0, 0, 0]} scale={[0.8, 0.1, 0.7]}>
                              <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
-                                <MechMaterial color="#ffaa00" />
+                                <MechMaterial color="#FFD966" />
                                 {isOutlineOn && <Outlines thickness={4} color="#111" />}
                              </mesh>
                         </group>
@@ -2533,7 +2533,7 @@ export const Player: React.FC = () => {
 
                         {/* CHEST_4 */}
                         <group position={[0, 0.254, 0.215]} rotation={[2.21, -1.572, 0]} scale={[0.8, 1, 1]}>
-                            <Trapezoid args={[0.1, 0.2, 0.4, 1, 0.4]} color="#ffaa00" />
+                            <Trapezoid args={[0.1, 0.2, 0.4, 1, 0.4]} color="#FFD966" />
                         </group>
 
                         {/* chest_plate */}
@@ -2545,7 +2545,7 @@ export const Player: React.FC = () => {
                         <group position={[0.226, -0.088, 0.431]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}>
                              <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
-                                <MechMaterial color="#ffaa00" />
+                                <MechMaterial color="#FFD966" />
                                 {isOutlineOn && <Outlines thickness={4} color="#111" />}
                              </mesh>
                         </group>
@@ -2554,7 +2554,7 @@ export const Player: React.FC = () => {
                         <group position={[-0.225, -0.091, 0.43]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}>
                              <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
-                                <MechMaterial color="#ffaa00" />
+                                <MechMaterial color="#FFD966" />
                                 {isOutlineOn && <Outlines thickness={4} color="#111" />}
                              </mesh>
                         </group>
@@ -2600,7 +2600,7 @@ export const Player: React.FC = () => {
 
                         <GhostEmitter active={isTrailActive} size={[0.5, 0.5, 0.5]} rainbow={trailRainbow.current} />
                         <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
-                            <mesh><boxGeometry args={[0.25, 0.6, 0.3]} /><MechMaterial color="#444" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                            <mesh><boxGeometry args={[0.25, 0.6, 0.3]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                             <group ref={rightForearmTwistRef}>
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
                                     <mesh>
@@ -2611,7 +2611,7 @@ export const Player: React.FC = () => {
                                     <group ref={rightWristRef} position={[0, -0.35, 0]}>
                                         <mesh>
                                             <boxGeometry args={[0.25, 0.3, 0.25]} />
-                                            <MechMaterial color="#222" />
+                                            <MechMaterial color="#666" />
                                             {isOutlineOn && <Outlines thickness={4} color="#111" />}
                                         </mesh>
                                     </group>
@@ -2649,14 +2649,14 @@ export const Player: React.FC = () => {
                         <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
                             <mesh>
                                 <boxGeometry args={[0.25, 0.6, 0.3]} />
-                                <MechMaterial color="#444" />
+                                <MechMaterial color="#666" />
                                 {isOutlineOn && <Outlines thickness={4} color="#111" />}
                             </mesh>
                             <group ref={leftForearmTwistRef}>
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
                                     <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><MechMaterial color={armorColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                     <group ref={leftWristRef} position={[0, -0.35, 0]}>
-                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                         
                                         {/* SABER MODEL */}
                                         <group visible={activeWeapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
@@ -2678,10 +2678,10 @@ export const Player: React.FC = () => {
                                         </group>
                                     </group>
                                     <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}><boxGeometry args={[0.1, 0.2, 0.15]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}><boxGeometry args={[0.1, 0.2, 0.15]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                             <mesh position={[0, 0.2, 0.4]}><boxGeometry args={[0.15, 0.25, 1.0]} /><MechMaterial color="#444" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                            <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                            <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}
                                                 <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
                                             </mesh>
                                             <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
@@ -2695,11 +2695,11 @@ export const Player: React.FC = () => {
 
                     {/* BACKPACK */}
                     <group position={[0, -0.056, -0.365]}>
-                        <mesh><boxGeometry args={[0.7, 0.8, 0.3]} /><MechMaterial color="#333" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                        <mesh><boxGeometry args={[0.7, 0.8, 0.3]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                         <mesh position={[0.324, 0.5, 0]} rotation={[0.2, 0, -0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                         <mesh position={[-0.324, 0.5, 0]} rotation={[0.2, 0, 0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                        <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
-                        <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
+                        <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
+                        <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
                         <BoostBurst triggerTime={dashTriggerTime} />
                     </group>
                 </group>
