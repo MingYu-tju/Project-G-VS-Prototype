@@ -45,8 +45,9 @@ interface GameState {
   areNPCsPaused: boolean;
   
   // Graphics Settings
+  isDarkScene: boolean; // NEW: Scene mode
   isRimLightOn: boolean;
-  isOutlineOn: boolean; // NEW: Outline toggle state
+  isOutlineOn: boolean; 
   showStats: boolean;
 
   // Actions
@@ -73,8 +74,9 @@ interface GameState {
   toggleNPCsPaused: () => void;
   
   // Graphics Actions
+  toggleScene: () => void; // NEW: Action
   toggleRimLight: () => void;
-  toggleOutline: () => void; // NEW: Action
+  toggleOutline: () => void; 
   toggleStats: () => void;
 }
 
@@ -116,8 +118,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
   areNPCsPaused: true,
+  isDarkScene: false, // Default to Light
   isRimLightOn: true,
-  isOutlineOn: false, // Default to OFF
+  isOutlineOn: false, 
   showStats: false,
 
   setPlayerPos: (pos) => {
@@ -356,6 +359,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ areNPCsPaused: !state.areNPCsPaused }));
   },
   
+  toggleScene: () => {
+      set(state => ({ isDarkScene: !state.isDarkScene }));
+  },
+
   toggleRimLight: () => {
       set(state => ({ isRimLightOn: !state.isRimLightOn }));
   },

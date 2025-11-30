@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
@@ -19,7 +20,9 @@ function App() {
     showStats, 
     toggleStats,
     areNPCsPaused,
-    toggleNPCsPaused 
+    toggleNPCsPaused,
+    isDarkScene,
+    toggleScene
   } = useGameStore();
   
   const [showEditor, setShowEditor] = useState(false);
@@ -166,7 +169,7 @@ function App() {
                 </button>
 
                 {/* Collapsible Container */}
-                <div className={`flex flex-row space-x-2 overflow-hidden transition-all duration-300 origin-left ${isToolsOpen ? 'opacity-100 max-w-[600px]' : 'opacity-0 max-w-0'}`}>
+                <div className={`flex flex-row space-x-2 overflow-hidden transition-all duration-300 origin-left ${isToolsOpen ? 'opacity-100 max-w-[700px]' : 'opacity-0 max-w-0'}`}>
                     <button 
                         onClick={() => setShowEditor(true)}
                         className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition-colors font-mono whitespace-nowrap"
@@ -178,6 +181,16 @@ function App() {
                         className="bg-gray-800 hover:bg-gray-700 text-cyan-400 hover:text-white text-[10px] px-3 py-1 rounded border border-cyan-900/50 transition-colors font-mono whitespace-nowrap"
                     >
                         MODEL FACTORY
+                    </button>
+                    <button 
+                        onClick={toggleScene}
+                        className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono whitespace-nowrap ${
+                            !isDarkScene 
+                            ? 'bg-yellow-600/80 hover:bg-yellow-500 border-yellow-400 text-white' 
+                            : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                        }`}
+                    >
+                        SCENE: {isDarkScene ? "DARK" : "LIGHT"}
                     </button>
                     <button 
                         onClick={toggleRimLight}

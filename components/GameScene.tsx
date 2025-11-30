@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, Environment, Lightformer, Html } from '@react-three/drei';
+import { Grid, Stars, Sparkles, Environment, Lightformer, Html, Sky } from '@react-three/drei';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion, Euler } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -183,12 +183,15 @@ const EffectManager: React.FC = () => {
 
 // --- VISUALS ---
 
-const SimulationWall: React.FC = () => {
+const SimulationWall: React.FC<{ isDark: boolean }> = ({ isDark }) => {
     const outerRef = useRef<any>(null);
     const innerRef = useRef<any>(null);
     const ringRef = useRef<any>(null);
     const radius = GLOBAL_CONFIG.BOUNDARY_LIMIT;
     const height = 60;
+    
+    const primaryColor = isDark ? "#00aaff" : "#0066aa";
+    const secondaryColor = isDark ? "#0044ff" : "#003388";
 
     useFrame((state) => {
         const t = state.clock.getElapsedTime();
@@ -210,11 +213,11 @@ const SimulationWall: React.FC = () => {
         <group position={[0, 0, 0]}>
             <mesh ref={outerRef} position={[0, height/2, 0]}>
                 <cylinderGeometry args={[radius, radius, height, 24, 5, true]} /> 
-                <meshBasicMaterial color="#00aaff" wireframe transparent opacity={0.2} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
+                <meshBasicMaterial color={primaryColor} wireframe transparent opacity={0.2} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
             </mesh>
             <mesh ref={innerRef} position={[0, height/2, 0]}>
                 <cylinderGeometry args={[radius - 1, radius - 1, height, 64, 1, true]} />
-                <meshBasicMaterial color="#0044ff" transparent opacity={0.1} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
+                <meshBasicMaterial color={secondaryColor} transparent opacity={0.1} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
             </mesh>
             <mesh ref={ringRef} rotation={[Math.PI/2, 0, 0]}>
                 <torusGeometry args={[radius - 0.5, 0.5, 16, 100]} />
@@ -228,24 +231,59 @@ const SimulationWall: React.FC = () => {
     );
 };
 
-const DigitalFloor: React.FC = () => {
+const DigitalFloor: React.FC<{ isDark: boolean }> = ({ isDark }) => {
+    // Dark Mode: Dark Blue/Black floor with Blue grid
+    // Light Mode: Dark Grey floor (to reduce glare) with Lighter Grey grid
+    
+    const planeColor = isDark ? "#1a1d26" : "#666666";
+    const gridCellColor = isDark ? "#2f3b4c" : "#999999";
+    const gridSectionColor = isDark ? "#0066cc" : "#555555";
+    
     return (
         <group position={[0, -0.05, 0]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
                <planeGeometry args={[1000, 1000]} />
-               <meshStandardMaterial color="#1a1d26" roughness={0.8} metalness={0.2} />
+               <meshStandardMaterial color={planeColor} roughness={0.8} metalness={0.2} />
             </mesh>
-            <Grid position={[0, 0.01, 0]} args={[300, 300]} cellSize={10} cellThickness={0.8} cellColor="#2f3b4c" sectionSize={50} sectionThickness={1.2} sectionColor="#0066cc" fadeDistance={150} infiniteGrid />
+            <Grid 
+                position={[0, 0.01, 0]} 
+                args={[300, 300]} 
+                cellSize={10} 
+                cellThickness={0.8} 
+                cellColor={gridCellColor} 
+                sectionSize={50} 
+                sectionThickness={1.2} 
+                sectionColor={gridSectionColor} 
+                fadeDistance={150} 
+                infiniteGrid 
+            />
         </group>
     );
 }
 
-const FloatingDataDebris: React.FC<{ isMobile: boolean }> = ({ isMobile }) => {
+const FloatingDataDebris: React.FC<{ isMobile: boolean, isDark: boolean }> = ({ isMobile, isDark }) => {
     return (
         <group>
             {/* Reduce particle count significantly on mobile */}
-            <Sparkles count={isMobile ? 80 : 400} scale={[150, 80, 150]} size={isMobile ? 12 : 8} speed={0.8} opacity={0.4} color="#0088ff" position={[0, 30, 0]} />
-            <Sparkles count={isMobile ? 20 : 80} scale={[100, 100, 100]} size={isMobile ? 30 : 25} speed={3.5} opacity={0.9} color="#ccffff" position={[0, 40, 0]} noise={20} />
+            <Sparkles 
+                count={isMobile ? 80 : 400} 
+                scale={[150, 80, 150]} 
+                size={isMobile ? 12 : 8} 
+                speed={0.8} 
+                opacity={0.4} 
+                color={isDark ? "#0088ff" : "#004488"} 
+                position={[0, 30, 0]} 
+            />
+            <Sparkles 
+                count={isMobile ? 20 : 80} 
+                scale={[100, 100, 100]} 
+                size={isMobile ? 30 : 25} 
+                speed={3.5} 
+                opacity={0.9} 
+                color={isDark ? "#ccffff" : "#ffffff"} 
+                position={[0, 40, 0]} 
+                noise={20} 
+            />
         </group>
     )
 }
@@ -315,7 +353,7 @@ const DetailedStats = () => {
 }
 
 export const GameScene: React.FC = () => {
-  const { targets, currentTargetIndex, projectiles, isRimLightOn, showStats } = useGameStore();
+  const { targets, currentTargetIndex, projectiles, isRimLightOn, showStats, isDarkScene } = useGameStore();
   
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
@@ -342,54 +380,85 @@ export const GameScene: React.FC = () => {
             antialias: true, 
             toneMappingExposure: 1.1 
         }}
-        shadows={false} 
+        shadows={true} 
     >
       {/* Use Custom Detailed Stats */}
       {showStats && <DetailedStats />}
       
-      <color attach="background" args={['#05070a']} />
-      <fog attach="fog" args={['#05070a', 50, 150]} />
+      {/* --- SCENE BACKGROUND & ATMOSPHERE --- */}
+      {isDarkScene ? (
+          <>
+            <color attach="background" args={['#05070a']} />
+            <fog attach="fog" args={['#05070a', 50, 150]} />
+            <Stars radius={200} depth={50} count={3000} factor={4} saturation={0} fade speed={0.2} />
+            
+            {/* 1. PROCEDURAL STUDIO ENVIRONMENT (DARK) */}
+            <Environment resolution={512}>
+                <group rotation={[-Math.PI / 4, -0.3, 0]}>
+                    <Lightformer intensity={1.5} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} />
+                    {isRimLightOn && <Lightformer intensity={4} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[20, 1, 1]} color="#00ffff" />}
+                    {isRimLightOn && <Lightformer intensity={4} rotation-y={-Math.PI / 2} position={[5, 1, -1]} scale={[20, 1, 1]} color="#ffaa00" />}
+                    <Lightformer intensity={0.5} rotation-x={-Math.PI / 2} position={[0, -5, 0]} scale={[10, 10, 1]} color="white" />
+                </group>
+            </Environment>
 
-      {/* 1. PROCEDURAL STUDIO ENVIRONMENT */}
-      <Environment resolution={512}>
-        <group rotation={[-Math.PI / 4, -0.3, 0]}>
-            {/* Main Reflection (Soft White) */}
-            <Lightformer intensity={1.5} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} />
-            {/* Rim Reflection Left (Cool Blue) */}
-            {isRimLightOn && <Lightformer intensity={4} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[20, 1, 1]} color="#00ffff" />}
-            {/* Rim Reflection Right (Warm Orange) */}
-            {isRimLightOn && <Lightformer intensity={4} rotation-y={-Math.PI / 2} position={[5, 1, -1]} scale={[20, 1, 1]} color="#ffaa00" />}
-            {/* Bottom Fill */}
-            <Lightformer intensity={0.5} rotation-x={-Math.PI / 2} position={[0, -5, 0]} scale={[10, 10, 1]} color="white" />
-        </group>
-      </Environment>
+            {/* 2. DRAMATIC LIGHTING (DARK) */}
+            <ambientLight intensity={0.3} color="#202030" />
+            <directionalLight position={[30, 50, 20]} intensity={2.5} color="#ffffff" />
+            <pointLight position={[-30, 10, 0]} intensity={500} color="#aa00ff" distance={50} />
+            
+            {/* Rim Light (Back): VERY bright cyan light */}
+            <spotLight 
+                position={[0, 10, -20]} 
+                angle={0.8} 
+                penumbra={0.5} 
+                intensity={isRimLightOn ? 20 : 0} 
+                color="#00ffff" 
+                distance={80} 
+                target-position={[0, 0, 0]}
+            />
+          </>
+      ) : (
+          <>
+            {/* DAYLIGHT MODE */}
+            <color attach="background" args={['#dceefb']} />
+            <fog attach="fog" args={['#dceefb', 80, 200]} />
+            <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={3} />
+            
+            {/* BRIGHT ENVIRONMENT MAP */}
+            <Environment preset="city" />
 
-      {/* 2. DRAMATIC LIGHTING */}
-      <ambientLight intensity={0.3} color="#202030" />
-      <directionalLight position={[30, 50, 20]} intensity={2.5} color="#ffffff" />
-      
-      {/* Rim Light (Back): VERY bright cyan light to separate mech from background */}
-      <spotLight 
-        position={[0, 10, -20]} 
-        angle={0.8} 
-        penumbra={0.5} 
-        intensity={isRimLightOn ? 20 : 0} 
-        color="#00ffff" 
-        distance={80} 
-        target-position={[0, 0, 0]}
-      />
-      
-      <pointLight position={[-30, 10, 0]} intensity={500} color="#aa00ff" distance={50} />
+            {/* SUNLIGHT */}
+            <ambientLight intensity={0.8} color="#ffffff" />
+            <directionalLight 
+                position={[50, 100, 50]} 
+                intensity={1.5} 
+                color="#fff9e0" 
+                castShadow 
+                shadow-mapSize={[1024, 1024]}
+            />
+            {/* Fill Light */}
+            <directionalLight position={[-10, 10, -10]} intensity={0.5} color="#e0f0ff" />
 
-      {/* Atmosphere */}
-      <Stars radius={200} depth={50} count={3000} factor={4} saturation={0} fade speed={0.2} />
+             {/* Rim Light (Back): White/Subtle for daylight */}
+             <spotLight 
+                position={[0, 10, -20]} 
+                angle={0.8} 
+                penumbra={0.5} 
+                intensity={isRimLightOn ? 5 : 0} 
+                color="#ffffff" 
+                distance={80} 
+                target-position={[0, 0, 0]}
+            />
+          </>
+      )}
 
       <SceneManager />
       <EffectManager />
 
-      <DigitalFloor />
-      <SimulationWall />
-      <FloatingDataDebris isMobile={isMobile} />
+      <DigitalFloor isDark={isDarkScene} />
+      <SimulationWall isDark={isDarkScene} />
+      <FloatingDataDebris isMobile={isMobile} isDark={isDarkScene} />
 
       <Player />
       
