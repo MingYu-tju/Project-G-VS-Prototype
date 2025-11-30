@@ -320,6 +320,7 @@ export const GameScene: React.FC = () => {
 
   return (
     <Canvas 
+        dpr={[1,1.5]}
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
             antialias: true, 
