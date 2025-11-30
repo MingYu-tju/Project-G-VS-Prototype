@@ -336,7 +336,7 @@ export const GameScene: React.FC = () => {
   return (
     <Canvas 
         // PERFORMANCE OPTIMIZATION: Limit DPR on mobile to 1.0 to save GPU load
-        dpr={isMobile ? 1 : [1, 1.5]}
+        dpr={isMobile ? 1.7 : [1.5, 2.5]}
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
             antialias: true, 

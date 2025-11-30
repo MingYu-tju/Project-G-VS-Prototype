@@ -46,7 +46,8 @@ interface GameState {
   
   // Graphics Settings
   isRimLightOn: boolean;
-  showStats: boolean; // NEW: Stats toggle
+  isOutlineOn: boolean; // NEW: Outline toggle state
+  showStats: boolean;
 
   // Actions
   setPlayerPos: (pos: Vector3) => void;
@@ -73,7 +74,8 @@ interface GameState {
   
   // Graphics Actions
   toggleRimLight: () => void;
-  toggleStats: () => void; // NEW: Action
+  toggleOutline: () => void; // NEW: Action
+  toggleStats: () => void;
 }
 
 // Initial Targets
@@ -113,8 +115,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   isCinematicCameraActive: false,
   setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
-  areNPCsPaused: false,
+  areNPCsPaused: true,
   isRimLightOn: true,
+  isOutlineOn: false, // Default to OFF
   showStats: false,
 
   setPlayerPos: (pos) => {
@@ -355,6 +358,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   toggleRimLight: () => {
       set(state => ({ isRimLightOn: !state.isRimLightOn }));
+  },
+
+  toggleOutline: () => {
+      set(state => ({ isOutlineOn: !state.isOutlineOn }));
   },
 
   toggleStats: () => {

@@ -14,7 +14,9 @@ function App() {
     isGameStarted, 
     startGame, 
     isRimLightOn, 
-    toggleRimLight, 
+    toggleRimLight,
+    isOutlineOn,
+    toggleOutline, 
     showStats, 
     toggleStats,
     areNPCsPaused,
@@ -162,6 +164,16 @@ function App() {
                     }`}
                 >
                     RIM: {isRimLightOn ? "ON" : "OFF"}
+                </button>
+                <button 
+                    onClick={toggleOutline}
+                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
+                        isOutlineOn 
+                        ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
+                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                    }`}
+                >
+                    OUTLINE: {isOutlineOn ? "ON" : "OFF"}
                 </button>
                 <button 
                     onClick={toggleNPCsPaused}

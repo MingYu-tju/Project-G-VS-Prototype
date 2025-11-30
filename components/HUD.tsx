@@ -2,9 +2,27 @@
 import React, { useEffect, useState } from 'react';
 import { useGameStore } from '../store';
 import { LockState } from '../types';
+import { useShallow } from 'zustand/react/shallow';
 
 export const HUD: React.FC = () => {
-  const { boost, maxBoost, isOverheated, lockState, targets, currentTargetIndex, ammo, maxAmmo } = useGameStore();
+  // PERFORMANCE: Use selective state mapping to prevent re-render on every frame when player moves
+  const { boost, maxBoost, isOverheated, lockState, ammo, maxAmmo, currentTargetName, currentTargetDist, isTargetingPlayer } = useGameStore(
+    useShallow(state => {
+        const target = state.targets[state.currentTargetIndex];
+        return {
+            boost: state.boost,
+            maxBoost: state.maxBoost,
+            isOverheated: state.isOverheated,
+            lockState: state.lockState,
+            ammo: state.ammo,
+            maxAmmo: state.maxAmmo,
+            // Extract only necessary primitives from target to avoid deep object diffing
+            currentTargetName: target ? target.name : null,
+            currentTargetDist: target ? target.position.distanceTo(state.playerPos) : 0,
+            isTargetingPlayer: target?.targetId === 'player'
+        };
+    })
+  );
   
   const [isMobile, setIsMobile] = useState(false);
 
@@ -24,14 +42,10 @@ export const HUD: React.FC = () => {
       return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  const target = targets[currentTargetIndex];
-
   let barColor = 'bg-blue-500';
   if (isOverheated) barColor = 'bg-red-600 animate-pulse';
   else if (boost < 30) barColor = 'bg-yellow-500';
 
-  // Check if the current target is targeting the player
-  const isTargetingPlayer = target?.targetId === 'player';
   const warningColor = lockState === LockState.RED ? 'text-red-500 fill-red-500' : 'text-green-500 fill-green-500';
 
   // FIX: Explicitly handle alert dimensions based on JS isMobile state
@@ -67,12 +81,12 @@ export const HUD: React.FC = () => {
       )}
 
       {/* Target Info (Top Right) - DESKTOP ONLY */}
-      {!isMobile && target && (
+      {!isMobile && currentTargetName && (
         <div className="flex absolute top-8 right-8 flex-col items-end">
            <div className={`border-2 ${lockState === LockState.RED ? 'border-red-500 bg-red-900/30' : 'border-green-500 bg-green-900/30'} px-4 py-2 rounded-lg backdrop-blur-sm transition-colors duration-300`}>
-               <h2 className="text-white font-mono text-xl font-bold tracking-widest">{target.name}</h2>
+               <h2 className="text-white font-mono text-xl font-bold tracking-widest">{currentTargetName}</h2>
                <div className="flex items-center justify-end space-x-2 mt-1">
-                  <span className={`text-xs font-mono ${lockState === LockState.RED ? 'text-red-400' : 'text-green-400'}`}>DIST: {target.position.distanceTo(useGameStore.getState().playerPos).toFixed(1)}m</span>
+                  <span className={`text-xs font-mono ${lockState === LockState.RED ? 'text-red-400' : 'text-green-400'}`}>DIST: {currentTargetDist.toFixed(1)}m</span>
                   <div className={`w-2 h-2 rounded-full ${lockState === LockState.RED ? 'bg-red-500 animate-ping' : 'bg-green-500'}`}></div>
                </div>
            </div>

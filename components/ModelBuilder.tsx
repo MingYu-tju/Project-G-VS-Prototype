@@ -374,7 +374,6 @@ const generateJSX = (part: ModelPart, depth: number = 0): string => {
     return "";
 };
 
-// ... (ModelBuilder component same as before) ...
 export const ModelBuilder: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [model, setModel] = useState<ModelPart>(INITIAL_MODEL);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['torso']));
@@ -441,7 +440,8 @@ export const ModelBuilder: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     }, [weaponMode]);
 
     const activeId = selectedIds.size === 1 ? Array.from(selectedIds)[0] : null;
-    const activePart = useMemo(() => activeId ? findPart(model, activeId) : null, [model, activeId]);
+    // EXPLICIT TYPE DEFINITION TO FIX TS UNKNOWN ERROR
+    const activePart = useMemo<ModelPart | null>(() => activeId ? findPart(model, activeId) : null, [model, activeId]);
 
     const handleSelect = (id: string, multi: boolean) => {
         if (multi) {
@@ -738,7 +738,7 @@ ${code}
                             <input 
                                 type="text" 
                                 value={activePart.name} 
-                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'name', e.target.value)}
+                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'name', e.target.value)}
                                 className="w-full bg-gray-800 border border-gray-700 px-2 py-1 rounded text-white"
                             />
                         </div>
@@ -753,9 +753,9 @@ ${code}
 
                         <hr className="border-gray-800" />
 
-                        <Vector3Input label="POSITION" value={activePart.position} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'position', v)} />
-                        <Vector3Input label="ROTATION" value={activePart.rotation} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'rotation', v)} />
-                        <Vector3Input label="SCALE" value={activePart.scale} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'scale', v)} />
+                        <Vector3Input label="POSITION" value={activePart.position} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'position', v)} />
+                        <Vector3Input label="ROTATION" value={activePart.rotation} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'rotation', v)} />
+                        <Vector3Input label="SCALE" value={activePart.scale} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'scale', v)} />
 
                         <hr className="border-gray-800" />
 
@@ -767,13 +767,13 @@ ${code}
                                         <input 
                                             type="color" 
                                             value={activePart.color} 
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
                                             className="h-6 w-8 bg-transparent border-none cursor-pointer"
                                         />
                                         <input 
                                             type="text" 
                                             value={activePart.color}
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
                                             className="flex-1 bg-gray-800 border border-gray-700 px-2 text-xs"
                                         />
                                     </div>
@@ -800,7 +800,7 @@ ${code}
                                                             if (activePart) {
                                                                 const newArgs = [...activePart.args];
                                                                 newArgs[i] = parseFloat(e.target.value);
-                                                                handleSidebarUpdate(activePart.id, 'args', newArgs);
+                                                                handleSidebarUpdate(activePart.id as string, 'args', newArgs);
                                                             }
                                                         }}
                                                         className="w-full bg-gray-800 border border-gray-700 px-1 py-0.5 text-xs"
