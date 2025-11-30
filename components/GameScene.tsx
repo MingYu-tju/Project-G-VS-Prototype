@@ -19,7 +19,7 @@ const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
     
     // 1. Generate random spark trajectories (Fast, directional streaks)
     const sparkData = useMemo(() => {
-        const count = 32; // More sparks for juicier hits
+        const count = 24; // OPTIMIZATION: Reduced from 32
         return new Array(count).fill(0).map(() => {
             const dir = new Vector3(
                 Math.random() - 0.5,
@@ -42,7 +42,7 @@ const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
 
     // 2. Generate Fire/Plasma Chunks (Slower, expanding blobs)
     const fireData = useMemo(() => {
-        const count = 12; 
+        const count = 8; // OPTIMIZATION: Reduced from 12
         return new Array(count).fill(0).map(() => {
             const dir = new Vector3(
                 Math.random() - 0.5,
@@ -126,7 +126,7 @@ const HitEffectRenderer: React.FC<{ data: HitEffectData }> = ({ data }) => {
         <group ref={groupRef} position={data.position}>
             {/* Core Flash */}
             <mesh ref={flashRef}>
-                <sphereGeometry args={[0.6, 16, 16]} />
+                <sphereGeometry args={[0.6, 8, 8]} /> {/* Reduced segments */}
                 <meshBasicMaterial color="#fff5cc" transparent blending={AdditiveBlending} depthWrite={false} />
             </mesh>
             
@@ -183,49 +183,42 @@ const EffectManager: React.FC = () => {
 
 // --- VISUALS ---
 
-const SimulationWall: React.FC<{ isDark: boolean }> = ({ isDark }) => {
+const SimulationWall: React.FC<{ isDark: boolean, isMobile: boolean }> = ({ isDark, isMobile }) => {
     const outerRef = useRef<any>(null);
-    const innerRef = useRef<any>(null);
     const ringRef = useRef<any>(null);
     const radius = GLOBAL_CONFIG.BOUNDARY_LIMIT;
     const height = 60;
     
     const primaryColor = isDark ? "#00aaff" : "#0066aa";
-    const secondaryColor = isDark ? "#0044ff" : "#003388";
 
     useFrame((state) => {
         const t = state.clock.getElapsedTime();
         if (outerRef.current) {
             outerRef.current.rotation.y = t * 0.02;
-            outerRef.current.material.opacity = 0.15 + Math.sin(t * 1.5) * 0.05;
-        }
-        if (innerRef.current) {
-            innerRef.current.rotation.y = -t * 0.05;
-            const scale = 1 + Math.sin(t * 3) * 0.002;
-            innerRef.current.scale.set(scale, 1, scale);
+            outerRef.current.material.opacity = 0.1 + Math.sin(t * 1.5) * 0.05;
         }
         if (ringRef.current) {
             ringRef.current.position.y = (Math.sin(t * 0.5) * 0.5 + 0.5) * (height * 0.8);
         }
     });
 
+    // OPTIMIZATION: Removed inner cylinder layer to reduce overdraw
     return (
         <group position={[0, 0, 0]}>
             <mesh ref={outerRef} position={[0, height/2, 0]}>
-                <cylinderGeometry args={[radius, radius, height, 24, 5, true]} /> 
-                <meshBasicMaterial color={primaryColor} wireframe transparent opacity={0.2} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
+                {/* Reduced segments for mobile */}
+                <cylinderGeometry args={[radius, radius, height, isMobile ? 16 : 24, 1, true]} /> 
+                <meshBasicMaterial color={primaryColor} wireframe transparent opacity={0.15} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
             </mesh>
-            <mesh ref={innerRef} position={[0, height/2, 0]}>
-                <cylinderGeometry args={[radius - 1, radius - 1, height, 64, 1, true]} />
-                <meshBasicMaterial color={secondaryColor} transparent opacity={0.1} side={DoubleSide} blending={AdditiveBlending} depthWrite={false} />
-            </mesh>
+            
             <mesh ref={ringRef} rotation={[Math.PI/2, 0, 0]}>
-                <torusGeometry args={[radius - 0.5, 0.5, 16, 100]} />
-                <meshBasicMaterial color="#ffffff" transparent opacity={0.3} blending={AdditiveBlending} />
+                <torusGeometry args={[radius - 0.5, 0.5, 16, 32]} />
+                <meshBasicMaterial color="#ffffff" transparent opacity={0.2} blending={AdditiveBlending} />
             </mesh>
+            
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.2, 0]}>
-                <ringGeometry args={[radius - 2, radius, 64]} />
-                <meshBasicMaterial color="#ff0055" transparent opacity={0.4} side={DoubleSide} blending={AdditiveBlending} />
+                <ringGeometry args={[radius - 2, radius, 32]} />
+                <meshBasicMaterial color="#ff0055" transparent opacity={0.3} side={DoubleSide} blending={AdditiveBlending} />
             </mesh>
         </group>
     );
@@ -235,7 +228,8 @@ const DigitalFloor: React.FC<{ isDark: boolean }> = ({ isDark }) => {
     // Dark Mode: Dark Blue/Black floor with Blue grid
     // Light Mode: Dark Grey floor (to reduce glare) with Lighter Grey grid
     
-    const planeColor = isDark ? "#1a1d26" : "#000000";
+    // FIX: Using #353535 instead of #111111 to prevent Mobile PBR Shader Black Screen issues
+    const planeColor = isDark ? "#1a1d26" : "#333333";
     const gridCellColor = isDark ? "#2f3b4c" : "#999999";
     const gridSectionColor = isDark ? "#0066cc" : "#555555";
     
@@ -264,9 +258,9 @@ const DigitalFloor: React.FC<{ isDark: boolean }> = ({ isDark }) => {
 const FloatingDataDebris: React.FC<{ isMobile: boolean, isDark: boolean }> = ({ isMobile, isDark }) => {
     return (
         <group>
-            {/* Reduce particle count significantly on mobile */}
+            {/* OPTIMIZATION: Drastically reduced particle count for performance */}
             <Sparkles 
-                count={isMobile ? 80 : 400} 
+                count={isMobile ? 40 : 150} 
                 scale={[150, 80, 150]} 
                 size={isMobile ? 12 : 8} 
                 speed={0.8} 
@@ -275,7 +269,7 @@ const FloatingDataDebris: React.FC<{ isMobile: boolean, isDark: boolean }> = ({ 
                 position={[0, 30, 0]} 
             />
             <Sparkles 
-                count={isMobile ? 20 : 80} 
+                count={isMobile ? 10 : 40} 
                 scale={[100, 100, 100]} 
                 size={isMobile ? 30 : 25} 
                 speed={3.5} 
@@ -374,7 +368,8 @@ export const GameScene: React.FC = () => {
   return (
     <Canvas 
         // PERFORMANCE OPTIMIZATION: Limit DPR on mobile to 1.0 to save GPU load
-        dpr={isMobile ? 1.7 : [1.5, 2.5]}
+        // FIX: Use integer 1.5 or 1.0 to avoid Floating Point Render Target issues on some Android GPUs
+        dpr={isMobile ? 2 : [1.5, 2.5]}
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
             antialias: true, 
@@ -390,7 +385,8 @@ export const GameScene: React.FC = () => {
           <>
             <color attach="background" args={['#05070a']} />
             <fog attach="fog" args={['#05070a', 50, 150]} />
-            <Stars radius={200} depth={50} count={3000} factor={4} saturation={0} fade speed={0.2} />
+            {/* OPTIMIZATION: Reduced star count from 3000 to 1500 (500 on mobile) */}
+            <Stars radius={200} depth={50} count={isMobile ? 500 : 1500} factor={4} saturation={0} fade speed={0.2} />
             
             {/* 1. PROCEDURAL STUDIO ENVIRONMENT (DARK) */}
             <Environment resolution={512}>
@@ -457,7 +453,7 @@ export const GameScene: React.FC = () => {
       <EffectManager />
 
       <DigitalFloor isDark={isDarkScene} />
-      <SimulationWall isDark={isDarkScene} />
+      <SimulationWall isDark={isDarkScene} isMobile={isMobile} />
       <FloatingDataDebris isMobile={isMobile} isDark={isDarkScene} />
 
       <Player />
