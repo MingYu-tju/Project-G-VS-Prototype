@@ -257,14 +257,14 @@ const EditablePart: React.FC<{
             {/* Gizmo */}
             {showGizmo && groupRef.current && (
                 <TransformControls 
-                    object={groupRef.current} 
+                    object={groupRef.current || undefined} 
                     mode="translate"
                     onMouseDown={() => pushHistory()}
                     onMouseUp={() => {
                         if (groupRef.current) {
-                            onTransform(part.id as string, 'position', groupRef.current.position.toArray() as [number, number, number]);
-                            onTransform(part.id as string, 'rotation', [groupRef.current.rotation.x, groupRef.current.rotation.y, groupRef.current.rotation.z]);
-                            onTransform(part.id as string, 'scale', groupRef.current.scale.toArray() as [number, number, number]);
+                            onTransform(part.id, 'position', groupRef.current.position.toArray() as [number, number, number]);
+                            onTransform(part.id, 'rotation', [groupRef.current.rotation.x, groupRef.current.rotation.y, groupRef.current.rotation.z]);
+                            onTransform(part.id, 'scale', groupRef.current.scale.toArray() as [number, number, number]);
                         }
                     }}
                 />
@@ -738,7 +738,7 @@ ${code}
                             <input 
                                 type="text" 
                                 value={activePart.name} 
-                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'name', e.target.value)}
+                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'name', e.target.value)}
                                 className="w-full bg-gray-800 border border-gray-700 px-2 py-1 rounded text-white"
                             />
                         </div>
@@ -753,9 +753,9 @@ ${code}
 
                         <hr className="border-gray-800" />
 
-                        <Vector3Input label="POSITION" value={activePart.position} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'position', v)} />
-                        <Vector3Input label="ROTATION" value={activePart.rotation} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'rotation', v)} />
-                        <Vector3Input label="SCALE" value={activePart.scale} onChange={(v) => activePart && handleSidebarUpdate(activePart.id as string, 'scale', v)} />
+                        <Vector3Input label="POSITION" value={activePart.position} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'position', v)} />
+                        <Vector3Input label="ROTATION" value={activePart.rotation} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'rotation', v)} />
+                        <Vector3Input label="SCALE" value={activePart.scale} onChange={(v) => activePart && handleSidebarUpdate(activePart.id, 'scale', v)} />
 
                         <hr className="border-gray-800" />
 
@@ -767,13 +767,13 @@ ${code}
                                         <input 
                                             type="color" 
                                             value={activePart.color} 
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
                                             className="h-6 w-8 bg-transparent border-none cursor-pointer"
                                         />
                                         <input 
                                             type="text" 
                                             value={activePart.color}
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
                                             className="flex-1 bg-gray-800 border border-gray-700 px-2 text-xs"
                                         />
                                     </div>
@@ -800,7 +800,7 @@ ${code}
                                                             if (activePart) {
                                                                 const newArgs = [...activePart.args];
                                                                 newArgs[i] = parseFloat(e.target.value);
-                                                                handleSidebarUpdate(activePart.id as string, 'args', newArgs);
+                                                                handleSidebarUpdate(activePart.id, 'args', newArgs);
                                                             }
                                                         }}
                                                         className="w-full bg-gray-800 border border-gray-700 px-1 py-0.5 text-xs"

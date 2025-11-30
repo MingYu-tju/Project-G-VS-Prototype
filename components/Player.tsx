@@ -19,73 +19,94 @@ import {
     FOOT_SFX_BASE64
 } from '../assets';
 
+// --- SHADER DEFINITIONS ---
+const MECH_VERTEX_SHADER = `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+    }
+`;
+
+const MECH_FRAGMENT_SHADER = `
+    uniform vec3 uColor;
+    uniform vec3 uRimColor;
+    uniform float uRimPower;
+    uniform float uRimIntensity;
+    uniform vec3 uLightDir;
+    uniform vec3 uAmbientColor;
+    
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+
+    void main() {
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+        
+        // 1. Simple Toon Shading (Cel-shading style)
+        float NdotL = dot(normal, uLightDir);
+        float lightIntensity = smoothstep(-0.2, 0.2, NdotL); // Soft edge toon ramp
+        
+        // Mix Base Color with Ambient based on light intensity
+        vec3 baseColor = mix(uColor * 0.4, uColor, lightIntensity); 
+
+        // 2. Fresnel Rim Light Calculation
+        float NdotV = dot(normal, viewDir);
+        float rim = 1.0 - max(NdotV, 0.0);
+        rim = pow(rim, uRimPower);
+        
+        // 3. Combine
+        vec3 finalColor = baseColor + (uRimColor * rim * uRimIntensity);
+        
+        gl_FragColor = vec4(finalColor, 1.0);
+    }
+`;
+
 // --- CUSTOM FRESNEL TOON SHADER ---
-// This replaces MeshToonMaterial to add a high-performance rim light effect
+// Updated to use direct ref manipulation for reliable updates
 const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: number, rimIntensity?: number }> = ({ 
     color, 
-    rimColor = "#44aaff", // Cool blue rim by default
-    rimPower = 2.5,       // Sharpness of the rim (higher = thinner)
-    rimIntensity = 0.8    // Brightness of the rim
+    rimColor = "#44aaff", 
+    rimPower = 2.5,       
+    rimIntensity = 0.8    
 }) => {
-    // Subscribe to store directly for toggle (avoids recompiling shader, just updates uniform logic via prop)
+    const materialRef = useRef<ShaderMaterial>(null);
     const isRimLightOn = useGameStore(state => state.isRimLightOn);
-    const effectiveIntensity = isRimLightOn ? rimIntensity : 0.0;
 
+    // Create uniforms ONCE. We update their values directly, not the object reference.
     const uniforms = useMemo(() => ({
         uColor: { value: new Color(color) },
         uRimColor: { value: new Color(rimColor) },
         uRimPower: { value: rimPower },
-        uRimIntensity: { value: effectiveIntensity },
-        uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() }, // Simulated Main Light Direction
-        uAmbientColor: { value: new Color('#1a1d26') } // Ambient shadow color
-    }), [color, rimColor, rimPower, effectiveIntensity]);
+        uRimIntensity: { value: isRimLightOn ? rimIntensity : 0.0 },
+        uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() },
+        uAmbientColor: { value: new Color('#1a1d26') }
+    }), []); // Empty dependencies to ensure stable reference
 
-    const vertexShader = `
-        varying vec3 vNormal;
-        varying vec3 vViewPosition;
-        void main() {
-            vNormal = normalize(normalMatrix * normal);
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            vViewPosition = -mvPosition.xyz;
-            gl_Position = projectionMatrix * mvPosition;
+    // Directly update uniform values when props or state change
+    // This bypasses React's prop diffing for the material and talks directly to Three.js/WebGL
+    useEffect(() => {
+        if (materialRef.current) {
+            materialRef.current.uniforms.uColor.value.set(color);
+            materialRef.current.uniforms.uRimColor.value.set(rimColor);
+            materialRef.current.uniforms.uRimPower.value = rimPower;
+            // The critical fix: Direct assignment guarantees the shader sees the new value
+            materialRef.current.uniforms.uRimIntensity.value = isRimLightOn ? rimIntensity : 0.0;
+            materialRef.current.uniformsNeedUpdate = true;
         }
-    `;
+    }, [color, rimColor, rimPower, rimIntensity, isRimLightOn]);
 
-    const fragmentShader = `
-        uniform vec3 uColor;
-        uniform vec3 uRimColor;
-        uniform float uRimPower;
-        uniform float uRimIntensity;
-        uniform vec3 uLightDir;
-        uniform vec3 uAmbientColor;
-        
-        varying vec3 vNormal;
-        varying vec3 vViewPosition;
-
-        void main() {
-            vec3 normal = normalize(vNormal);
-            vec3 viewDir = normalize(vViewPosition);
-            
-            // 1. Simple Toon Shading (Cel-shading style)
-            float NdotL = dot(normal, uLightDir);
-            float lightIntensity = smoothstep(-0.2, 0.2, NdotL); // Soft edge toon ramp
-            
-            // Mix Base Color with Ambient based on light intensity
-            vec3 baseColor = mix(uColor * 0.4, uColor, lightIntensity); 
-
-            // 2. Fresnel Rim Light Calculation
-            float NdotV = dot(normal, viewDir);
-            float rim = 1.0 - max(NdotV, 0.0);
-            rim = pow(rim, uRimPower);
-            
-            // 3. Combine
-            vec3 finalColor = baseColor + (uRimColor * rim * uRimIntensity);
-            
-            gl_FragColor = vec4(finalColor, 1.0);
-        }
-    `;
-
-    return <shaderMaterial uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} />;
+    return (
+        <shaderMaterial 
+            ref={materialRef}
+            uniforms={uniforms} 
+            vertexShader={MECH_VERTEX_SHADER} 
+            fragmentShader={MECH_FRAGMENT_SHADER} 
+        />
+    );
 };
 
 // --- 几何体生成工厂 ---
@@ -865,6 +886,7 @@ export const ProceduralSlashEffect: React.FC<SlashEffectProps> = ({
 };
 
 // --- TRAPEZOID COMPONENT ---
+// Ensure BoxGeometry is imported
 const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color }) => {
     const [width, height, depth, topScaleX, topScaleZ] = args;
     

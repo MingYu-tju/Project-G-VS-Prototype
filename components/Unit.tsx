@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect, useMemo, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler, MeshToonMaterial, Color, BoxGeometry, CylinderGeometry } from 'three';
+import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler, MeshToonMaterial, Color, BoxGeometry, CylinderGeometry, ShaderMaterial } from 'three';
 import { Text, Html, useGLTF } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
 import { useGameStore } from '../store';
@@ -10,66 +10,88 @@ import { AnimationController, clonePose } from './AnimationSystem';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-// ... (MechMaterial, GeoFactory same as before) ...
+// --- SHADER DEFINITIONS ---
+const MECH_VERTEX_SHADER = `
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+    }
+`;
+
+const MECH_FRAGMENT_SHADER = `
+    uniform vec3 uColor;
+    uniform vec3 uRimColor;
+    uniform float uRimPower;
+    uniform float uRimIntensity;
+    uniform vec3 uLightDir;
+    
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+
+    void main() {
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+        
+        // Toon Shading
+        float NdotL = dot(normal, uLightDir);
+        float lightIntensity = smoothstep(-0.2, 0.2, NdotL);
+        vec3 baseColor = mix(uColor * 0.4, uColor, lightIntensity); 
+
+        // Fresnel Rim
+        float NdotV = dot(normal, viewDir);
+        float rim = 1.0 - max(NdotV, 0.0);
+        rim = pow(rim, uRimPower);
+        
+        vec3 finalColor = baseColor + (uRimColor * rim * uRimIntensity);
+        
+        gl_FragColor = vec4(finalColor, 1.0);
+    }
+`;
+
+// --- CUSTOM FRESNEL TOON SHADER ---
+// Updated to use direct ref manipulation for reliable updates
 const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: number, rimIntensity?: number }> = ({ 
     color, 
     rimColor = "#44aaff", 
     rimPower = 2.5,       
     rimIntensity = 0.8    
 }) => {
+    const materialRef = useRef<ShaderMaterial>(null);
     const isRimLightOn = useGameStore(state => state.isRimLightOn);
-    const effectiveIntensity = isRimLightOn ? rimIntensity : 0.0;
 
+    // Create uniforms ONCE.
     const uniforms = useMemo(() => ({
         uColor: { value: new Color(color) },
         uRimColor: { value: new Color(rimColor) },
         uRimPower: { value: rimPower },
-        uRimIntensity: { value: effectiveIntensity },
+        uRimIntensity: { value: isRimLightOn ? rimIntensity : 0.0 },
         uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() },
-    }), [color, rimColor, rimPower, effectiveIntensity]);
+    }), []); 
 
-    const vertexShader = `
-        varying vec3 vNormal;
-        varying vec3 vViewPosition;
-        void main() {
-            vNormal = normalize(normalMatrix * normal);
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            vViewPosition = -mvPosition.xyz;
-            gl_Position = projectionMatrix * mvPosition;
+    // Update uniform values directly
+    useEffect(() => {
+        if (materialRef.current) {
+            materialRef.current.uniforms.uColor.value.set(color);
+            materialRef.current.uniforms.uRimColor.value.set(rimColor);
+            materialRef.current.uniforms.uRimPower.value = rimPower;
+            // Direct assignment to ensure GPU sees the update even deep in memoized trees
+            materialRef.current.uniforms.uRimIntensity.value = isRimLightOn ? rimIntensity : 0.0;
+            materialRef.current.uniformsNeedUpdate = true;
         }
-    `;
+    }, [color, rimColor, rimPower, rimIntensity, isRimLightOn]);
 
-    const fragmentShader = `
-        uniform vec3 uColor;
-        uniform vec3 uRimColor;
-        uniform float uRimPower;
-        uniform float uRimIntensity;
-        uniform vec3 uLightDir;
-        
-        varying vec3 vNormal;
-        varying vec3 vViewPosition;
-
-        void main() {
-            vec3 normal = normalize(vNormal);
-            vec3 viewDir = normalize(vViewPosition);
-            
-            // Toon Shading
-            float NdotL = dot(normal, uLightDir);
-            float lightIntensity = smoothstep(-0.2, 0.2, NdotL);
-            vec3 baseColor = mix(uColor * 0.4, uColor, lightIntensity); 
-
-            // Fresnel Rim
-            float NdotV = dot(normal, viewDir);
-            float rim = 1.0 - max(NdotV, 0.0);
-            rim = pow(rim, uRimPower);
-            
-            vec3 finalColor = baseColor + (uRimColor * rim * uRimIntensity);
-            
-            gl_FragColor = vec4(finalColor, 1.0);
-        }
-    `;
-
-    return <shaderMaterial uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} />;
+    return (
+        <shaderMaterial 
+            ref={materialRef}
+            uniforms={uniforms} 
+            vertexShader={MECH_VERTEX_SHADER} 
+            fragmentShader={MECH_FRAGMENT_SHADER} 
+        />
+    );
 };
 
 const GeoFactory = {
@@ -128,10 +150,8 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
             buckets[bucketKey].push(geo);
         };
 
-        // ... (Geometry construction same as before) ...
         // HIP_1 (Dark)
         add(GeoFactory.box(0.5, 0.5, 0.5), 'dark', { p:[0, -0.296, 0], r:[0,0,0], s:[0.4, 1, 1] });
-        // ... (rest of adds) ...
         // HIP_2 (White) - Front Crotch
         add(GeoFactory.trapz([0.1, 0.3, 0.15, 4.45, 1]), 'white', { p:[0, -0.318, 0.365], r:[-1.571, -1.571, 0], s:[1, 0.8, 1.3] });
         // HIP_3 (White)
@@ -404,7 +424,6 @@ interface UnitProps {
 
 export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, lastHitDuration = GLOBAL_CONFIG.KNOCKBACK_DURATION, knockbackDir, knockbackPower = 1.0, isKnockedDown = false }) => {
     // ... (rest of Unit component implementation remains exactly the same, just using the updated components above) ...
-    // I will paste the rest of Unit.tsx here to ensure it's complete, but the key changes were above.
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null); 
   

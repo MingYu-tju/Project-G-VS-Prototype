@@ -257,12 +257,9 @@ const DetailedStats = () => {
   const frameRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
   
-  // Use a ref to store render stats because gl.info.render auto-clears before useFrame runs
-  // We need to capture them *after* render.
   const renderStatsRef = useRef({ calls: 0, tris: 0 });
 
   useEffect(() => {
-      // addAfterEffect runs AFTER the render loop, allowing us to capture accurate draw calls/triangles for the frame just rendered.
       return addAfterEffect(() => {
           renderStatsRef.current.calls = gl.info.render.calls;
           renderStatsRef.current.tris = gl.info.render.triangles;
@@ -273,7 +270,7 @@ const DetailedStats = () => {
     const now = performance.now();
     frameRef.current++;
     
-    if (now - lastTimeRef.current >= 500) { // Update every 500ms for readability
+    if (now - lastTimeRef.current >= 500) { 
       setStats({
         fps: Math.round(frameRef.current * 1000 / (now - lastTimeRef.current)),
         calls: renderStatsRef.current.calls,
@@ -286,31 +283,33 @@ const DetailedStats = () => {
     }
   });
 
+  // Use fullscreen to ensure it overlays correctly as 2D UI, not 3D
   return (
-    <Html as='div' wrapperClass="stats-panel" position={[0,0,0]} style={{
-        position: 'fixed',
-        top: '16px',
-        left: '150px', // To the right of Gamepad Settings button (approx 140px width)
-        background: 'rgba(5, 7, 10, 0.85)',
-        color: '#00ffaa',
-        padding: '8px 12px',
-        borderRadius: '4px',
-        fontFamily: 'monospace',
-        fontSize: '10px',
-        pointerEvents: 'none',
-        border: '1px solid #006644',
-        boxShadow: '0 0 10px rgba(0,255,170,0.1)',
-        zIndex: 99999,
-        minWidth: '120px',
-        lineHeight: '1.5',
-        letterSpacing: '0.05em'
-    }}>
-      <div className="font-bold text-white border-b border-gray-700 mb-1 pb-1">SYSTEM METRICS</div>
-      <div className="flex justify-between"><span>FPS:</span><span className="text-white">{stats.fps}</span></div>
-      <div className="flex justify-between"><span>DRAWCALLS:</span><span className="text-white">{stats.calls}</span></div>
-      <div className="flex justify-between"><span>TRIANGLES:</span><span className="text-white">{stats.tris}</span></div>
-      <div className="flex justify-between"><span>GEOMETRY:</span><span className="text-white">{stats.geoms}</span></div>
-      <div className="flex justify-between"><span>TEXTURES:</span><span className="text-white">{stats.tex}</span></div>
+    <Html fullscreen style={{ pointerEvents: 'none', zIndex: 999 }}>
+        <div style={{
+            position: 'absolute',
+            top: '16px',
+            left: '160px', // Positioned to the right of the Gamepad button
+            background: 'rgba(5, 7, 10, 0.85)',
+            color: '#00ffaa',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            border: '1px solid #006644',
+            boxShadow: '0 0 10px rgba(0,255,170,0.1)',
+            minWidth: '120px',
+            lineHeight: '1.5',
+            letterSpacing: '0.05em',
+            pointerEvents: 'auto' // Allow interaction if needed (selecting text)
+        }}>
+          <div className="font-bold text-white border-b border-gray-700 mb-1 pb-1">SYSTEM METRICS</div>
+          <div className="flex justify-between"><span>FPS:</span><span className="text-white">{stats.fps}</span></div>
+          <div className="flex justify-between"><span>DRAWCALLS:</span><span className="text-white">{stats.calls}</span></div>
+          <div className="flex justify-between"><span>TRIANGLES:</span><span className="text-white">{stats.tris}</span></div>
+          <div className="flex justify-between"><span>GEOMETRY:</span><span className="text-white">{stats.geoms}</span></div>
+          <div className="flex justify-between"><span>TEXTURES:</span><span className="text-white">{stats.tex}</span></div>
+        </div>
     </Html>
   );
 }
@@ -328,7 +327,7 @@ export const GameScene: React.FC = () => {
         }}
         shadows={false} 
     >
-      {/* Use Custom Detailed Stats instead of standard Drei stats */}
+      {/* Use Custom Detailed Stats */}
       {showStats && <DetailedStats />}
       
       <color attach="background" args={['#05070a']} />
@@ -349,14 +348,10 @@ export const GameScene: React.FC = () => {
       </Environment>
 
       {/* 2. DRAMATIC LIGHTING */}
-      {/* Ambient: Low to keep shadows dark and contrasty */}
       <ambientLight intensity={0.3} color="#202030" />
-      
-      {/* Key Light: Sharp sunlight */}
       <directionalLight position={[30, 50, 20]} intensity={2.5} color="#ffffff" />
       
       {/* Rim Light (Back): VERY bright cyan light to separate mech from background */}
-      {/* LINKED TO SETTINGS: Only visible if isRimLightOn is true */}
       <spotLight 
         position={[0, 10, -20]} 
         angle={0.8} 
@@ -367,9 +362,7 @@ export const GameScene: React.FC = () => {
         target-position={[0, 0, 0]}
       />
       
-      {/* Fill Light (Side): Subtle purple fill */}
       <pointLight position={[-30, 10, 0]} intensity={500} color="#aa00ff" distance={50} />
-
 
       {/* Atmosphere */}
       <Stars radius={200} depth={50} count={3000} factor={4} saturation={0} fade speed={0.2} />

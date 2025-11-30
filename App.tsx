@@ -125,8 +125,22 @@ function App() {
                 </div>
             )}
             
-            {/* TOOLS MENU (Top Left) */}
-            <div className="absolute top-16 left-4 z-50 flex flex-col space-y-2 pointer-events-auto">
+            {/* TOP ROW: STATS BUTTON (Next to Gamepad Button which is at top-4 left-4) */}
+            <div className="absolute top-4 left-48 z-50">
+                <button 
+                    onClick={toggleStats}
+                    className={`px-3 py-1 md:px-4 md:py-2 rounded border transition-colors font-mono text-[10px] md:text-xs tracking-widest ${
+                        showStats 
+                        ? 'bg-green-900/80 hover:bg-green-800 border-green-500 text-green-300' 
+                        : 'bg-black/60 hover:bg-gray-800 border-gray-600 text-gray-500'
+                    }`}
+                >
+                    STATS: {showStats ? "ON" : "OFF"}
+                </button>
+            </div>
+
+            {/* SECOND ROW: TOOLS MENU (Horizontal) */}
+            <div className="absolute top-16 left-4 z-50 flex flex-row space-x-2 pointer-events-auto">
                 <button 
                     onClick={() => setShowEditor(true)}
                     className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition-colors font-mono"
@@ -147,17 +161,7 @@ function App() {
                         : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
                     }`}
                 >
-                    RIM LIGHT: {isRimLightOn ? "ON" : "OFF"}
-                </button>
-                <button 
-                    onClick={toggleStats}
-                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
-                        showStats 
-                        ? 'bg-green-900/80 hover:bg-green-800 border-green-500 text-green-300' 
-                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
-                    }`}
-                >
-                    STATS: {showStats ? "ON" : "OFF"}
+                    RIM: {isRimLightOn ? "ON" : "OFF"}
                 </button>
                 <button 
                     onClick={toggleNPCsPaused}
@@ -186,7 +190,7 @@ function App() {
                 <MobileControls />
             </div>
 
-            {/* Gamepad Input Listener */}
+            {/* Gamepad Input Listener (Renders its own button at top-4 left-4) */}
             <GamepadControls />
           </>
       )}
