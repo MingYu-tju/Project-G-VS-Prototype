@@ -43,6 +43,10 @@ interface GameState {
   
   // AI Control
   areNPCsPaused: boolean;
+  
+  // Graphics Settings
+  isRimLightOn: boolean;
+  showStats: boolean; // NEW: Stats toggle
 
   // Actions
   setPlayerPos: (pos: Vector3) => void;
@@ -58,7 +62,7 @@ interface GameState {
   updateProjectiles: (delta: number) => void;
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
-  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void; // Updated signature
+  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void;
   decrementHitStop: (delta: number) => void;
   
   // New: Cut Tracking (Step)
@@ -66,6 +70,10 @@ interface GameState {
   
   // AI Actions
   toggleNPCsPaused: () => void;
+  
+  // Graphics Actions
+  toggleRimLight: () => void;
+  toggleStats: () => void; // NEW: Action
 }
 
 // Initial Targets
@@ -106,6 +114,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
   areNPCsPaused: false,
+  isRimLightOn: true,
+  showStats: false,
 
   setPlayerPos: (pos) => {
     set({ playerPos: pos });
@@ -341,5 +351,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   toggleNPCsPaused: () => {
       set(state => ({ areNPCsPaused: !state.areNPCsPaused }));
+  },
+  
+  toggleRimLight: () => {
+      set(state => ({ isRimLightOn: !state.isRimLightOn }));
+  },
+
+  toggleStats: () => {
+      set(state => ({ showStats: !state.showStats }));
   }
 }));

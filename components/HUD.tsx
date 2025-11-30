@@ -4,7 +4,7 @@ import { useGameStore } from '../store';
 import { LockState } from '../types';
 
 export const HUD: React.FC = () => {
-  const { boost, maxBoost, isOverheated, lockState, targets, currentTargetIndex, ammo, maxAmmo, areNPCsPaused, toggleNPCsPaused } = useGameStore();
+  const { boost, maxBoost, isOverheated, lockState, targets, currentTargetIndex, ammo, maxAmmo } = useGameStore();
   
   const [isMobile, setIsMobile] = useState(false);
 
@@ -65,16 +65,6 @@ export const HUD: React.FC = () => {
               </svg>
           </div>
       )}
-
-      {/* AI TOGGLE BUTTON - Top Left (Below Pose Editor Button area) */}
-      <div className="absolute top-36 left-4 z-50 pointer-events-auto">
-          <button 
-              onClick={toggleNPCsPaused}
-              className={`px-3 py-1 rounded border text-[10px] font-mono font-bold transition-all ${areNPCsPaused ? 'bg-red-900/80 border-red-500 text-red-300' : 'bg-green-900/80 border-green-500 text-green-300'}`}
-          >
-              AI: {areNPCsPaused ? "OFF" : "ON"}
-          </button>
-      </div>
 
       {/* Target Info (Top Right) - DESKTOP ONLY */}
       {!isMobile && target && (

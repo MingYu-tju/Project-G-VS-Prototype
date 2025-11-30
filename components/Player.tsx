@@ -27,14 +27,18 @@ const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: numb
     rimPower = 2.5,       // Sharpness of the rim (higher = thinner)
     rimIntensity = 0.8    // Brightness of the rim
 }) => {
+    // Subscribe to store directly for toggle (avoids recompiling shader, just updates uniform logic via prop)
+    const isRimLightOn = useGameStore(state => state.isRimLightOn);
+    const effectiveIntensity = isRimLightOn ? rimIntensity : 0.0;
+
     const uniforms = useMemo(() => ({
         uColor: { value: new Color(color) },
         uRimColor: { value: new Color(rimColor) },
         uRimPower: { value: rimPower },
-        uRimIntensity: { value: rimIntensity },
+        uRimIntensity: { value: effectiveIntensity },
         uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() }, // Simulated Main Light Direction
         uAmbientColor: { value: new Color('#1a1d26') } // Ambient shadow color
-    }), [color, rimColor, rimPower, rimIntensity]);
+    }), [color, rimColor, rimPower, effectiveIntensity]);
 
     const vertexShader = `
         varying vec3 vNormal;
@@ -224,6 +228,17 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
             yellowGeo: merge(buckets.yellow)
         };
     }, []);
+
+    // --- CLEANUP EFFECT ---
+    // Crucial for performance: Dispose geometries when component unmounts
+    useEffect(() => {
+        return () => {
+            if (whiteGeo) whiteGeo.dispose();
+            if (darkGeo) darkGeo.dispose();
+            if (redGeo) redGeo.dispose();
+            if (yellowGeo) yellowGeo.dispose();
+        };
+    }, [whiteGeo, darkGeo, redGeo, yellowGeo]);
 
     return (
         <group name="HipMerged">
@@ -522,70 +537,110 @@ interface GhostEmitterProps {
     rainbow?: boolean;
 }
 
+// --- HIGH PERFORMANCE RING BUFFER GHOST EMITTER ---
+const MAX_GHOSTS = 60;
+const GHOST_LIFETIME = 20;
+const SPAWN_INTERVAL = 5;
+
 const GhostEmitter: React.FC<GhostEmitterProps> = ({ active, size=[0.4, 0.6, 0.4], offset=[0,0,0], rainbow=false }) => {
     const { scene } = useThree();
     const meshRef = useRef<InstancedMesh>(null);
     const trackerRef = useRef<Group>(null);
     
-    const MAX_GHOSTS = 60;
-    const SPAWN_INTERVAL = rainbow?2:5; 
-    const LIFETIME = 20;
-    
+    // Zero-allocation state
     const frameCount = useRef(0);
-    const ghosts = useRef<{ pos: Vector3, rot: Quaternion, scale: Vector3, age: number, color: Color }[]>([]);
+    const head = useRef(0);
+    const ghostData = useRef(new Float32Array(MAX_GHOSTS * 16)); // Stores 16 floats per matrix
+    const ghostAges = useRef(new Int16Array(MAX_GHOSTS).fill(-1)); // -1 means inactive
+    const ghostColors = useRef(new Float32Array(MAX_GHOSTS * 3)); // r,g,b per ghost
+
     const tempObj = useMemo(() => new Object3D(), []);
-    const worldPos = useMemo(() => new Vector3(), []);
-    const worldQuat = useMemo(() => new Quaternion(), []);
-    const worldScale = useMemo(() => new Vector3(), []);
+    const tempMat = useMemo(() => new Matrix4(), []);
+    const tempPos = useMemo(() => new Vector3(), []);
+    const tempQuat = useMemo(() => new Quaternion(), []);
+    const tempScale = useMemo(() => new Vector3(), []);
+    const tempColor = useMemo(() => new Color(), []);
 
     useFrame(() => {
         if (!trackerRef.current || !meshRef.current) return;
         
         frameCount.current++;
+        const currentInterval = rainbow ? 2 : SPAWN_INTERVAL;
 
-        if (active && frameCount.current % SPAWN_INTERVAL === 0) {
-            trackerRef.current.getWorldPosition(worldPos);
-            trackerRef.current.getWorldQuaternion(worldQuat);
-            trackerRef.current.getWorldScale(worldScale);
+        // 1. Spawn Logic
+        if (active && frameCount.current % currentInterval === 0) {
+            trackerRef.current.updateMatrixWorld();
+            const matrix = trackerRef.current.matrixWorld;
 
-            const spawnColor = new Color();
-            if (rainbow) {
-                const hue = (frameCount.current * 0.05) % 1.0; 
-                spawnColor.setHSL(hue, 1.0, 0.6);
-            } else {
-                spawnColor.set('#aaaaaa'); 
-            }
-
-            ghosts.current.push({
-                pos: worldPos.clone(),
-                rot: worldQuat.clone(),
-                scale: worldScale.clone(),
-                age: 0,
-                color: spawnColor
-            });
-        }
-
-        let aliveCount = 0;
-        for (let i = ghosts.current.length - 1; i >= 0; i--) {
-            const g = ghosts.current[i];
-            g.age++;
+            // Write to ring buffer
+            const idx = head.current;
             
-            if (g.age > LIFETIME) {
-                ghosts.current.splice(i, 1);
-                continue;
+            // Store matrix elements directly
+            for(let i=0; i<16; i++) {
+                ghostData.current[idx * 16 + i] = matrix.elements[i];
             }
+            
+            // Reset age
+            ghostAges.current[idx] = 0;
 
-            const lifeRatio = 1 - (g.age / LIFETIME);
-            tempObj.position.copy(g.pos);
-            tempObj.quaternion.copy(g.rot);
-            const s = lifeRatio * 0.9 + 0.1; 
-            tempObj.scale.set(g.scale.x, g.scale.y, g.scale.z).multiplyScalar(s);
-            tempObj.updateMatrix();
-            meshRef.current.setMatrixAt(aliveCount, tempObj.matrix);
-            meshRef.current.setColorAt(aliveCount, g.color);
-            aliveCount++;
+            // Set Color
+            if (rainbow) {
+                const hue = (frameCount.current * 0.04) % 1.0;
+                tempColor.setHSL(hue, 1.0, 0.5);
+            } else {
+                tempColor.set('#aaaaaa');
+            }
+            ghostColors.current[idx*3] = tempColor.r;
+            ghostColors.current[idx*3+1] = tempColor.g;
+            ghostColors.current[idx*3+2] = tempColor.b;
+
+            // Advance head
+            head.current = (head.current + 1) % MAX_GHOSTS;
         }
-        meshRef.current.count = aliveCount;
+
+        // 2. Update Logic
+        let activeCount = 0;
+        
+        for (let i = 0; i < MAX_GHOSTS; i++) {
+            const age = ghostAges.current[i];
+            
+            if (age >= 0 && age < GHOST_LIFETIME) {
+                ghostAges.current[i]++;
+                
+                // Reconstruct transform from stored matrix
+                tempMat.fromArray(ghostData.current, i * 16);
+                tempMat.decompose(tempPos, tempQuat, tempScale);
+                
+                const lifeRatio = 1 - (age / GHOST_LIFETIME);
+                // Apply shrinking scale effect
+                const s = lifeRatio * 0.9 + 0.1;
+                tempScale.multiplyScalar(s);
+                
+                tempObj.position.copy(tempPos);
+                tempObj.quaternion.copy(tempQuat);
+                tempObj.scale.copy(tempScale);
+                tempObj.updateMatrix();
+
+                meshRef.current.setMatrixAt(i, tempObj.matrix);
+                
+                // Update color
+                tempColor.setRGB(
+                    ghostColors.current[i*3], 
+                    ghostColors.current[i*3+1], 
+                    ghostColors.current[i*3+2]
+                );
+                meshRef.current.setColorAt(i, tempColor);
+                
+                activeCount++;
+            } else {
+                // Hide inactive ones by scaling to 0
+                tempMat.identity().scale(new Vector3(0,0,0));
+                meshRef.current.setMatrixAt(i, tempMat);
+            }
+        }
+
+        meshRef.current.count = MAX_GHOSTS; // We just update matrices, 'count' can stay max or be optimized, but setMatrixAt requires index < count? Actually 'count' is for rendering limit.
+        // Let's just render everything (inactives are scaled to zero) to avoid re-sorting
         meshRef.current.instanceMatrix.needsUpdate = true;
         if (meshRef.current.instanceColor) {
             meshRef.current.instanceColor.needsUpdate = true;
@@ -602,7 +657,7 @@ const GhostEmitter: React.FC<GhostEmitterProps> = ({ active, size=[0.4, 0.6, 0.4
                     frustumCulled={false}
                 >
                     <boxGeometry args={size} />
-                    <meshBasicMaterial color="#aaaaaa" transparent opacity={rainbow?0.9:0.5} blending={AdditiveBlending} depthWrite={false} />
+                    <meshBasicMaterial transparent opacity={rainbow?0.8:0.4} blending={AdditiveBlending} depthWrite={false} />
                 </instancedMesh>,
                 scene
             )}
@@ -829,10 +884,17 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
         return geo;
     }, [width, height, depth, topScaleX, topScaleZ]);
 
+    // CLEANUP GEOMETRY
+    useEffect(() => {
+        return () => {
+            geometry.dispose();
+        };
+    }, [geometry]);
+
     return (
-            <mesh geometry={geometry}>
-                <MechMaterial color={color} rimColor="#00ffff" rimPower={5} rimIntensity={3}/>
-            </mesh>
+        <mesh geometry={geometry}>
+            <MechMaterial color={color} rimColor="#00ffff" rimPower={5} rimIntensity={3}/>
+        </mesh>
     );
 };
 
@@ -2386,6 +2448,11 @@ export const Player: React.FC = () => {
     const feetColor = '#aa2222';
     const waistColor = '#ff0000'
     // --- TRAPEZOID COMPONENT ---
+    
+    // --- TRAPEZOID COMPONENT (Inside Player or using outer one) ---
+    // If Player defines its own Trapezoid locally (it did in previous version), update it there too.
+    // Based on previous XML, Player had local Trapezoid definition. Let's update it.
+    
     const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color }) => {
         const [width, height, depth, topScaleX, topScaleZ] = args;
         
@@ -2404,6 +2471,13 @@ export const Player: React.FC = () => {
             geo.computeVertexNormals();
             return geo;
         }, [width, height, depth, topScaleX, topScaleZ]);
+        
+        // CLEANUP GEOMETRY
+        useEffect(() => {
+            return () => {
+                geometry.dispose();
+            };
+        }, [geometry]);
 
         return (
             <mesh geometry={geometry}>
@@ -2411,8 +2485,10 @@ export const Player: React.FC = () => {
             </mesh>
         );
     };
+
+    // The HipVisuals usage inside Player will use the one defined at module scope (which we fixed above).
     
-    return (
+        return (
         <group>
             <mesh ref={meshRef}>
                 {/* ROOT-LEVEL SLASH VFX - Moves with player, but logic handles local offset/rotation */}
@@ -2495,6 +2571,22 @@ export const Player: React.FC = () => {
                     {/* HEAD */}
                     <group ref={headRef}>
                         <MechaHead mainColor={armorColor} />
+                        <mesh  position= {[-0.026173806758658973,0.4198127335434858,0.3864234815174432]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>
+                        <mesh  position= {[-0.026,0.40484563871317003,0.3815201267665433]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= { [-0.003790769061516548,0.42,0.386]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= {[-0.003852766592489121,0.405,0.381]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                    
                     </group>
 
                     {/* RIGHT ARM */}
@@ -2611,7 +2703,6 @@ export const Player: React.FC = () => {
                     
                     {/* LEGS GROUP */}
                     <group ref={legsRef}>
-                        {/* ... Legs unchanged ... */}
                         <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                             <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.7, 0.4]} /><MechMaterial color={armorColor} /></mesh>
                             <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />

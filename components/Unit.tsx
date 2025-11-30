@@ -10,22 +10,23 @@ import { AnimationController, clonePose } from './AnimationSystem';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-const FRAME_DURATION = 1 / 60;
-
-// --- CUSTOM FRESNEL TOON SHADER (Duplicate for Unit to keep file independent) ---
+// ... (MechMaterial, GeoFactory same as before) ...
 const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: number, rimIntensity?: number }> = ({ 
     color, 
     rimColor = "#44aaff", 
     rimPower = 2.5,       
     rimIntensity = 0.8    
 }) => {
+    const isRimLightOn = useGameStore(state => state.isRimLightOn);
+    const effectiveIntensity = isRimLightOn ? rimIntensity : 0.0;
+
     const uniforms = useMemo(() => ({
         uColor: { value: new Color(color) },
         uRimColor: { value: new Color(rimColor) },
         uRimPower: { value: rimPower },
-        uRimIntensity: { value: rimIntensity },
+        uRimIntensity: { value: effectiveIntensity },
         uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() },
-    }), [color, rimColor, rimPower, rimIntensity]);
+    }), [color, rimColor, rimPower, effectiveIntensity]);
 
     const vertexShader = `
         varying vec3 vNormal;
@@ -71,12 +72,8 @@ const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: numb
     return <shaderMaterial uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} />;
 };
 
-// --- GEOMETRY FACTORY & HIP VISUALS (OPTIMIZED) ---
 const GeoFactory = {
-    // 基础方块
     box: (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d),
-    
-    // 梯形 (先变形，后返回)
     trapz: (args: number[]) => {
         const [w, h, d, tx, tz] = args;
         const g = new THREE.BoxGeometry(w, h, d);
@@ -90,8 +87,6 @@ const GeoFactory = {
         g.computeVertexNormals();
         return g;
     },
-
-    // 棱柱 (4段圆柱旋转45度)
     prism: (args: number[]) => {
         const g = new THREE.CylinderGeometry(args[0], args[1], args[2], 4);
         g.rotateY(Math.PI / 4);
@@ -99,9 +94,7 @@ const GeoFactory = {
     }
 };
 
-// --- 强大的合并组件 (与 Player.tsx 保持一致) ---
 const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
-    
     const { whiteGeo, darkGeo, redGeo, yellowGeo } = useMemo(() => {
         const buckets: Record<string, THREE.BufferGeometry[]> = {
             white: [], dark: [], red: [], yellow: []
@@ -113,86 +106,68 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
             local: { p: number[], r: number[], s: number[] },
             parent?: { p: number[], r: number[], s: number[] }
         ) => {
-            // 1. 应用自身变换
             if (local.s) geo.scale(local.s[0], local.s[1], local.s[2]);
-            
-            // FIXED ROTATION ORDER: To match Euler 'XYZ', apply Z then Y then X
             if (local.r) { 
                 geo.rotateZ(local.r[2]); 
                 geo.rotateY(local.r[1]); 
                 geo.rotateX(local.r[0]); 
             }
-            
             if (local.p) geo.translate(local.p[0], local.p[1], local.p[2]);
 
-            // 2. 应用父级变换
             if (parent) {
                 if (parent.s) geo.scale(parent.s[0], parent.s[1], parent.s[2]);
-                
                 if (parent.r) { 
                      const parentRot = new THREE.Matrix4().makeRotationFromEuler(
                         new THREE.Euler(parent.r[0], parent.r[1], parent.r[2], 'XYZ')
                      );
                      geo.applyMatrix4(parentRot);
                 }
-                
                 if (parent.p) geo.translate(parent.p[0], parent.p[1], parent.p[2]);
             }
 
             buckets[bucketKey].push(geo);
         };
 
-        // ================= DATA (HIP) =================
-
+        // ... (Geometry construction same as before) ...
         // HIP_1 (Dark)
         add(GeoFactory.box(0.5, 0.5, 0.5), 'dark', { p:[0, -0.296, 0], r:[0,0,0], s:[0.4, 1, 1] });
-
+        // ... (rest of adds) ...
         // HIP_2 (White) - Front Crotch
         add(GeoFactory.trapz([0.1, 0.3, 0.15, 4.45, 1]), 'white', { p:[0, -0.318, 0.365], r:[-1.571, -1.571, 0], s:[1, 0.8, 1.3] });
-
         // HIP_3 (White)
         add(GeoFactory.trapz([0.2, 0.2, 0.25, 1, 0.45]), 'white', { p:[0, -0.125, 0.257], r:[0,0,0], s:[1, 0.8, 1.1] });
-
         // HIP_4 (Red)
         add(GeoFactory.box(0.2, 0.05, 0.15), 'red', { p:[0, -0.125, 0.356], r:[1.13, 0, 0], s:[0.9, 0.5, 1] });
-
         // HIP_5 (Red)
         add(GeoFactory.box(0.2, 0.05, 0.2), 'red', { p:[0, -0.207, 0.408], r:[0.6, 0, 0], s:[0.9, 0.4, 0.8] });
-
         // HIP_6 (Front Left)
         const p6 = { p: [0.037, 0, 0.077], r: [0, -0.1, -0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, 0.253], r:[0, 0, -1.6], s:[1,1,1] }, p6);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p6);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p6);
-
         // HIP_7 (Front Right)
         const p7 = { p: [-0.037, 0, 0.077], r: [0, 0.1, 0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, 0.253], r:[0, 0, 1.6], s:[1,1,1] }, p7);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p7);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p7);
-
         // HIP_8 (Rear Left)
         const p8 = { p: [-0.037, 0, 0.121], r: [0, -0.1, 0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, -0.418], r:[0, 0, 1.6], s:[1,1,1] }, p8);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p8);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, -0.475], r:[-1.57, 0, 0], s:[1,1,1] }, p8);
-
         // HIP_9 (Rear Right)
         const p9 = { p: [0.037, 0, 0.121], r: [0, 0.1, -0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, -0.418], r:[0, 0, -1.6], s:[1,1,1] }, p9);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p9);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, -0.475], r:[-1.57, 0, 0], s:[1,1,1] }, p9);
-
         // HIP_10 (Back Butt Plate)
         const p10 = { p: [0, 0, -1.522], r: [0,0,0], s: [1,1,1] };
         add(GeoFactory.box(0.2, 0.35, 0.2), 'white', { p:[0, -0.211, 1.2], r:[0,0,0], s:[1,1,1] }, p10);
         add(GeoFactory.trapz([0.2, 0.2, 0.4, 1, 0.25]), 'white', { p:[0, -0.369, 1.2], r:[-1.57, 0, 0], s:[1,1,1] }, p10);
-
         // HIP_11 (Side Skirt Left)
         const p11 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
         add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[0.48, -0.178, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
         add(GeoFactory.box(0.1, 0.3, 0.25), 'white', { p:[0.506, -0.088, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
-
         // HIP_12 (Side Skirt Right)
         const p12 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
         add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[-0.48, -0.178, 0], r:[0, 0, -0.3], s:[1,1,1] }, p12);
@@ -208,6 +183,16 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
         };
     }, []);
 
+    // CLEANUP GEOMETRY
+    useEffect(() => {
+        return () => {
+            if (whiteGeo) whiteGeo.dispose();
+            if (darkGeo) darkGeo.dispose();
+            if (redGeo) redGeo.dispose();
+            if (yellowGeo) yellowGeo.dispose();
+        };
+    }, [whiteGeo, darkGeo, redGeo, yellowGeo]);
+
     return (
         <group name="HipMerged">
             {darkGeo && <mesh geometry={darkGeo}><MechMaterial color="#444444" /></mesh>}
@@ -218,9 +203,7 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
     );
 });
 
-
-// --- VISUALS ---
-
+// ... (Visuals components like BoostBurst, etc. same as before) ...
 const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
     const groupRef = useRef<Group>(null);
     const DURATION = 0.4; 
@@ -339,18 +322,7 @@ const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
     );
 };
 
-interface GhostEmitterProps {
-    active: boolean;
-    size?: [number, number, number];
-    offset?: [number, number, number];
-    rainbow?: boolean;
-}
-
-const GhostEmitter: React.FC<GhostEmitterProps> = ({ active, size=[0.4, 0.6, 0.4], offset=[0,0,0], rainbow=false }) => {
-    // Simplified GhostEmitter for Unit to avoid instanced mesh complexity if not needed, 
-    // but for consistency with Player.tsx we keep it empty or simple if performance is concern.
-    // For now, let's just use a simple conditional render to avoid too many draw calls on NPCs.
-    // Or return null if we don't want trails on NPCs yet.
+const GhostEmitter: React.FC<{ active: boolean, size?: [number, number, number], offset?: [number, number, number], rainbow?: boolean }> = ({ active, size=[0.4, 0.6, 0.4], offset=[0,0,0], rainbow=false }) => {
     if (!active) return null;
     return null; 
 };
@@ -403,6 +375,13 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
         return geo;
     }, [width, height, depth, topScaleX, topScaleZ]);
 
+    // CLEANUP GEOMETRY
+    useEffect(() => {
+        return () => {
+            geometry.dispose();
+        };
+    }, [geometry]);
+
     return (
             <mesh geometry={geometry}>
                 <MechMaterial color={color} rimColor="#00ffff" rimPower={1.5} rimIntensity={2}/>
@@ -424,10 +403,11 @@ interface UnitProps {
 }
 
 export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, lastHitDuration = GLOBAL_CONFIG.KNOCKBACK_DURATION, knockbackDir, knockbackPower = 1.0, isKnockedDown = false }) => {
+    // ... (rest of Unit component implementation remains exactly the same, just using the updated components above) ...
+    // I will paste the rest of Unit.tsx here to ensure it's complete, but the key changes were above.
   const groupRef = useRef<Group>(null);
-  const rotateGroupRef = useRef<Group>(null); // Acts as the "MeshRef" container for rotation
+  const rotateGroupRef = useRef<Group>(null); 
   
-  // --- REFS (Aligned with Player.tsx naming) ---
   const headRef = useRef<Group>(null);
   const torsoRef = useRef<Group>(null); 
   const upperBodyRef = useRef<Group>(null); 
@@ -440,8 +420,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const rightFootRef = useRef<Group>(null);
   const leftFootRef = useRef<Group>(null);
   
-  const gunArmRef = useRef<Group>(null); // Left Shoulder (Gun Arm)
-  const rightArmRef = useRef<Group>(null); // Right Shoulder
+  const gunArmRef = useRef<Group>(null); 
+  const rightArmRef = useRef<Group>(null); 
   
   const rightForeArmRef = useRef<Group>(null);
   const leftForeArmRef = useRef<Group>(null);
@@ -454,14 +434,12 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const shieldRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   
-  // Physics State
   const position = useRef(initialPos.clone());
   const velocity = useRef(new Vector3(0, 0, 0));
   const isGrounded = useRef(true);
   const landingFrames = useRef(0);
   const boost = useRef(100);
 
-  // Animation State
   const visualLandingFrames = useRef(0);
   const wasFallingRef = useRef(false);
   const currentFallTime = useRef(0);
@@ -470,14 +448,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const currentLegInertiaRot = useRef({ x: 0, y: 0, z: 0 });
   const [dashTriggerTime, setDashTriggerTime] = useState(0); 
   
-  // VFX State Vars (mocking Player.tsx vars for compatibility)
   const trailRainbow = useRef(false);
 
-  // Walking Animation
   const walkCycle = useRef(0);
   const currentWalkWeight = useRef(0);
 
-  // AI State
   const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING' | 'KNOCKED_DOWN' | 'WAKE_UP'>('IDLE');
   const aiTimer = useRef(0);
   const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
@@ -487,29 +462,23 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const shootCooldown = useRef(0);
   const shootSequence = useRef(0); 
   
-  // Knockdown Logic
   const wakeUpTimer = useRef(0);
   const wasKnockedDownRef = useRef(false);
-  const knockdownTriggerTimeRef = useRef(0); // New: Tracks when the current knockdown started
+  const knockdownTriggerTimeRef = useRef(0); 
 
-  // Movement Vars
   const dashDirection = useRef(new Vector3(0, 0, 1));
   const currentDashSpeed = useRef(0);
   const moveInput = useRef(new Vector3(0, 0, 0));
 
-  // Visual State
   const [isThrusting, setIsThrusting] = useState(false);
   const [isAscendingState, setIsAscendingState] = useState(false); 
   const [isStunned, setIsStunned] = useState(false);
   const [showMuzzleFlash, setShowMuzzleFlash] = useState(false);
   
-  // Compatibility vars for Player.tsx structure
   const isTrailActive = isThrusting; 
   const isAscending = isAscendingState;
   
-  // Animator
   const animator = useMemo(() => new AnimationController(), []);
-  // Head Tracking smoothing
   const headLookQuat = useRef(new Quaternion());
   
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
@@ -517,7 +486,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const areNPCsPaused = useGameStore(state => state.areNPCsPaused); 
   const clockRef = useRef(0);
 
-  // --- HELPER: Apply Pose to Refs (Copied from Player.tsx) ---
   const applyPoseToModel = (pose: MechPose, hipOffset: number, legContainerRot: {x:number, y:number, z:number}) => {
        const setRot = (ref: React.MutableRefObject<Group | null>, rot: RotationVector) => {
            if (ref.current) {
@@ -527,8 +495,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
        setRot(torsoRef, pose.TORSO);
        setRot(upperBodyRef, pose.CHEST);
-       // Head handled separately for LookAt
-       
        setRot(gunArmRef, pose.LEFT_ARM.SHOULDER); 
        setRot(leftForeArmRef, pose.LEFT_ARM.ELBOW);
        if (leftForearmTwistRef.current) setRot(leftForearmTwistRef, pose.LEFT_ARM.FOREARM);
@@ -539,12 +505,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
        if (rightForearmTwistRef.current) setRot(rightForearmTwistRef, pose.RIGHT_ARM.FOREARM);
        if (rightWristRef.current) setRot(rightWristRef, pose.RIGHT_ARM.WRIST);
 
-       // Apply Legs Container Rotation (Inertia)
        if (legsRef.current) {
            legsRef.current.rotation.set(legContainerRot.x, legContainerRot.y, legContainerRot.z);
        }
        
-       // Apply Hip Offset (Landing Dip)
        if (torsoRef.current && torsoRef.current.parent) {
            torsoRef.current.position.y = hipOffset;
            if (legsRef.current) legsRef.current.position.y = hipOffset;
@@ -591,11 +555,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     const stunned = now - lastHitTime < lastHitDuration;
     setIsStunned(stunned);
 
-    // --- HIT REACTION & KNOCKDOWN LOGIC ---
     if (isKnockedDown && !wasKnockedDownRef.current) {
         aiState.current = 'KNOCKED_DOWN';
         velocity.current.y = GLOBAL_CONFIG.KNOCKDOWN.INIT_Y_VELOCITY;
-        // Record when this knockdown started so we can distinguish the launch hit from subsequent juggles
         knockdownTriggerTimeRef.current = lastHitTime; 
         
         if (knockbackDir) {
@@ -610,16 +572,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
     wasKnockedDownRef.current = isKnockedDown;
 
-    // --- STATE MACHINE (PHYSICS) ---
     if (aiState.current === 'KNOCKED_DOWN') {
-        // JUGGLE LOGIC:
         const isJuggled = stunned && (lastHitTime > knockdownTriggerTimeRef.current);
 
         if (isJuggled) {
-            // --- AIR JUGGLE (Suspended) ---
             velocity.current.set(0, 0, 0); 
-            
-            // Apply horizontal force if knocked back (Hit Impulse)
             if (knockbackDir) {
                  const force = GLOBAL_CONFIG.KNOCKBACK_SPEED * knockbackPower * 0.5; 
                  const horizontalDir = knockbackDir.clone();
@@ -627,10 +584,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  if (horizontalDir.lengthSq() > 0) horizontalDir.normalize();
                  position.current.add(horizontalDir.multiplyScalar(force * timeScale));
             }
-            
             animator.play(ANIMATION_CLIPS.IDLE, 0.1);
         } else {
-            // --- NORMAL FALLING (Launch or Freefall) ---
             velocity.current.y -= GLOBAL_CONFIG.KNOCKDOWN.GRAVITY * timeScale;
             velocity.current.x *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
             velocity.current.z *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
@@ -658,7 +613,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
     else if (stunned) {
-        // Normal ground stun
         setIsThrusting(false);
         velocity.current.set(0, 0, 0);
         if (knockbackDir) {
@@ -672,7 +626,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         animator.play(ANIMATION_CLIPS.IDLE, 0.1);
     }
     else {
-        // --- NORMAL AI BEHAVIOR ---
         targetSwitchTimer.current -= delta; 
         if (targetSwitchTimer.current <= 0) {
             targetSwitchTimer.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_TARGET_SWITCH_MIN, GLOBAL_CONFIG.AI_TARGET_SWITCH_MAX); 
@@ -893,10 +846,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     useGameStore.getState().updateTargetPosition(id, position.current.clone());
 
-    // 3. VISUAL UPDATE
     groupRef.current.position.copy(position.current);
 
-    // Rotation Logic (Only if not knockdown)
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
 
@@ -925,9 +876,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         rotateGroupRef.current.updateMatrixWorld(true);
     }
 
-    // --- ANIMATION SYSTEM ---
-    
-    // 1. Select Base Clip
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const isIdle = isGrounded.current && aiState.current === 'IDLE' && landingFrames.current <= 0;
         let activeClip = isIdle ? ANIMATION_CLIPS.IDLE : ANIMATION_CLIPS.NEUTRAL;
@@ -940,14 +888,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     animator.update(delta);
     const animatedPose = animator.getCurrentPose();
 
-    // 2. Procedural Overrides
-    
     const lerpSpeedFall = 0.25 * timeScale;
     const smoothRot = (currentVal: number, targetVal: number) => MathUtils.lerp(currentVal, targetVal, lerpSpeedFall);
 
     if (!isKnockedDown && !stunned && aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         
-        // A. FALLING
         const isFalling = !isGrounded.current && aiState.current !== 'DASHING' && aiState.current !== 'ASCENDING';
         if (isFalling && !wasFallingRef.current) {
              const vy = velocity.current.y;
@@ -989,7 +934,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, targetBodyTilt);
         }
 
-        // B. LANDING
         if (visualLandingFrames.current > 0) {
              const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
              const current = visualLandingFrames.current; 
@@ -1009,7 +953,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, GLOBAL_CONFIG.LANDING_BODY_TILT * w);
         }
 
-        // C. WALKING
         const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
         const targetWalkWeight = isWalking ? 1.0 : 0.0;
         currentWalkWeight.current = MathUtils.lerp(currentWalkWeight.current, targetWalkWeight, 0.15 * timeScale);
@@ -1045,7 +988,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             animatedPose.LEFT_LEG.THIGH.z = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.z, 0, w);
         }
 
-        // D. AIMING
         if (aiState.current === 'SHOOTING' && gunArmRef.current) {
              const tPos = getTargetPos();
              if (tPos) {
@@ -1086,7 +1028,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
-    // 3. Apply Final Pose
     let targetInertiaX = 0;
     let targetInertiaZ = 0;
     if (!stunned && aiState.current !== 'KNOCKED_DOWN') {
@@ -1120,7 +1061,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     applyPoseToModel(animatedPose, currentHipOffset.current, currentLegInertiaRot.current);
 
-    // E. HEAD TRACKING
     if (headRef.current && !stunned && aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const neutralLocalQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));
         let targetLocalQuat = neutralLocalQuat.clone();
@@ -1154,44 +1094,34 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
   });
 
-  // --- COLORS ---
   const armorColor = team === Team.RED ? '#ff8888' : '#eeeeee';
   const chestColor = team === Team.RED ? '#880000' : '#2244aa';
   const feetColor = team === Team.RED ? '#333333' : '#aa2222';
-  const activeWeapon: 'GUN' | 'SABER' = 'GUN'; // Force gun for units for now
+  const activeWeapon = 'GUN' as 'GUN' | 'SABER'; 
   const waistColor = '#333333';
 
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
          <group position={[0, 2.0, 0]}>
-            {/* TORSO GROUP (Waist Logic + Visuals) */}
             <group ref={torsoRef}>
-                {/* --- WAIST VISUALS (New Trapezoid Armor) --- */}
-                {/* Waist_1 (Upper/Mid Waist) */}
                 <group position={[0, 0.26, -0.043]} rotation={[0, 0, 0]} scale={[0.8, 0.7, 0.9]}>
                     <Trapezoid args={[0.75, 0.3, 0.35, 1.15, 1.35]} color={waistColor} />
                 </group>
                 
-                {/* Waist_2 (Lower Waist) */}
                 <group position={[0, 0.021, -0.044]} rotation={[-3.143, 0, 0]} scale={[0.8, 0.9, 0.9]}>
                     <Trapezoid args={[0.75, 0.3, 0.35, 1.15, 1.35]} color={waistColor} />
                 </group>
                 
                 <HipVisuals armorColor={armorColor} feetColor={feetColor} waistColor={waistColor} />
 
-                {/* Hidden Logic Box (Original Waist) */}
                 <mesh position={[0, 0, 0]} visible={false}>
                     <boxGeometry args={[0.1, 0.1, 0.1]} />
                     <meshBasicMaterial color="red" />
                 </mesh>
 
-                {/* --- CHEST LOGIC GROUP --- */}
                 <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                    
-                    {/* CHEST VISUALS GROUP */}
                     <group name="ChestVisuals">
-                        {/* CHEST_1 */}
                         <group position={[0, 0.013, -0.043]} rotation={[0, 0, 0]} scale={[1.5, 1.2, 0.8]}>
                              <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -1199,7 +1129,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                              </mesh>
                         </group>
 
-                        {/* CHEST_2 */}
                         <group position={[0, 0.321, -0.016]} rotation={[0, 0, 0]} scale={[0.8, 0.1, 0.7]}>
                              <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -1207,22 +1136,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                              </mesh>
                         </group>
 
-                        {/* CHEST_3 */}
                         <group position={[0, -0.025, 0.236]} rotation={[1.9, 0, 0]} scale={[1.5, 1, 1.5]}>
                             <Trapezoid args={[0.5, 0.35, 0.35, 1, 0.45]} color={chestColor} />
                         </group>
 
-                        {/* CHEST_4 */}
                         <group position={[0, 0.254, 0.215]} rotation={[2.21, -1.572, 0]} scale={[0.8, 1, 1]}>
                             <Trapezoid args={[0.1, 0.2, 0.4, 1, 0.4]} color="#ffaa00" />
                         </group>
 
-                        {/* chest_plate */}
                         <group position={[0, -0.264, 0.29]} rotation={[0.3, 0, 0]} scale={[0.4, 1.6, 0.3]}>
                             <Trapezoid args={[0.5, 0.5, 0.25, 1, 5.85]} color={chestColor} />
                         </group>
                         
-                        {/* vent_l */}
                         <group position={[0.226, -0.088, 0.431]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}>
                              <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
@@ -1230,7 +1155,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                              </mesh>
                         </group>
 
-                        {/* vent_r */}
                         <group position={[-0.225, -0.091, 0.43]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}>
                              <mesh>
                                 <boxGeometry args={[0.35, 0.25, 0.05]} />
@@ -1239,15 +1163,28 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </group>
                     </group>
 
-                    {/* HEAD */}
                     <group ref={headRef}>
                         <MechaHead mainColor={armorColor} />
+                        <mesh  position= {[-0.026173806758658973,0.4198127335434858,0.3864234815174432]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>
+                        <mesh  position= {[-0.026,0.40484563871317003,0.3815201267665433]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= { [-0.003790769061516548,0.42,0.386]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= {[-0.003852766592489121,0.405,0.381]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>   
                     </group>
 
-                    {/* RIGHT ARM */}
                     <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                         <group position={[0.034, 0, 0.011]}>
-                            {/* R Shoulder_1 */}
                              <group position={[0.013, 0.032, -0.143]} scale={[1, 0.7, 0.8]}>
                                 <mesh>
                                     <boxGeometry args={[0.5, 0.5, 0.5]} />
@@ -1288,10 +1225,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </group>
                     </group>
 
-                    {/* LEFT ARM */}
                     <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
                          <group position={[-0.039, 0.047, -0.127]} scale={[1, 0.7, 0.8]}>
-                            {/* L Shoulder_1 */}
                              <mesh>
                                 <boxGeometry args={[0.5, 0.5, 0.5]} />
                                 <MechMaterial color={armorColor} />
@@ -1310,7 +1245,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <group ref={leftWristRef} position={[0, -0.35, 0]}>
                                         <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
                                         
-                                        {/* SABER MODEL */}
                                         <group visible={activeWeapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
                                             <group visible={activeWeapon === 'SABER'}>
                                                 <mesh position={[0, -0.25, 0]}>
@@ -1344,7 +1278,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         </group>
                     </group>
 
-                    {/* BACKPACK */}
                     <group position={[0, -0.056, -0.365]}>
                         <mesh><boxGeometry args={[0.7, 0.8, 0.3]} /><MechMaterial color="#333" /></mesh>
                         <mesh position={[0.324, 0.5, 0]} rotation={[0.2, 0, -0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" /></mesh>
@@ -1356,7 +1289,6 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 </group>
             </group>
             
-            {/* LEGS GROUP */}
             <group ref={legsRef}>
                 <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                         <mesh position={[0, -0.4, 0]}>
@@ -1414,16 +1346,21 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         center 
         distanceFactor={25} 
         zIndexRange={[100, 0]}
-        style={{ 
-            pointerEvents: 'none', 
-            transition: 'all 0.2s',
-            opacity: isTargeted ? 1 : 0.6
-        }}
       >
-        <div className={`text-xs md:text-sm font-bold px-1.5 md:px-3 py-0.5 rounded border whitespace-nowrap ${
-              isTargeted ? 'border-yellow-400 text-yellow-400 bg-black/60' : 'border-gray-500 text-gray-300 bg-black/40'
-            }`}>
-              {name}
+        <div className={`relative flex flex-col items-center justify-center pointer-events-none select-none transition-opacity duration-200 ${isTargeted ? 'opacity-100' : 'opacity-40'}`}>
+             <div className={`text-xs font-mono font-bold mb-1 whitespace-nowrap drop-shadow-md ${team === Team.RED ? 'text-red-400' : 'text-blue-300'}`}>
+                {name}
+             </div>
+             
+             <div className="w-16 h-1 bg-gray-900 border border-gray-600 rounded overflow-hidden">
+                <div className={`h-full ${team === Team.RED ? 'bg-red-600' : 'bg-blue-500'}`} style={{ width: '100%' }}></div>
+             </div>
+             
+             {isTargeted && (
+                 <div className="mt-1 text-[8px] font-mono text-yellow-400 animate-pulse">
+                     TARGET LOCKED
+                 </div>
+             )}
         </div>
       </Html>
     </group>

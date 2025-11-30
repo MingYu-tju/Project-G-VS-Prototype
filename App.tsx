@@ -10,7 +10,17 @@ import { useGameStore } from './store';
 import { resumeAudioContext } from './components/Player';
 
 function App() {
-  const { isGameStarted, startGame } = useGameStore();
+  const { 
+    isGameStarted, 
+    startGame, 
+    isRimLightOn, 
+    toggleRimLight, 
+    showStats, 
+    toggleStats,
+    areNPCsPaused,
+    toggleNPCsPaused 
+  } = useGameStore();
+  
   const [showEditor, setShowEditor] = useState(false);
   const [showModelBuilder, setShowModelBuilder] = useState(false);
 
@@ -116,7 +126,7 @@ function App() {
             )}
             
             {/* TOOLS MENU (Top Left) */}
-            <div className="absolute top-16 left-4 z-50 flex flex-col space-y-2">
+            <div className="absolute top-16 left-4 z-50 flex flex-col space-y-2 pointer-events-auto">
                 <button 
                     onClick={() => setShowEditor(true)}
                     className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition-colors font-mono"
@@ -128,6 +138,36 @@ function App() {
                     className="bg-gray-800 hover:bg-gray-700 text-cyan-400 hover:text-white text-[10px] px-3 py-1 rounded border border-cyan-900/50 transition-colors font-mono"
                 >
                     MODEL FACTORY
+                </button>
+                <button 
+                    onClick={toggleRimLight}
+                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
+                        isRimLightOn 
+                        ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
+                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                    }`}
+                >
+                    RIM LIGHT: {isRimLightOn ? "ON" : "OFF"}
+                </button>
+                <button 
+                    onClick={toggleStats}
+                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
+                        showStats 
+                        ? 'bg-green-900/80 hover:bg-green-800 border-green-500 text-green-300' 
+                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                    }`}
+                >
+                    STATS: {showStats ? "ON" : "OFF"}
+                </button>
+                <button 
+                    onClick={toggleNPCsPaused}
+                    className={`px-3 py-1 rounded border text-[10px] font-mono transition-all ${
+                        areNPCsPaused 
+                        ? 'bg-red-900/80 hover:bg-red-800 border-red-500 text-red-300' 
+                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                    }`}
+                >
+                    AI: {areNPCsPaused ? "PAUSED" : "ACTIVE"}
                 </button>
             </div>
 

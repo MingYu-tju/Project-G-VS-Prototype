@@ -1,26 +1,30 @@
 
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { BoxGeometry, Color, Vector3, Group, AdditiveBlending, MathUtils } from 'three';
 import { useGLTF } from '@react-three/drei';
 import { MechPose, RotationVector } from '../types';
+import { useGameStore } from '../store';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-// --- CUSTOM FRESNEL TOON SHADER ---
+// ... (MechMaterial, GeoFactory same as before) ...
 const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: number, rimIntensity?: number }> = ({ 
     color, 
     rimColor = "#44aaff", 
     rimPower = 2.5,       
     rimIntensity = 0.8    
 }) => {
+    const isRimLightOn = useGameStore(state => state.isRimLightOn);
+    const effectiveIntensity = isRimLightOn ? rimIntensity : 0.0;
+
     const uniforms = useMemo(() => ({
         uColor: { value: new Color(color) },
         uRimColor: { value: new Color(rimColor) },
         uRimPower: { value: rimPower },
-        uRimIntensity: { value: rimIntensity },
+        uRimIntensity: { value: effectiveIntensity },
         uLightDir: { value: new Vector3(0.5, 0.8, 0.8).normalize() },
-    }), [color, rimColor, rimPower, rimIntensity]);
+    }), [color, rimColor, rimPower, effectiveIntensity]);
 
     const vertexShader = `
         varying vec3 vNormal;
@@ -66,7 +70,6 @@ const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: numb
     return <shaderMaterial uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} />;
 };
 
-// --- GEOMETRY FACTORY ---
 const GeoFactory = {
     box: (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d),
     trapz: (args: number[]) => {
@@ -89,7 +92,6 @@ const GeoFactory = {
     }
 };
 
-// --- HIP VISUALS ---
 const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
     const { whiteGeo, darkGeo, redGeo, yellowGeo } = useMemo(() => {
         const buckets: Record<string, THREE.BufferGeometry[]> = { white: [], dark: [], red: [], yellow: [] };
@@ -108,56 +110,34 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
             buckets[bucketKey].push(geo);
         };
 
-        // HIP_1 (Dark)
+        // ... (Geometry construction same as before) ...
         add(GeoFactory.box(0.5, 0.5, 0.5), 'dark', { p:[0, -0.296, 0], r:[0,0,0], s:[0.4, 1, 1] });
-
-        // HIP_2 (White) - Front Crotch
         add(GeoFactory.trapz([0.1, 0.3, 0.15, 4.45, 1]), 'white', { p:[0, -0.318, 0.365], r:[-1.571, -1.571, 0], s:[1, 0.8, 1.3] });
-
-        // HIP_3 (White)
         add(GeoFactory.trapz([0.2, 0.2, 0.25, 1, 0.45]), 'white', { p:[0, -0.125, 0.257], r:[0,0,0], s:[1, 0.8, 1.1] });
-
-        // HIP_4 (Red)
         add(GeoFactory.box(0.2, 0.05, 0.15), 'red', { p:[0, -0.125, 0.356], r:[1.13, 0, 0], s:[0.9, 0.5, 1] });
-
-        // HIP_5 (Red)
         add(GeoFactory.box(0.2, 0.05, 0.2), 'red', { p:[0, -0.207, 0.408], r:[0.6, 0, 0], s:[0.9, 0.4, 0.8] });
-
-        // HIP_6 (Front Left)
         const p6 = { p: [0.037, 0, 0.077], r: [0, -0.1, -0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, 0.253], r:[0, 0, -1.6], s:[1,1,1] }, p6);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p6);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p6);
-
-        // HIP_7 (Front Right)
         const p7 = { p: [-0.037, 0, 0.077], r: [0, 0.1, 0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, 0.253], r:[0, 0, 1.6], s:[1,1,1] }, p7);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, 0.253], r:[0,0,0], s:[1,1,1] }, p7);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, 0.32], r:[1.571, 0, 0], s:[1,1,1] }, p7);
-
-        // HIP_8 (Rear Left)
         const p8 = { p: [-0.037, 0, 0.121], r: [0, -0.1, 0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[0.303, -0.266, -0.418], r:[0, 0, 1.6], s:[1,1,1] }, p8);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p8);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[0.298, -0.215, -0.475], r:[-1.571, 0, 0], s:[1,1,1] }, p8);
-
-        // HIP_9 (Rear Right)
         const p9 = { p: [0.037, 0, 0.121], r: [0, 0.1, -0.1], s: [0.9, 1, 1] };
         add(GeoFactory.trapz([0.3, 0.35, 0.1, 1.5, 1]), 'white', { p:[-0.303, -0.266, -0.418], r:[0, 0, -1.6], s:[1,1,1] }, p9);
         add(GeoFactory.box(0.35, 0.1, 0.1), 'white', { p:[-0.299, -0.096, -0.418], r:[0,0,0], s:[1,1,1] }, p9);
         add(GeoFactory.prism([0.15, 0.2, 0.1]), 'yellow', { p:[-0.298, -0.215, -0.475], r:[-1.571, 0, 0], s:[1,1,1] }, p9);
-
-        // HIP_10 (Back Butt Plate)
         const p10 = { p: [0, 0, -1.522], r: [0,0,0], s: [1,1,1] };
         add(GeoFactory.box(0.2, 0.35, 0.2), 'white', { p:[0, -0.211, 1.2], r:[0,0,0], s:[1,1,1] }, p10);
         add(GeoFactory.trapz([0.2, 0.2, 0.4, 1, 0.25]), 'white', { p:[0, -0.369, 1.2], r:[-1.571, 0, 0], s:[1,1,1] }, p10);
-
-        // HIP_11 (Side Skirt Left)
         const p11 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
         add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[0.48, -0.178, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
         add(GeoFactory.box(0.1, 0.3, 0.25), 'white', { p:[0.506, -0.088, 0], r:[0, 0, 0.3], s:[1,1,1] }, p11);
-
-        // HIP_12 (Side Skirt Right)
         const p12 = { p: [0,0,0], r: [0,0,0], s: [0.9, 1, 1] };
         add(GeoFactory.box(0.1, 0.4, 0.4), 'white', { p:[-0.48, -0.178, 0], r:[0, 0, -0.3], s:[1,1,1] }, p12);
         add(GeoFactory.box(0.1, 0.3, 0.25), 'white', { p:[-0.506, -0.088, 0], r:[0, 0, -0.3], s:[1,1,1] }, p12);
@@ -171,6 +151,16 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
             yellowGeo: merge(buckets.yellow)
         };
     }, []);
+    
+    // CLEANUP GEOMETRY
+    useEffect(() => {
+        return () => {
+            if (whiteGeo) whiteGeo.dispose();
+            if (darkGeo) darkGeo.dispose();
+            if (redGeo) redGeo.dispose();
+            if (yellowGeo) yellowGeo.dispose();
+        };
+    }, [whiteGeo, darkGeo, redGeo, yellowGeo]);
 
     return (
         <group name="HipMerged">
@@ -229,6 +219,13 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
         geo.computeVertexNormals();
         return geo;
     }, [width, height, depth, topScaleX, topScaleZ]);
+    
+    // CLEANUP GEOMETRY
+    useEffect(() => {
+        return () => {
+            geometry.dispose();
+        };
+    }, [geometry]);
 
     return (
         <mesh geometry={geometry}>
@@ -239,7 +236,7 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
 
 
 export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> = ({ pose, weapon }) => {
-    // Refs
+    // ... (PosableUnit logic remains same, just using the Trapezoid and HipVisuals above) ...
     const torsoRef = useRef<Group>(null);
     const upperBodyRef = useRef<Group>(null);
     const headRef = useRef<Group>(null);
@@ -260,7 +257,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
     const leftFootRef = useRef<Group>(null);
     const shieldRef = useRef<Group>(null);
 
-    // Apply Pose
     useFrame(() => {
         if (!torsoRef.current) return;
         
@@ -303,7 +299,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
 
     return (
     <group position={[0, 2.0, 0]}>
-        {/* TORSO GROUP */}
         <group ref={torsoRef}>
             <group position={[0, 0.26, -0.043]} rotation={[0, 0, 0]} scale={[0.8, 0.7, 0.9]}>
                 <Trapezoid args={[0.75, 0.3, 0.35, 1.15, 1.35]} color={waistColor} />
@@ -313,9 +308,7 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
             </group>
             <HipVisuals armorColor={armorColor} feetColor={feetColor} waistColor={waistColor} />
 
-            {/* CHEST */}
             <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                 {/* CHEST VISUALS GROUP */}
                  <group name="ChestVisuals">
                         <group position={[0, 0.013, -0.043]} rotation={[0, 0, 0]} scale={[1.5, 1.2, 0.8]}>
                              <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={chestColor} /></mesh>
@@ -340,12 +333,26 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                         </group>
                  </group>
 
-                {/* HEAD */}
                 <group ref={headRef}>
                     <MechaHead mainColor={armorColor} />
+                        <mesh  position= {[-0.026173806758658973,0.4198127335434858,0.3864234815174432]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>
+                        <mesh  position= {[-0.026,0.40484563871317003,0.3815201267665433]} rotation={[0.2,-0.52,0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= { [-0.003790769061516548,0.42,0.386]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>                        
+                        <mesh  position= {[-0.003852766592489121,0.405,0.381]} rotation={[0.2,0.52,-0.4]} scale={[0.6,0.1,1]}>
+                            <boxGeometry args={[0.05, 0.05, 0]} />
+                            <meshBasicMaterial color="#000000" />
+                        </mesh>   
                 </group>
 
-                {/* RIGHT ARM */}
                 <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                     <group position={[0.034, 0, 0.011]}>
                         <group position={[0.013, 0.032, -0.143]} scale={[1, 0.7, 0.8]}>
@@ -371,7 +378,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                     </group>
                 </group>
 
-                {/* LEFT ARM */}
                 <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
                     <group position={[-0.039, 0.047, -0.127]} scale={[1, 0.7, 0.8]}>
                         <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={armorColor} /></mesh>
@@ -383,7 +389,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                                 <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><MechMaterial color={armorColor} /></mesh>
                                 <group ref={leftWristRef} position={[0, -0.35, 0]}>
                                     <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
-                                    {/* SABER MODEL */}
                                     <group visible={weapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
                                         <mesh position={[0, -0.25, 0]}><cylinderGeometry args={[0.035, 0.04, 0.7, 8]} /><MechMaterial color="white" /></mesh>
                                         <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.05, 0.05, 2.4, 8]} /><meshBasicMaterial color="white" /></mesh>
@@ -403,7 +408,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                     </group>
                 </group>
 
-                {/* BACKPACK */}
                 <group position={[0, -0.056, -0.365]}>
                     <mesh><boxGeometry args={[0.7, 0.8, 0.3]} /><MechMaterial color="#333" /></mesh>
                     <mesh position={[0.324, 0.5, 0]} rotation={[0.2, 0, -0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" /></mesh>
@@ -414,7 +418,6 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
             </group>
         </group>
         
-        {/* LEGS GROUP */}
         <group ref={legsRef}>
             <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
                     <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.7, 0.4]} /><MechMaterial color={armorColor} /></mesh>

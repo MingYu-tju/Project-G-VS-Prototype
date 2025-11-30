@@ -1,6 +1,7 @@
-import React, { useRef, useMemo, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Grid, Stars, Sparkles, Environment, Lightformer } from '@react-three/drei';
+
+import React, { useRef, useMemo, useState, useEffect } from 'react';
+import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber';
+import { Grid, Stars, Sparkles, Environment, Lightformer, Html } from '@react-three/drei';
 import { DoubleSide, AdditiveBlending, MathUtils, Color, Vector3, Mesh, Group, Quaternion, Euler } from 'three';
 import { Player } from './Player';
 import { Unit } from './Unit';
@@ -249,31 +250,98 @@ const FloatingDataDebris: React.FC = () => {
     )
 }
 
+// --- DETAILED STATS PANEL ---
+const DetailedStats = () => {
+  const { gl } = useThree();
+  const [stats, setStats] = useState({ fps: 0, calls: 0, tris: 0, geoms: 0, tex: 0 });
+  const frameRef = useRef(0);
+  const lastTimeRef = useRef(performance.now());
+  
+  // Use a ref to store render stats because gl.info.render auto-clears before useFrame runs
+  // We need to capture them *after* render.
+  const renderStatsRef = useRef({ calls: 0, tris: 0 });
+
+  useEffect(() => {
+      // addAfterEffect runs AFTER the render loop, allowing us to capture accurate draw calls/triangles for the frame just rendered.
+      return addAfterEffect(() => {
+          renderStatsRef.current.calls = gl.info.render.calls;
+          renderStatsRef.current.tris = gl.info.render.triangles;
+      });
+  }, [gl]);
+
+  useFrame(() => {
+    const now = performance.now();
+    frameRef.current++;
+    
+    if (now - lastTimeRef.current >= 500) { // Update every 500ms for readability
+      setStats({
+        fps: Math.round(frameRef.current * 1000 / (now - lastTimeRef.current)),
+        calls: renderStatsRef.current.calls,
+        tris: renderStatsRef.current.tris,
+        geoms: gl.info.memory.geometries,
+        tex: gl.info.memory.textures
+      });
+      frameRef.current = 0;
+      lastTimeRef.current = now;
+    }
+  });
+
+  return (
+    <Html as='div' wrapperClass="stats-panel" position={[0,0,0]} style={{
+        position: 'fixed',
+        top: '16px',
+        left: '150px', // To the right of Gamepad Settings button (approx 140px width)
+        background: 'rgba(5, 7, 10, 0.85)',
+        color: '#00ffaa',
+        padding: '8px 12px',
+        borderRadius: '4px',
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        pointerEvents: 'none',
+        border: '1px solid #006644',
+        boxShadow: '0 0 10px rgba(0,255,170,0.1)',
+        zIndex: 99999,
+        minWidth: '120px',
+        lineHeight: '1.5',
+        letterSpacing: '0.05em'
+    }}>
+      <div className="font-bold text-white border-b border-gray-700 mb-1 pb-1">SYSTEM METRICS</div>
+      <div className="flex justify-between"><span>FPS:</span><span className="text-white">{stats.fps}</span></div>
+      <div className="flex justify-between"><span>DRAWCALLS:</span><span className="text-white">{stats.calls}</span></div>
+      <div className="flex justify-between"><span>TRIANGLES:</span><span className="text-white">{stats.tris}</span></div>
+      <div className="flex justify-between"><span>GEOMETRY:</span><span className="text-white">{stats.geoms}</span></div>
+      <div className="flex justify-between"><span>TEXTURES:</span><span className="text-white">{stats.tex}</span></div>
+    </Html>
+  );
+}
+
 export const GameScene: React.FC = () => {
-  const { targets, currentTargetIndex, projectiles } = useGameStore();
+  const { targets, currentTargetIndex, projectiles, isRimLightOn, showStats } = useGameStore();
 
   return (
     <Canvas 
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
             antialias: true, 
-            toneMappingExposure: 1.1 // Slight overexposure for bloom-like effect on bright parts
+            toneMappingExposure: 1.1 
         }}
-        shadows={false} // Disable shadow maps for performance
+        shadows={false} 
     >
+      {/* Use Custom Detailed Stats instead of standard Drei stats */}
+      {showStats && <DetailedStats />}
+      
       <color attach="background" args={['#05070a']} />
       <fog attach="fog" args={['#05070a', 50, 150]} />
 
       {/* 1. PROCEDURAL STUDIO ENVIRONMENT */}
-      {/* This creates the metallic reflections. We use high contrast light formers. */}
       <Environment resolution={512}>
         <group rotation={[-Math.PI / 4, -0.3, 0]}>
             {/* Main Reflection (Soft White) */}
             <Lightformer intensity={1.5} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} />
-            {/* Rim Reflection Left (Cool Blue) - Defines the left edge */}
-            <Lightformer intensity={4} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[20, 1, 1]} color="#00ffff" />
-            {/* Rim Reflection Right (Warm Orange) - Defines the right edge */}
-            <Lightformer intensity={4} rotation-y={-Math.PI / 2} position={[5, 1, -1]} scale={[20, 1, 1]} color="#ffaa00" />
+            {/* Rim Reflection Left (Cool Blue) */}
+            {isRimLightOn && <Lightformer intensity={4} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[20, 1, 1]} color="#00ffff" />}
+            {/* Rim Reflection Right (Warm Orange) */}
+            {isRimLightOn && <Lightformer intensity={4} rotation-y={-Math.PI / 2} position={[5, 1, -1]} scale={[20, 1, 1]} color="#ffaa00" />}
             {/* Bottom Fill */}
             <Lightformer intensity={0.5} rotation-x={-Math.PI / 2} position={[0, -5, 0]} scale={[10, 10, 1]} color="white" />
         </group>
@@ -286,12 +354,13 @@ export const GameScene: React.FC = () => {
       {/* Key Light: Sharp sunlight */}
       <directionalLight position={[30, 50, 20]} intensity={2.5} color="#ffffff" />
       
-      {/* Rim Light (Back): VERY bright cyan light to separate mech from background (The "Edge" replacement) */}
+      {/* Rim Light (Back): VERY bright cyan light to separate mech from background */}
+      {/* LINKED TO SETTINGS: Only visible if isRimLightOn is true */}
       <spotLight 
         position={[0, 10, -20]} 
         angle={0.8} 
         penumbra={0.5} 
-        intensity={20} 
+        intensity={isRimLightOn ? 20 : 0} 
         color="#00ffff" 
         distance={80} 
         target-position={[0, 0, 0]}
@@ -307,12 +376,9 @@ export const GameScene: React.FC = () => {
       <SceneManager />
       <EffectManager />
 
-      {/* Re-import original visual components properly in real file */}
       <DigitalFloor />
       <SimulationWall />
       <FloatingDataDebris />
-      {/* Placeholder for visual components to ensure valid JSX in this snippet */}
-      <gridHelper args={[200, 20, 0x112233, 0x112233]} position={[0, -0.01, 0]} />
 
       <Player />
       
