@@ -235,7 +235,7 @@ const DigitalFloor: React.FC<{ isDark: boolean }> = ({ isDark }) => {
     // Dark Mode: Dark Blue/Black floor with Blue grid
     // Light Mode: Dark Grey floor (to reduce glare) with Lighter Grey grid
     
-    const planeColor = isDark ? "#1a1d26" : "#111111";
+    const planeColor = isDark ? "#1a1d26" : "#000000";
     const gridCellColor = isDark ? "#2f3b4c" : "#999999";
     const gridSectionColor = isDark ? "#0066cc" : "#555555";
     
