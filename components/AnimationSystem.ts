@@ -1,8 +1,40 @@
 import { MathUtils } from 'three';
 import { MechPose, AnimationClip, RotationVector, DEFAULT_MECH_POSE, Keyframe } from '../types';
 
-// Helper: Deep clone a pose to avoid mutation issues
-export const clonePose = (pose: MechPose): MechPose => JSON.parse(JSON.stringify(pose));
+// Optimized deep clone for MechPose to avoid JSON.parse/stringify GC overhead
+export const clonePose = (pose: MechPose): MechPose => {
+    return {
+        TORSO: { ...pose.TORSO },
+        CHEST: { ...pose.CHEST },
+        HEAD: { ...pose.HEAD },
+        LEFT_ARM: {
+            SHOULDER: { ...pose.LEFT_ARM.SHOULDER },
+            ELBOW: { ...pose.LEFT_ARM.ELBOW },
+            FOREARM: { ...pose.LEFT_ARM.FOREARM },
+            WRIST: { ...pose.LEFT_ARM.WRIST }
+        },
+        RIGHT_ARM: {
+            SHOULDER: { ...pose.RIGHT_ARM.SHOULDER },
+            ELBOW: { ...pose.RIGHT_ARM.ELBOW },
+            FOREARM: { ...pose.RIGHT_ARM.FOREARM },
+            WRIST: { ...pose.RIGHT_ARM.WRIST }
+        },
+        LEFT_LEG: {
+            THIGH: { ...pose.LEFT_LEG.THIGH },
+            KNEE: pose.LEFT_LEG.KNEE,
+            ANKLE: { ...pose.LEFT_LEG.ANKLE }
+        },
+        RIGHT_LEG: {
+            THIGH: { ...pose.RIGHT_LEG.THIGH },
+            KNEE: pose.RIGHT_LEG.KNEE,
+            ANKLE: { ...pose.RIGHT_LEG.ANKLE }
+        },
+        SHIELD: pose.SHIELD ? {
+            POSITION: { ...pose.SHIELD.POSITION },
+            ROTATION: { ...pose.SHIELD.ROTATION }
+        } : undefined
+    };
+};
 
 // Helper: Linear Interpolation for RotationVector (Euler)
 const lerpVector = (v1: RotationVector, v2: RotationVector, t: number): RotationVector => {

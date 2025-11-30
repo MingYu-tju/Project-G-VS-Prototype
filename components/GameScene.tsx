@@ -1,4 +1,3 @@
-
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber';
 import { Grid, Stars, Sparkles, Environment, Lightformer, Html } from '@react-three/drei';
@@ -241,11 +240,12 @@ const DigitalFloor: React.FC = () => {
     );
 }
 
-const FloatingDataDebris: React.FC = () => {
+const FloatingDataDebris: React.FC<{ isMobile: boolean }> = ({ isMobile }) => {
     return (
         <group>
-            <Sparkles count={400} scale={[150, 80, 150]} size={8} speed={0.8} opacity={0.4} color="#0088ff" position={[0, 30, 0]} />
-            <Sparkles count={80} scale={[100, 100, 100]} size={25} speed={3.5} opacity={0.9} color="#ccffff" position={[0, 40, 0]} noise={20} />
+            {/* Reduce particle count significantly on mobile */}
+            <Sparkles count={isMobile ? 80 : 400} scale={[150, 80, 150]} size={isMobile ? 12 : 8} speed={0.8} opacity={0.4} color="#0088ff" position={[0, 30, 0]} />
+            <Sparkles count={isMobile ? 20 : 80} scale={[100, 100, 100]} size={isMobile ? 30 : 25} speed={3.5} opacity={0.9} color="#ccffff" position={[0, 40, 0]} noise={20} />
         </group>
     )
 }
@@ -316,10 +316,27 @@ const DetailedStats = () => {
 
 export const GameScene: React.FC = () => {
   const { targets, currentTargetIndex, projectiles, isRimLightOn, showStats } = useGameStore();
+  
+  // Mobile Detection
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+      const checkMobile = () => {
+          const userAgent = typeof window.navigator === "undefined" ? "" : navigator.userAgent;
+          // Simple user agent check + screen width check
+          const mobile = Boolean(userAgent.match(/Android|BlackBerry|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i)) || window.innerWidth < 768;
+          setIsMobile(mobile);
+      };
+      
+      checkMobile();
+      window.addEventListener('resize', checkMobile);
+      return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   return (
     <Canvas 
-        dpr={[1,1.5]}
+        // PERFORMANCE OPTIMIZATION: Limit DPR on mobile to 1.0 to save GPU load
+        dpr={isMobile ? 1 : [1, 1.5]}
         camera={{ position: [0, 5, 10], fov: 60 }} 
         gl={{ 
             antialias: true, 
@@ -372,7 +389,7 @@ export const GameScene: React.FC = () => {
 
       <DigitalFloor />
       <SimulationWall />
-      <FloatingDataDebris />
+      <FloatingDataDebris isMobile={isMobile} />
 
       <Player />
       
