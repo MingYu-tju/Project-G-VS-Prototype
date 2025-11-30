@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
@@ -25,6 +24,16 @@ function App() {
   
   const [showEditor, setShowEditor] = useState(false);
   const [showModelBuilder, setShowModelBuilder] = useState(false);
+  
+  // UI State for Tools Menu Collapse
+  const [isToolsOpen, setIsToolsOpen] = useState(true);
+
+  // Auto-collapse tools on mobile initially
+  useEffect(() => {
+      if (window.innerWidth < 768) {
+          setIsToolsOpen(false);
+      }
+  }, []);
 
   const handleStart = useCallback(() => {
     resumeAudioContext();
@@ -128,10 +137,10 @@ function App() {
             )}
             
             {/* TOP ROW: STATS BUTTON (Next to Gamepad Button which is at top-4 left-4) */}
-            <div className="absolute top-4 left-48 z-50">
+            <div className="absolute top-4 left-48 z-50 pointer-events-none">
                 <button 
                     onClick={toggleStats}
-                    className={`px-3 py-1 md:px-4 md:py-2 rounded border transition-colors font-mono text-[10px] md:text-xs tracking-widest ${
+                    className={`pointer-events-auto px-3 py-1 md:px-4 md:py-2 rounded border transition-colors font-mono text-[10px] md:text-xs tracking-widest ${
                         showStats 
                         ? 'bg-green-900/80 hover:bg-green-800 border-green-500 text-green-300' 
                         : 'bg-black/60 hover:bg-gray-800 border-gray-600 text-gray-500'
@@ -141,50 +150,66 @@ function App() {
                 </button>
             </div>
 
-            {/* SECOND ROW: TOOLS MENU (Horizontal) */}
-            <div className="absolute top-16 left-4 z-50 flex flex-row space-x-2 pointer-events-auto">
+            {/* SECOND ROW: TOOLS MENU (Collapsible) */}
+            <div className="absolute top-16 left-4 z-50 flex flex-row items-center space-x-2 pointer-events-auto transition-all duration-300">
+                {/* Toggle Button */}
                 <button 
-                    onClick={() => setShowEditor(true)}
-                    className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition-colors font-mono"
-                >
-                    POSE EDITOR
-                </button>
-                <button 
-                    onClick={() => setShowModelBuilder(true)}
-                    className="bg-gray-800 hover:bg-gray-700 text-cyan-400 hover:text-white text-[10px] px-3 py-1 rounded border border-cyan-900/50 transition-colors font-mono"
-                >
-                    MODEL FACTORY
-                </button>
-                <button 
-                    onClick={toggleRimLight}
-                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
-                        isRimLightOn 
-                        ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
-                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                    onClick={() => setIsToolsOpen(!isToolsOpen)}
+                    className={`h-6 flex items-center justify-center rounded border font-mono text-[10px] font-bold transition-all ${
+                        isToolsOpen 
+                        ? 'w-6 bg-gray-800 text-gray-500 border-gray-600 hover:text-white' 
+                        : 'px-3 bg-cyan-900/80 text-cyan-300 border-cyan-500 hover:bg-cyan-800 shadow-[0_0_10px_rgba(0,255,255,0.3)]'
                     }`}
+                    title={isToolsOpen ? "Collapse Menu" : "Expand Tools"}
                 >
-                    RIM: {isRimLightOn ? "ON" : "OFF"}
+                    {isToolsOpen ? "✕" : "TOOLS"}
                 </button>
-                <button 
-                    onClick={toggleOutline}
-                    className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono ${
-                        isOutlineOn 
-                        ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
-                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
-                    }`}
-                >
-                    OUTLINE: {isOutlineOn ? "ON" : "OFF"}
-                </button>
-                <button 
-                    onClick={toggleNPCsPaused}
-                    className={`px-3 py-1 rounded border text-[10px] font-mono transition-all ${
-                        areNPCsPaused 
-                        ? 'bg-red-900/80 hover:bg-red-800 border-red-500 text-red-300' 
-                        : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
-                    }`}
-                >
-                    AI: {areNPCsPaused ? "PAUSED" : "ACTIVE"}
-                </button>
+
+                {/* Collapsible Container */}
+                <div className={`flex flex-row space-x-2 overflow-hidden transition-all duration-300 origin-left ${isToolsOpen ? 'opacity-100 max-w-[600px]' : 'opacity-0 max-w-0'}`}>
+                    <button 
+                        onClick={() => setShowEditor(true)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition-colors font-mono whitespace-nowrap"
+                    >
+                        POSE EDITOR
+                    </button>
+                    <button 
+                        onClick={() => setShowModelBuilder(true)}
+                        className="bg-gray-800 hover:bg-gray-700 text-cyan-400 hover:text-white text-[10px] px-3 py-1 rounded border border-cyan-900/50 transition-colors font-mono whitespace-nowrap"
+                    >
+                        MODEL FACTORY
+                    </button>
+                    <button 
+                        onClick={toggleRimLight}
+                        className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono whitespace-nowrap ${
+                            isRimLightOn 
+                            ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
+                            : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                        }`}
+                    >
+                        RIM: {isRimLightOn ? "ON" : "OFF"}
+                    </button>
+                    <button 
+                        onClick={toggleOutline}
+                        className={`text-[10px] px-3 py-1 rounded border transition-colors font-mono whitespace-nowrap ${
+                            isOutlineOn 
+                            ? 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-500 text-cyan-300' 
+                            : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                        }`}
+                    >
+                        OUTLINE: {isOutlineOn ? "ON" : "OFF"}
+                    </button>
+                    <button 
+                        onClick={toggleNPCsPaused}
+                        className={`px-3 py-1 rounded border text-[10px] font-mono transition-all whitespace-nowrap ${
+                            areNPCsPaused 
+                            ? 'bg-red-900/80 hover:bg-red-800 border-red-500 text-red-300' 
+                            : 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-500'
+                        }`}
+                    >
+                        AI: {areNPCsPaused ? "PAUSED" : "ACTIVE"}
+                    </button>
+                </div>
             </div>
 
             {/* 3D Layer */}
