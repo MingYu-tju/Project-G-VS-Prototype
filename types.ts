@@ -254,7 +254,7 @@ export const GLOBAL_CONFIG = {
     EVADE_SPEED: 0.45,
     EVADE_DURATION: 28,
     EVADE_BOOST_COST: 10,
-    DOUBLE_TAP_WINDOW: 250,
+    DOUBLE_TAP_WINDOW: 140,
     EVADE_ASCENT_INERTIA_RATIO: 0.7,
     EVADE_RECOVERY_FRAMES: 20,
     EVADE_TRAIL_DURATION: 28,
@@ -267,13 +267,17 @@ export const GLOBAL_CONFIG = {
     RAINBOW_STEP_RECOVERY_FRAMES: 20,
     RAINBOW_STEP_TRAIL_DURATION:17,
     
-    // Melee - Neutral
+    // Melee - General
     MELEE_LUNGE_SPEED: 0.62,
+    MELEE_LUNGE_SPEED_MULT: 1.1, // Speed multiplier during lunge to close gaps effectively
     MELEE_BOOST_CONSUMPTION: 0.4,
     MELEE_MAX_LUNGE_TIME: 50,
     MELEE_STARTUP_FRAMES: 10,
     MELEE_RECOVERY_FRAMES: 15,
-    MELEE_RANGE: 3.2,
+    // IMPORTANT: MELEE_RANGE slightly higher than SPACING to ensure we confirm hit BEFORE stopping
+    MELEE_RANGE: 6.5, 
+    MELEE_ATTACK_SPACING: 4.0, // Default Global Spacing (Fallback)
+    MELEE_MAGNET_SPEED: 0.25, // How fast player snaps to sweet spot (0.0-1.0 lerp factor)
     MELEE_HIT_TOLERANCE: 0, 
     
     // Melee - Side (Horizontal)
@@ -287,32 +291,35 @@ export const GLOBAL_CONFIG = {
             DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 2.5,
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 1, 
+            APPROACH_SPEED: 0, // Removed generic approach, using Magnet Snap instead
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 5,
-            DAMAGE_DELAY: 5, 
+            HIT_STOP_FRAMES: 3,
+            DAMAGE_DELAY: 3, // Frame to apply damage
+            ATTACK_SPACING: 0.9, // THRUST - Keep distance
         },
         SLASH_2: {
             DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 3,
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 1, 
+            APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 8,
-            DAMAGE_DELAY: 7, 
+            HIT_STOP_FRAMES: 5,
+            DAMAGE_DELAY: 3,
+            ATTACK_SPACING: 1, // CROSS CUT - Step in closer
         },
         SLASH_3: {
             DURATION_FRAMES: 36, // Slower, heavier hit
             KNOCKBACK_POWER: 9.0, 
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 0.5, 
+            APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 20, 
-            DAMAGE_DELAY: 19,
-            IS_KNOCKDOWN: true, 
+            HIT_STOP_FRAMES: 13, 
+            DAMAGE_DELAY: 20, // Later in animation
+            IS_KNOCKDOWN: true,
+            ATTACK_SPACING: 3, // FINISHER - Medium distance
         }
     },
 
@@ -322,32 +329,35 @@ export const GLOBAL_CONFIG = {
             DURATION_FRAMES: 20,
             KNOCKBACK_POWER: 2.0,
             CHASE_VELOCITY: 0.6,
-            APPROACH_SPEED: 0.8,
+            APPROACH_SPEED: 0,
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 8,
+            HIT_STOP_FRAMES: 5,
             DAMAGE_DELAY: 5,
+            ATTACK_SPACING: 1.3, // WIDE SWING
         },
         SLASH_2: {
              DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 3,
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 1, 
+            APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
-            HIT_STOP_FRAMES: 8,
-            DAMAGE_DELAY: 7, 
+            HIT_STOP_FRAMES: 5,
+            DAMAGE_DELAY: 3,
+            ATTACK_SPACING: 1, // SPIN - Close
         },
         SLASH_3: {
             DURATION_FRAMES: 36, // Slower, heavier hit
             KNOCKBACK_POWER: 9.0, 
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 0.5, 
+            APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 20, 
-            DAMAGE_DELAY: 19,
-            IS_KNOCKDOWN: true, 
+            HIT_STOP_FRAMES: 13, 
+            DAMAGE_DELAY: 20,
+            IS_KNOCKDOWN: true,
+            ATTACK_SPACING: 3, 
         }
     },
     
@@ -378,7 +388,7 @@ export const GLOBAL_CONFIG = {
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
     MECH_COLLISION_RADIUS: 0.9, 
-    MECH_COLLISION_HEIGHT: 2, 
+    MECH_COLLISION_HEIGHT: 1, 
     
     // Boost
     BOOST_CONSUMPTION_DASH_INIT: 6,

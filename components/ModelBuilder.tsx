@@ -440,7 +440,7 @@ export const ModelBuilder: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     }, [weaponMode]);
 
     const activeId = selectedIds.size === 1 ? Array.from(selectedIds)[0] : null;
-    // EXPLICIT TYPE DEFINITION TO FIX TS UNKNOWN ERROR
+    // Fix TS error by explicitly asserting activePart as ModelPart | null
     const activePart = useMemo<ModelPart | null>(() => activeId ? findPart(model, activeId) : null, [model, activeId]);
 
     const handleSelect = (id: string, multi: boolean) => {

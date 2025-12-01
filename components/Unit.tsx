@@ -1245,7 +1245,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                     <group ref={rightWristRef} position={[0, -0.35, 0]}>
                                         <mesh>
                                             <boxGeometry args={[0.25, 0.3, 0.25]} />
-                                            <MechMaterial color="#222" />
+                                            <MechMaterial color="#666" />
                                             {isOutlineOn && <Outlines thickness={4} color="#111" />}
                                         </mesh>
                                     </group>
@@ -1288,7 +1288,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
                                     <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><MechMaterial color={armorColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                     <group ref={leftWristRef} position={[0, -0.35, 0]}>
-                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                         
                                         <group visible={activeWeapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
                                             <group visible={activeWeapon === 'SABER'}>
@@ -1309,10 +1309,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                         </group>
                                     </group>
                                     <group visible={activeWeapon === 'GUN'} ref={gunMeshRef} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
-                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}><boxGeometry args={[0.1, 0.2, 0.15]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                            <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}><boxGeometry args={[0.1, 0.2, 0.15]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                                             <mesh position={[0, 0.2, 0.4]}><boxGeometry args={[0.15, 0.25, 1.0]} /><MechMaterial color="#444" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6]} /><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                            <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><MechMaterial color="#222" />{isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                            <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6]} /><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                            <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><MechMaterial color="#666" />{isOutlineOn && <Outlines thickness={4} color="#111" />}
                                                 <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
                                             </mesh>
                                             <group position={[0, 0.2, 1.35]} ref={muzzleRef}>
@@ -1328,8 +1328,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         <mesh><boxGeometry args={[0.7, 0.8, 0.3]} /><MechMaterial color="#333" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                         <mesh position={[0.324, 0.5, 0]} rotation={[0.2, 0, -0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
                         <mesh position={[-0.324, 0.5, 0]} rotation={[0.2, 0, 0.2]}><cylinderGeometry args={[0.04, 0.04, 0.65]} /><MechMaterial color="white" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                        <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
-                        <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#222" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
+                        <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
+                        <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
                         <BoostBurst triggerTime={dashTriggerTime} />
                     </group>
                 </group>
