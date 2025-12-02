@@ -133,15 +133,15 @@ const RAW_IDLE: MechPose = {
     CHEST: { x: 0, y: 0, z: 0 },
     HEAD: { x: -0.25, y: 0.25, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: 0, y: -0.3, z: -0.25 },
-        ELBOW: { x: -0.6, y: -0.3, z: 0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
-        WRIST: { x: 0.71, y: 0.21, z: -0.09 }
+        SHOULDER: { x: -0.04, y: -0.34, z: -0.24 },
+        ELBOW: { x: -0.14, y: 0.16, z: -0.04 },
+        FOREARM: { x: -0.59, y: -0.09, z: 0 },
+        WRIST: { x: 0.66, y: 0.01, z: -0.09 }
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0.4, y: 0.3, z: 0.15 },
-        ELBOW: { x: -1, y: -0.4, z: 0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
+        SHOULDER: { x: -0.04, y: 0.26, z: 0.16 },
+        ELBOW: { x: -0.19, y: -0.09, z: 0.11 },
+        FOREARM: { x: -0.44, y: 0, z: 0 },
         WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
@@ -161,12 +161,19 @@ const RAW_IDLE: MechPose = {
 };
 
 const RAW_DASH_GUN: MechPose = {
-    ...DEFAULT_MECH_POSE,
-    TORSO: { x: 0.65, y: 0, z: 0 }, 
+    TORSO: { x: 0.65, y: 0, z: 0 },
+    CHEST: { x: 0, y: 0, z: 0 },
+    HEAD: { x: -0.4, y: 0, z: 0 },
+    LEFT_ARM: {
+        SHOULDER: { x: 0.16, y: -0.3, z: 0 },
+        ELBOW: { x: -0.69, y: -0.09, z: 0 },
+        FOREARM: { x: -0.54, y: 0.11, z: 0 },
+        WRIST: { x: 0.26, y: 0, z: 0 }
+    },
     RIGHT_ARM: {
-        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
-        ELBOW: { x: -1, y: 0.0, z: 0.0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
+        SHOULDER: { x: 0.26, y: 0.36, z: 0.11 },
+        ELBOW: { x: -0.64, y: 0.11, z: 0 },
+        FOREARM: { x: -0.89, y: 0.06, z: 0 },
         WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
@@ -175,24 +182,31 @@ const RAW_DASH_GUN: MechPose = {
         ANKLE: { x: 0.25, y: 0, z: 0 }
     },
     RIGHT_LEG: {
-        THIGH: { x: -1.0, y: 0, z: 0 },
+        THIGH: { x: -1, y: 0, z: 0 },
         KNEE: 2.6,
         ANKLE: { x: 0.8, y: 0, z: 0 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.5, z: 0.1 },
+        ROTATION: { x: -0.2, y: 0, z: 0 }
     }
 };
 
 const RAW_DASH_SABER: MechPose = {
-    ...DEFAULT_MECH_POSE,
     TORSO: { x: 0.65, y: 0, z: 0 },
-    RIGHT_ARM: {
-        SHOULDER: { x: -0.5, y: -0.3, z: 0.4 },
-        ELBOW: { x: -1, y: 0.0, z: 0.0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
-        WRIST: { x: 0, y: 0, z: 0 }
+    CHEST: { x: 0, y: 0, z: 0 },
+    HEAD: { x: -0.4, y: 0, z: 0 },
+    LEFT_ARM: {
+        SHOULDER: { x: -0.39, y: -0.29, z: -0.34 },
+        ELBOW: { x: 0.01, y: 0.01, z: -0.09 },
+        FOREARM: { x: -0.54, y: 0, z: 0 },
+        WRIST: { x: 0.26, y: -0.04, z: 0 }
     },
-    SHIELD: {
-        POSITION: { x: 0, y: -0.6, z: -0.1 },
-        ROTATION: { x: -0.3, y: -1, z: -1.2 }
+    RIGHT_ARM: {
+        SHOULDER: { x: -0.5, y: -0.29, z: 0.4 },
+        ELBOW: { x: -0.44, y: 0.06, z: 0.16 },
+        FOREARM: { x: -0.64, y: 0.11, z: 0.11 },
+        WRIST: { x: -0.19, y: 0, z: 0 }
     },
     LEFT_LEG: {
         THIGH: { x: 1.1, y: -0.5, z: -0.2 },
@@ -200,11 +214,15 @@ const RAW_DASH_SABER: MechPose = {
         ANKLE: { x: 0.25, y: 0, z: 0 }
     },
     RIGHT_LEG: {
-        THIGH: { x: -1.0, y: 0, z: 0 },
+        THIGH: { x: -1, y: 0, z: 0 },
         KNEE: 2.6,
         ANKLE: { x: 0.8, y: 0, z: 0 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.6, z: -0.1 },
+        ROTATION: { x: -0.3, y: -1, z: -1.2 }
     }
-};
+}
 
 const RAW_ASCEND: MechPose = {
     TORSO: { x: 0.06, y: 0.01, z: 0 },
@@ -212,14 +230,14 @@ const RAW_ASCEND: MechPose = {
     HEAD: { x: -0.44, y: 0, z: 0 },
     LEFT_ARM: {
         SHOULDER: { x: 0.71, y: 0, z: -0.3 },
-        ELBOW: { x: -0.4, y: 0, z: 0 },
-        FOREARM: { x: 0.06, y: 0, z: 0 },
+        ELBOW: { x: 0.11, y: 0, z: 0.16 },
+        FOREARM: { x: -0.59, y: 0, z: 0 },
         WRIST: { x: 0.61, y: 0, z: 0 }
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0.91, y: 0, z: 0.3 },
-        ELBOW: { x: -0.4, y: 0, z: 0 },
-        FOREARM: { x: 0.11, y: 0, z: 0 },
+        SHOULDER: { x: 1.01, y: 0.16, z: 0.16 },
+        ELBOW: { x: -0.14, y: 0, z: -0.04 },
+        FOREARM: { x: -0.54, y: 0, z: 0 },
         WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {

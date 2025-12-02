@@ -236,7 +236,6 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
 
 
 export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> = ({ pose, weapon }) => {
-    // ... (PosableUnit logic remains same, just using the Trapezoid and HipVisuals above) ...
     const torsoRef = useRef<Group>(null);
     const upperBodyRef = useRef<Group>(null);
     const headRef = useRef<Group>(null);
@@ -353,54 +352,71 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                         </mesh>   
                 </group>
 
+                {/* RIGHT ARM */}
                 <group position={[0.65, 0.1, 0]} rotation={[0.35, 0.3, 0]} ref={rightArmRef}>
                     <group position={[0.034, 0, 0.011]}>
                         <group position={[0.013, 0.032, -0.143]} scale={[1, 0.7, 0.8]}>
                             <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={armorColor} /></mesh>
                         </group>
                     </group>
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, -0.3, 0]} ref={rightForeArmRef}>
-                        <mesh><boxGeometry args={[0.25, 0.6, 0.3]} /><MechMaterial color="#444" /></mesh>
-                        <group ref={rightForearmTwistRef}>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><MechMaterial color={armorColor} /></mesh>
-                                <group ref={rightWristRef} position={[0, -0.35, 0]}>
-                                    <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
+                    
+                    {/* R Elbow Container */}
+                    <group position={[0, -0.1, -0.1]} ref={rightForeArmRef}>
+                        <mesh position={[0, -0.116, 0.002]}><boxGeometry args={[0.24, 0.5, 0.28]} /><MechMaterial color={armorColor} /></mesh>
+                        <mesh position={[0, -0.4, 0.014]}><boxGeometry args={[0.15, 0.3, 0.4]} /><MechMaterial color="#444" /></mesh>
+                        
+                        <group position={[0, -0.2, 0]}>
+                            <group position={[0, -0.081, 0]} ref={rightForearmTwistRef}>
+                                <group position={[0, -0.41, 0.005]}>
+                                    <mesh position={[0.002, -0.028, -0.0004]}><boxGeometry args={[0.28, 0.5, 0.35]} /><MechMaterial color={armorColor} /></mesh>
+                                    <group ref={rightWristRef} position={[0, -0.35, 0]}>
+                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
+                                    </group>
                                 </group>
-                            </group>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
-                                <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                    <mesh position={[0, 0.2, 0]}><boxGeometry args={[0.1, 1.7, 0.7]} /><MechMaterial color={armorColor} /></mesh>
-                                    <mesh position={[0.06, 0, 0]}><boxGeometry args={[0.1, 1.55, 0.5]} /><MechMaterial color={waistColor} /></mesh>
+                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
+                                    <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+                                        <mesh position={[0, 0, 0]}><boxGeometry args={[0.1, 1.7, 0.7]} /><MechMaterial color={armorColor} /></mesh>
+                                        <mesh position={[0.06, 0, 0]}><boxGeometry args={[0.1, 1.55, 0.5]} /><MechMaterial color={waistColor} /></mesh>
+                                    </group>
                                 </group>
                             </group>
                         </group>
                     </group>
                 </group>
 
+                {/* LEFT ARM */}
                 <group position={[-0.65, 0.1, 0]} ref={gunArmRef} >
-                    <group position={[-0.039, 0.047, -0.127]} scale={[1, 0.7, 0.8]}>
-                        <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={armorColor} /></mesh>
+                    <group position={[-0.024, 0, 0.011]}>
+                        <group position={[-0.013, 0.032, -0.143]} scale={[1, 0.7, 0.8]}>
+                            <mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={armorColor} /></mesh>
+                        </group>
                     </group>
-                    <group position={[0, -0.4, 0]} rotation={[-0.65, 0.3, 0]} ref={leftForeArmRef}>
-                        <mesh><boxGeometry args={[0.25, 0.6, 0.3]} /><MechMaterial color="#444" /></mesh>
-                        <group ref={leftForearmTwistRef}>
-                            <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]}>
-                                <mesh><boxGeometry args={[0.28, 0.6, 0.35]} /><MechMaterial color={armorColor} /></mesh>
-                                <group ref={leftWristRef} position={[0, -0.35, 0]}>
-                                    <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
-                                    <group visible={weapon === 'SABER'} position={[0, 0, 0.1]} rotation={[Math.PI/1.8, 0, 0]}>
-                                        <mesh position={[0, -0.25, 0]}><cylinderGeometry args={[0.035, 0.04, 0.7, 8]} /><MechMaterial color="white" /></mesh>
-                                        <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.05, 0.05, 2.4, 8]} /><meshBasicMaterial color="white" /></mesh>
-                                        <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.12, 0.12, 2.6, 8]} /><meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} /></mesh>
+                    
+                    {/* L Elbow Container */}
+                    <group position={[0, -0.1, -0.1]} ref={leftForeArmRef}>
+                        <mesh position={[0, -0.116, 0]}><boxGeometry args={[0.24, 0.5, 0.28]} /><MechMaterial color={armorColor} /></mesh>
+                        <mesh position={[0, -0.4, 0.014]}><boxGeometry args={[0.15, 0.3, 0.4]} /><MechMaterial color="#444" /></mesh>
+                        
+                        <group position={[0, -0.2, 0]}>
+                            <group position={[0, -0.081, 0]} ref={leftForearmTwistRef}>
+                                <group position={[0, -0.41, 0]}>
+                                    <mesh position={[-0.002, -0.028, 0]}><boxGeometry args={[0.28, 0.5, 0.35]} /><MechMaterial color={armorColor} /></mesh>
+                                    <group ref={leftWristRef} position={[0, -0.35, 0]}>
+                                        <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
+                                        
+                                        <group visible={weapon === 'SABER'} position={[0, 0, 0.1]} rotation={[1.74, 0, 0]}>
+                                            <mesh position={[0, -0.25, 0]}><cylinderGeometry args={[0.035, 0.04, 0.7, 8]} /><MechMaterial color="#ffffff" /></mesh>
+                                            <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.05, 0.05, 2.4, 8]} /><meshBasicMaterial color="#ffffff" /></mesh>
+                                            <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.12, 0.12, 2.6, 8]} /><meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} /></mesh>
+                                        </group>
                                     </group>
                                 </group>
-                                <group visible={weapon === 'GUN'} position={[0, -0.2, 0.3]} rotation={[1.5, 0, Math.PI]}>
+                                <group visible={weapon === 'GUN'} position={[0, -0.6, 0.3]} rotation={[1.5, 0, 3.14]}>
                                     <mesh position={[0, 0.1, -0.1]} rotation={[0.2, 0, 0]}><boxGeometry args={[0.1, 0.2, 0.15]} /><MechMaterial color="#222" /></mesh>
                                     <mesh position={[0, 0.2, 0.4]}><boxGeometry args={[0.15, 0.25, 1.0]} /><MechMaterial color="#444" /></mesh>
-                                    <mesh position={[0, 0.2, 1.0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6]} /><MechMaterial color="#222" /></mesh>
-                                    <mesh position={[0.05, 0.35, 0.2]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} rotation={[Math.PI/2, 0, 0]}/><MechMaterial color="#222" />
-                                        <mesh position={[0, 0.15, 0]} rotation={[Math.PI/2, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
+                                    <mesh position={[0, 0.2, 1.0]} rotation={[1.57, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.6, 8]} /><MechMaterial color="#222" /></mesh>
+                                    <mesh position={[0.05, 0.35, 0.2]} rotation={[1.57, 0, 0]}><cylinderGeometry args={[0.08, 0.08, 0.3, 8]} /><MechMaterial color="#222" />
+                                        <mesh position={[0, 0.15, 0]} rotation={[1.57, 0, 0]}><circleGeometry args={[0.06]} /><meshBasicMaterial color="#00ff00" /></mesh>
                                     </mesh>
                                 </group>
                             </group>

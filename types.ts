@@ -172,30 +172,30 @@ export const DEFAULT_MECH_POSE: MechPose = {
     CHEST: { x: 0, y: 0, z: 0 },
     HEAD: { x: -0.4, y: 0, z: 0 },
     LEFT_ARM: {
-        SHOULDER: { x: 0.35, y: -0.3, z: 0 },       // gunArmRef (no rotation in JSX)
-        ELBOW: { x: -0.65, y: 0.3, z: 0 },    // leftForeArmRef
-        FOREARM: { x: -0.2, y: 0, z: 0 },     // leftForearmTwistRef
-        WRIST: { x: 0, y: 0, z: 0 }           // leftWristRef
+        SHOULDER: { x: 0.11, y: -0.3, z: -0.24 },
+        ELBOW: { x: -0.29, y: 0.3, z: 0.01 },
+        FOREARM: { x: -0.39, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     RIGHT_ARM: {
-        SHOULDER: { x: 0.35, y: 0.3, z: 0 },  // rightArmRef
-        ELBOW: { x: -0.65, y: -0.3, z: 0 },   // rightForeArmRef
-        FOREARM: { x: -0.2, y: 0, z: 0 },     // rightForearmTwistRef
-        WRIST: { x: 0, y: 0, z: 0 }           // rightWristRef
+        SHOULDER: { x: 0.01, y: 0.06, z: 0.36 },
+        ELBOW: { x: -0.04, y: -0.29, z: 0.01 },
+        FOREARM: { x: -0.39, y: 0, z: 0 },
+        WRIST: { x: 0, y: 0, z: 0 }
     },
     LEFT_LEG: {
-        THIGH: { x: -0.1, y: 0, z: -0.05 },   // leftLegRef
-        KNEE: 0.2,                            // leftLowerLegRef (x axis)
-        ANKLE: { x: -0.1, y: 0, z: 0 }        // leftFootRef
+        THIGH: { x: -0.1, y: 0, z: -0.05 },
+        KNEE: 0.2,
+        ANKLE: { x: -0.1, y: 0, z: 0 }
     },
     RIGHT_LEG: {
-        THIGH: { x: -0.1, y: 0, z: 0.05 },    // rightLegRef
-        KNEE: 0.3,                            // rightLowerLegRef (x axis)
-        ANKLE: { x: -0.2, y: 0, z: 0 }        // rightFootRef
+        THIGH: { x: -0.1, y: 0, z: 0.05 },
+        KNEE: 0.3,
+        ANKLE: { x: -0.2, y: 0, z: 0 }
     },
     SHIELD: {
         POSITION: { x: 0, y: -0.5, z: 0.1 },
-        ROTATION: { x: -0.2, y: 0, z: 0 }     // shieldRef
+        ROTATION: { x: -0.2, y: 0, z: 0 }
     }
 };
 
@@ -300,7 +300,7 @@ export const GLOBAL_CONFIG = {
         },
         SLASH_2: {
             DURATION_FRAMES: 17,
-            KNOCKBACK_POWER: 3,
+            KNOCKBACK_POWER: 4.3,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
@@ -319,7 +319,7 @@ export const GLOBAL_CONFIG = {
             HIT_STOP_FRAMES: 13, 
             DAMAGE_DELAY: 20, // Later in animation
             IS_KNOCKDOWN: true,
-            ATTACK_SPACING: 3, // FINISHER - Medium distance
+            ATTACK_SPACING: 2, // FINISHER - Medium distance
         }
     },
 
@@ -338,7 +338,7 @@ export const GLOBAL_CONFIG = {
         },
         SLASH_2: {
              DURATION_FRAMES: 17,
-            KNOCKBACK_POWER: 3,
+            KNOCKBACK_POWER: 4.3,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
@@ -357,7 +357,7 @@ export const GLOBAL_CONFIG = {
             HIT_STOP_FRAMES: 13, 
             DAMAGE_DELAY: 20,
             IS_KNOCKDOWN: true,
-            ATTACK_SPACING: 3, 
+            ATTACK_SPACING: 2, 
         }
     },
     
