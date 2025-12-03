@@ -235,7 +235,7 @@ const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color })
 };
 
 
-export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> = ({ pose, weapon }) => {
+export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER', isDualWielding?: boolean }> = ({ pose, weapon, isDualWielding = false }) => {
     const torsoRef = useRef<Group>(null);
     const upperBodyRef = useRef<Group>(null);
     const headRef = useRef<Group>(null);
@@ -255,6 +255,7 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
     const leftLowerLegRef = useRef<Group>(null);
     const leftFootRef = useRef<Group>(null);
     const shieldRef = useRef<Group>(null);
+    const rightSaberRef = useRef<Group>(null);
 
     useFrame(() => {
         if (!torsoRef.current) return;
@@ -285,7 +286,8 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
         if (rightLowerLegRef.current) rightLowerLegRef.current.rotation.x = pose.RIGHT_LEG.KNEE;
         applyRot(rightFootRef, pose.RIGHT_LEG.ANKLE);
         
-        if (shieldRef.current && pose.SHIELD) {
+        // Apply Shield Pose (Arm)
+        if (shieldRef.current && pose.SHIELD && !isDualWielding) {
             shieldRef.current.position.set(pose.SHIELD.POSITION.x, pose.SHIELD.POSITION.y, pose.SHIELD.POSITION.z);
             shieldRef.current.rotation.set(pose.SHIELD.ROTATION.x, pose.SHIELD.ROTATION.y, pose.SHIELD.ROTATION.z);
         }
@@ -295,6 +297,13 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
     const feetColor = '#aa2222';
     const waistColor = '#ff0000';
     const chestColor = '#2244aa';
+
+    const ShieldGeometry = () => (
+        <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+            <mesh position={[0, 0, 0]}><boxGeometry args={[0.1, 1.7, 0.7]} /><MechMaterial color={armorColor} /></mesh>
+            <mesh position={[0.06, 0, 0]}><boxGeometry args={[0.1, 1.55, 0.5]} /><MechMaterial color={waistColor} /></mesh>
+        </group>
+    );
 
     return (
     <group position={[0, 2.0, 0]}>
@@ -371,13 +380,19 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
                                     <mesh position={[0.002, -0.028, -0.0004]}><boxGeometry args={[0.28, 0.5, 0.35]} /><MechMaterial color={armorColor} /></mesh>
                                     <group ref={rightWristRef} position={[0, -0.35, 0]}>
                                         <mesh><boxGeometry args={[0.25, 0.3, 0.25]} /><MechMaterial color="#222" /></mesh>
+                                        
+                                        {/* Right Saber (Dual Wield) */}
+                                        <group ref={rightSaberRef} visible={isDualWielding} position={[0, 0, 0.1]} rotation={[1.74, 0, 0]}>
+                                            <mesh position={[0, -0.25, 0]}><cylinderGeometry args={[0.035, 0.04, 0.7, 8]} /><MechMaterial color="#ffffff" /></mesh>
+                                            <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.05, 0.05, 2.4, 8]} /><meshBasicMaterial color="#ffffff" /></mesh>
+                                            <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.12, 0.12, 2.6, 8]} /><meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} /></mesh>
+                                        </group>
                                     </group>
                                 </group>
-                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
-                                    <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                        <mesh position={[0, 0, 0]}><boxGeometry args={[0.1, 1.7, 0.7]} /><MechMaterial color={armorColor} /></mesh>
-                                        <mesh position={[0.06, 0, 0]}><boxGeometry args={[0.1, 1.55, 0.5]} /><MechMaterial color={waistColor} /></mesh>
-                                    </group>
+                                
+                                {/* Arm Shield Mount - Only visible if NOT dual wielding */}
+                                <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef} visible={!isDualWielding}>
+                                    <ShieldGeometry />
                                 </group>
                             </group>
                         </group>

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, PerspectiveCamera, Html } from '@react-three/drei';
@@ -123,11 +124,13 @@ const interpolatePose = (p1: MechPose, p2: MechPose, t: number): MechPose => {
     res.RIGHT_LEG.KNEE = MathUtils.lerp(p1.RIGHT_LEG.KNEE, p2.RIGHT_LEG.KNEE, t);
     res.RIGHT_LEG.ANKLE = lerpVector(p1.RIGHT_LEG.ANKLE, p2.RIGHT_LEG.ANKLE, t);
     
+    // Shield
     if (p1.SHIELD && p2.SHIELD) {
         if (!res.SHIELD) res.SHIELD = { POSITION: {x:0,y:0,z:0}, ROTATION: {x:0,y:0,z:0} };
         res.SHIELD.POSITION = lerpVector(p1.SHIELD.POSITION, p2.SHIELD.POSITION, t);
         res.SHIELD.ROTATION = lerpVector(p1.SHIELD.ROTATION, p2.SHIELD.ROTATION, t);
     }
+    
     return res;
 };
 
@@ -179,6 +182,7 @@ type SlashKey = typeof SLASH_KEYS[number];
 export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // --- STATE ---
     const [weapon, setWeapon] = useState<'GUN' | 'SABER'>('SABER');
+    const [isDualWielding, setIsDualWielding] = useState(false); // Toggle for Dual Wield
     const [showImport, setShowImport] = useState(false);
     const [importText, setImportText] = useState('');
     
@@ -331,17 +335,28 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 const nextKfs = [...prev];
                 const newPose = JSON.parse(JSON.stringify(nextKfs[exactKeyIndex].pose));
                 let current = newPose;
-                for (let i = 0; i < path.length; i++) current = current[path[i]];
+                for (let i = 0; i < path.length; i++) {
+                    // Ensure path exists (for back shield)
+                    if (!current[path[i]]) {
+                         current[path[i]] = {};
+                    }
+                    current = current[path[i]];
+                }
                 current[axis] = val;
                 nextKfs[exactKeyIndex] = { ...nextKfs[exactKeyIndex], pose: newPose };
                 return nextKfs;
             });
         } else {
-            // Update temporary display pose (will revert if time changes without setting key)
+            // Update temporary display pose
             setDisplayPose(prev => {
                 const next = JSON.parse(JSON.stringify(prev));
                 let current = next;
-                for (let i = 0; i < path.length; i++) current = current[path[i]];
+                for (let i = 0; i < path.length; i++) {
+                     if (!current[path[i]]) {
+                         current[path[i]] = {};
+                    }
+                    current = current[path[i]];
+                }
                 current[axis] = val;
                 return next;
             });
@@ -468,8 +483,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         const getValue = (pose: any, path: string[]) => {
             let val = pose;
-            for (const p of path) val = val[p];
-            return val;
+            for (const p of path) {
+                if (val) val = val[p];
+            }
+            return val || (path[path.length-1] === 'KNEE' ? 0 : {x:0,y:0,z:0});
         };
 
         const bonePaths = [
@@ -534,7 +551,10 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         if (kf) {
                              const path = track.bone.split('.');
                              if (path.length === 1) (pose as any)[path[0]] = kf.value;
-                             else if (path.length === 2) (pose as any)[path[0]][path[1]] = kf.value;
+                             else if (path.length === 2) {
+                                 if (!(pose as any)[path[0]]) (pose as any)[path[0]] = {};
+                                 (pose as any)[path[0]][path[1]] = kf.value;
+                             }
                         }
                     });
                     return { time, pose };
@@ -552,6 +572,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                  const merged = { ...DEFAULT_MECH_POSE, ...importedData };
                  if(importedData.LEFT_ARM) merged.LEFT_ARM = { ...DEFAULT_MECH_POSE.LEFT_ARM, ...importedData.LEFT_ARM };
                  if(importedData.RIGHT_ARM) merged.RIGHT_ARM = { ...DEFAULT_MECH_POSE.RIGHT_ARM, ...importedData.RIGHT_ARM };
+                 if(importedData.SHIELD) merged.SHIELD = { ...DEFAULT_MECH_POSE.SHIELD, ...importedData.SHIELD };
                  
                  setDisplayPose(merged);
                  alert("Imported Pose. Click 'KEYFRAME' to add it.");
@@ -647,7 +668,7 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         <ambientLight intensity={0.6} />
                         <directionalLight position={[5, 10, 5]} intensity={1.8} />
                         <group position={[0, 0, 0]} ref={unitGroupRef}>
-                            <PosableUnit pose={displayPose} weapon={weapon} />
+                            <PosableUnit pose={displayPose} weapon={weapon} isDualWielding={isDualWielding} />
                             
                             {/* Render Slash Effect */}
                             <ProceduralSlashEffect 
@@ -781,6 +802,44 @@ export const PoseEditor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             {/* CONTROLS SIDEBAR */}
             <div className="w-full md:w-96 bg-[#0f1115] border-l border-gray-800 h-[40vh] md:h-auto overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-700">
                  
+                 {/* --- WEAPONS & BACK MOUNT --- */}
+                 <section className="bg-gray-900/80 p-3 rounded border border-gray-700 mb-6">
+                    <div className="flex items-center justify-between mb-3 border-b border-gray-700 pb-2">
+                        <h3 className="text-[10px] font-bold text-yellow-400 uppercase">WEAPONS & BACK MOUNT</h3>
+                        <button
+                            onClick={() => setIsDualWielding(!isDualWielding)}
+                            className={`px-2 py-1 rounded text-[9px] font-bold border ${
+                                isDualWielding 
+                                    ? 'bg-yellow-600 border-yellow-400 text-white' 
+                                    : 'bg-gray-800 border-gray-600 text-gray-400'
+                            }`}
+                        >
+                            MODE: {isDualWielding ? 'DUAL / BACK SHIELD' : 'SINGLE / ARM SHIELD'}
+                        </button>
+                    </div>
+
+                    <div className="bg-black/30 p-2 rounded">
+                        <div className="text-[9px] text-gray-400 mb-2 font-bold">
+                            {isDualWielding ? "BACK MOUNT SHIELD (Auto)" : "ARM MOUNT SHIELD TRANSFORM"}
+                        </div>
+                        
+                        {!isDualWielding && (
+                            <>
+                                <VectorControl 
+                                    label="ARM POS" 
+                                    vector={displayPose.SHIELD?.POSITION || {x:0,y:0,z:0}} 
+                                    onChange={(a, v) => handlePoseChange(['SHIELD', 'POSITION'], a, v)} 
+                                />
+                                <VectorControl 
+                                    label="ARM ROT" 
+                                    vector={displayPose.SHIELD?.ROTATION || {x:0,y:0,z:0}} 
+                                    onChange={(a, v) => handlePoseChange(['SHIELD', 'ROTATION'], a, v)} 
+                                />
+                            </>
+                        )}
+                    </div>
+                 </section>
+
                  {/* --- SLASH VFX EDITOR --- */}
                  <section className="bg-gray-900/80 p-3 rounded border border-gray-700 mb-6">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-700 pb-2">

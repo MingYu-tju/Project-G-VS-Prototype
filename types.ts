@@ -1,3 +1,4 @@
+
 import { Vector3 } from 'three';
 import React from 'react';
 
@@ -337,14 +338,14 @@ export const GLOBAL_CONFIG = {
             ATTACK_SPACING: 1.3, // WIDE SWING
         },
         SLASH_2: {
-             DURATION_FRAMES: 17,
+             DURATION_FRAMES: 23,
             KNOCKBACK_POWER: 4.3,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 5,
-            DAMAGE_DELAY: 3,
+            DAMAGE_DELAY: 10,
             ATTACK_SPACING: 1, // SPIN - Close
         },
         SLASH_3: {
