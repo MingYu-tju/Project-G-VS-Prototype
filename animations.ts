@@ -147,12 +147,12 @@ const RAW_IDLE: MechPose = {
     LEFT_LEG: {
         THIGH: { x: -0.4, y: -0.1, z: -0.3 },
         KNEE: 0.6,
-        ANKLE: { x: -0.2, y: 0.1, z: 0.1 }
+        ANKLE: { x: -0.14, y: 0.01, z: 0.1 }
     },
     RIGHT_LEG: {
         THIGH: { x: -0.5, y: 0.1, z: 0.3 },
         KNEE: 0.6,
-        ANKLE: { x: -0.25, y: 0.1, z: -0.1 }
+        ANKLE: { x: -0.04, y: -0.04, z: -0.09 }
     },
     SHIELD: {
         POSITION: { x: 0, y: -0.5, z: 0.1 },

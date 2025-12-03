@@ -286,33 +286,44 @@ const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
     );
 };
 
-const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], isAscending?: boolean }> = ({ active, offset, isAscending }) => {
-  const groupRef = useRef<Group>(null);
-  useFrame(() => {
-    if (!groupRef.current) return;
-    const flicker = MathUtils.randFloat(0.8, 1.2);
-    const targetScale = active ? 1 : 0;
-    const lerpSpeed = 0.1;
-    groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
-    groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
-    groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
-    groupRef.current.visible = groupRef.current.scale.z > 0.05;
-  });
-
-  return (
-    <group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}> 
-       <group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}>
-            <mesh position={[0, -0.3, 0.8]}>
-                <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
-                <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
-            </mesh>
-             <mesh position={[0, -0.3, 0.5]}>
-                <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
-                <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
-            </mesh>
-       </group>
-    </group>
-  );
+const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], angle: [ number, number, number], isAscending?: boolean , isFoot?:boolean, isLeft?:boolean}> = ({ active, offset, angle, isAscending, isFoot, isLeft}) => {
+    const groupRef = useRef<Group>(null);
+    useFrame((state) => {
+        if (!groupRef.current) return;
+        const flicker = MathUtils.randFloat(0.3, 1.2);
+        const targetScale = active ? 1 : 0;
+        const lerpSpeed = 0.1;
+        groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
+        groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
+        groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
+        groupRef.current.visible = groupRef.current.scale.z > 0.05;
+    });
+    if (angle)
+        angle[0]=isAscending?(isLeft?angle[0]-1.2:angle[0]):angle[0];
+    if(offset){
+        offset[1]=isAscending?(isLeft?offset[1]:offset[1]-0.15):offset[1]
+        offset[2]=isAscending?(isLeft?offset[2]+0.35:offset[2]+0.28):offset[2];
+        }
+    return (
+        <group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}>
+            <group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}  visible={!isFoot}>
+                <mesh position={[0, -0.3, 0.8]}>
+                    <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
+                </mesh>
+                <mesh position={[0, -0.3, 0.5]}>
+                    <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
+                    <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
+                </mesh>
+            </group>
+            <group rotation={angle}  visible={isFoot}>
+                <mesh position={offset}>
+                    <cylinderGeometry args={[0.02, 0.1, 0.8, 8]} rotation={[0,0,0]} />
+                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
+                </mesh>
+            </group>
+        </group>
+    );
 };
 
 const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
@@ -1353,63 +1364,128 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 </group>
             </group>
             
-            <group ref={legsRef}>
-                <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                        <mesh position={[0, -0.4, 0]}>
-                            <boxGeometry args={[0.35, 0.7, 0.4]} />
-                            <MechMaterial color={armorColor} />
-                            {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                        </mesh>
-                        <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                            <mesh position={[0, -0.4, 0]}>
-                                <boxGeometry args={[0.35, 0.8, 0.45]} />
-                                <MechMaterial color={armorColor} />
-                                {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                            </mesh>
-                            <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]}>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                <MechMaterial color={armorColor} />
-                                {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                            </mesh>
-                            <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                                <mesh position={[0, -0.1, 0.1]}>
-                                    <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                    <MechMaterial color={feetColor} />
+                   {/* LEGS GROUP */}
+                    <group ref={legsRef}>
+                        {/* Right Leg */}
+                        <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[0, 0, 0.05]}>
+                            {/* R Thigh */}
+                            <group position={[0, -0.4, 0]}>
+                                <mesh>
+                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
+                                    <MechMaterial color={armorColor} />
                                     {isOutlineOn && <Outlines thickness={4} color="#111" />}
                                 </mesh>
-                                <GhostEmitter active={isThrusting} size={[0.32, 0.2, 0.7]} offset={[0, -0.1, 0.1]} rainbow={trailRainbow.current} />
+                                {/* R Thigh_1 */}
+                                <mesh position={[0, -0.4, -0.04]}>
+                                    <boxGeometry args={[0.2, 0.4, 0.45]} />
+                                    <MechMaterial color="#444444" />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
                             </group>
-                        </group>
-                </group>
 
-                <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                        <mesh position={[0, -0.4, 0]}>
-                            <boxGeometry args={[0.35, 0.7, 0.4]} />
-                            <MechMaterial color={armorColor} />
-                            {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                        </mesh>
-                        <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                            <mesh position={[0, -0.4, 0]}>
-                                <boxGeometry args={[0.35, 0.8, 0.45]} />
-                                <MechMaterial color={armorColor} />
-                                {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                            </mesh>
-                            <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]}>
-                                <boxGeometry args={[0.25, 0.3, 0.1]} />
-                                <MechMaterial color={armorColor} />
-                                {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                            </mesh>
-                            <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                                <mesh position={[0, -0.1, 0.1]}>
-                                    <boxGeometry args={[0.32, 0.2, 0.7]} />
-                                    <MechMaterial color={feetColor} />
+                            <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
+                            
+                            {/* R Shin Group */}
+                            <group ref={rightLowerLegRef} position={[0, -0.75, 0]}> 
+                                {/* R Shin */}
+                                <mesh position={[0, -0.45, 0]}>
+                                    <boxGeometry args={[0.35, 0.75, 0.45]} />
+                                    <MechMaterial color={armorColor} />
                                     {isOutlineOn && <Outlines thickness={4} color="#111" />}
                                 </mesh>
-                                <GhostEmitter active={isThrusting} size={[0.32, 0.2, 0.7]} offset={[0, -0.1, 0.1]} rainbow={trailRainbow.current} />
+                                {/* R Knee Pad */}
+                                <mesh position={[0, -0.1, 0.25]} rotation={[0.4, 0, 0]}>
+                                    <boxGeometry args={[0.25, 0.55, 0.15]} />
+                                    <MechMaterial color={armorColor} />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
+                                {/* R Shin_1 */}
+                                <mesh position={[0, -0.071, -0.04]}>
+                                    <boxGeometry args={[0.2, 0.4, 0.45]} />
+                                    <MechMaterial color="#444444" />
+                                </mesh>
+                                {/* R Shin_2 */}
+                                <mesh position={[0, -0.863, 0]}>
+                                    <boxGeometry args={[0.2, 0.2, 0.5]} />
+                                    <MechMaterial color="#444444" />
+                                </mesh>
+
+                                {/* R Foot Group */}
+                                <group ref={rightFootRef} position={[0, -0.7, -0.15]}>
+                                    {/* R Foot (Trapezoid) */}
+                                    <group position={[0, -0.254, 0.24]}>
+                                        <Trapezoid args={[0.35, 0.1, 0.7, 0.9, 0.8]} color={feetColor} />
+                                        {/* R Foot_1 (Child of R Foot) */}
+                                        <group position={[0, 0.133, -0.016]} scale={[1, 1.2, 1]}>
+                                            <Trapezoid args={[0.3, 0.2, 0.55, 0.6, 0.65]} color={armorColor} />
+                                        </group>
+                                    </group>
+                                    <GhostEmitter active={isTrailActive} size={[0.35, 0.2, 0.7]} offset={[0, -0.2, 0.2]} rainbow={trailRainbow.current} />
+                                    <ThrusterPlume active={isThrusting} offset={[0,0.65,-0.1]} angle={[Math.PI-0.8,0,0]}isAscending={isAscending} isFoot/>
+                                </group>
                             </group>
                         </group>
-                </group>
-            </group>
+                        
+                        {/* Left Leg */}
+                        <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[0, 0, -0.05]}>
+                            {/* L Thigh */}
+                            <group position={[0, -0.4, 0]}>
+                                <mesh>
+                                    <boxGeometry args={[0.35, 0.7, 0.4]} />
+                                    <MechMaterial color={armorColor} />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
+                                {/* L Thigh_1 */}
+                                <mesh position={[0, -0.4, -0.04]}>
+                                    <boxGeometry args={[0.2, 0.4, 0.45]} />
+                                    <MechMaterial color="#444444" />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
+                            </group>
+
+                            <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
+                            
+                            {/* L Shin Group */}
+                            <group ref={leftLowerLegRef} position={[0, -0.75, 0]}> 
+                                {/* L Shin */}
+                                <mesh position={[0, -0.45, 0]}>
+                                    <boxGeometry args={[0.35, 0.75, 0.45]} />
+                                    <MechMaterial color={armorColor} />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
+                                {/* L Knee Pad */}
+                                <mesh position={[0, -0.1, 0.25]} rotation={[0.4, 0, 0]}>
+                                    <boxGeometry args={[0.25, 0.6, 0.15]} />
+                                    <MechMaterial color={armorColor} />
+                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
+                                </mesh>
+                                {/* L Shin_1 */}
+                                <mesh position={[0, -0.071, -0.04]}>
+                                    <boxGeometry args={[0.2, 0.4, 0.45]} />
+                                    <MechMaterial color="#444444" />
+                                </mesh>
+                                {/* L Shin_2 */}
+                                <mesh position={[0, -0.863, 0]}>
+                                    <boxGeometry args={[0.2, 0.2, 0.5]} />
+                                    <MechMaterial color="#444444" />
+                                </mesh>
+
+                                {/* L Foot Group */}
+                                <group ref={leftFootRef} position={[0, -0.7, -0.15]}>
+                                    {/* L Foot (Trapezoid) */}
+                                    <group position={[0, -0.254, 0.24]}>
+                                        <Trapezoid args={[0.35, 0.1, 0.7, 0.9, 0.8]} color={feetColor} />
+                                        {/* L Foot_1 (Child of L Foot) */}
+                                        <group position={[0, 0.133, -0.016]} scale={[1, 1.2, 1]}>
+                                            <Trapezoid args={[0.3, 0.2, 0.55, 0.6, 0.65]} color={armorColor} />
+                                        </group>
+                                    </group>
+                                    <GhostEmitter active={isTrailActive} size={[0.35, 0.2, 0.7]} offset={[0, -0.2, 0.2]} rainbow={trailRainbow.current} />
+                                    <ThrusterPlume active={isThrusting} offset={[0,0.5,-0.2]} angle={[Math.PI,0,0]}isAscending={isAscending} isFoot isLeft/>
+                                </group>
+                            </group>
+                        </group>
+                    </group>
             
          </group>
       </group>

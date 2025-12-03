@@ -435,26 +435,108 @@ export const PosableUnit: React.FC<{ pose: MechPose, weapon: 'GUN' | 'SABER' }> 
         </group>
         
         <group ref={legsRef}>
-            <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[-0.1, 0, 0.05]}>
-                    <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.7, 0.4]} /><MechMaterial color={armorColor} /></mesh>
-                    <group ref={rightLowerLegRef} position={[0, -0.75, 0]} rotation={[0.3, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.8, 0.45]} /><MechMaterial color={armorColor} /></mesh>
-                        <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]}><boxGeometry args={[0.25, 0.3, 0.1]} /><MechMaterial color={armorColor} /></mesh>
-                        <group ref={rightFootRef} position={[0, -0.8, 0.05]} rotation={[-0.2, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]}><boxGeometry args={[0.32, 0.2, 0.7]} /><MechMaterial color={feetColor} /></mesh>
-                        </group>
-                    </group>
-            </group>
+            {/* Right Leg */}
+            <group ref={rightLegRef} position={[0.25, -0.3, 0]} rotation={[0, 0, 0.05]}>
+                {/* R Thigh */}
+                <group position={[0, -0.4, 0]}>
+                    <mesh>
+                        <boxGeometry args={[0.35, 0.7, 0.4]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* R Thigh_1 */}
+                    <mesh position={[0, -0.4, -0.04]}>
+                        <boxGeometry args={[0.2, 0.4, 0.45]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+                </group>
 
-            <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[-0.1, 0, -0.05]}>
-                    <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.7, 0.4]} /><MechMaterial color={armorColor} /></mesh>
-                    <group ref={leftLowerLegRef} position={[0, -0.75, 0]} rotation={[0.2, 0, 0]}>
-                        <mesh position={[0, -0.4, 0]}><boxGeometry args={[0.35, 0.8, 0.45]} /><MechMaterial color={armorColor} /></mesh>
-                        <mesh position={[0, -0.2, 0.25]} rotation={[-0.2, 0, 0]}><boxGeometry args={[0.25, 0.3, 0.1]} /><MechMaterial color={armorColor} /></mesh>
-                        <group ref={leftFootRef} position={[0, -0.8, 0.05]} rotation={[-0.1, 0, 0]}>
-                            <mesh position={[0, -0.1, 0.1]}><boxGeometry args={[0.32, 0.2, 0.7]} /><MechMaterial color={feetColor} /></mesh>
+                {/* R Shin Group */}
+                <group ref={rightLowerLegRef} position={[0, -0.75, 0]}> 
+                    {/* R Shin */}
+                    <mesh position={[0, -0.45, 0]}>
+                        <boxGeometry args={[0.35, 0.75, 0.45]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* R Knee Pad */}
+                    <mesh position={[0, -0.1, 0.25]} rotation={[0.4, 0, 0]}>
+                        <boxGeometry args={[0.25, 0.55, 0.15]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* R Shin_1 */}
+                    <mesh position={[0, -0.071, -0.04]}>
+                        <boxGeometry args={[0.2, 0.4, 0.45]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+                    {/* R Shin_2 */}
+                    <mesh position={[0, -0.863, 0]}>
+                        <boxGeometry args={[0.2, 0.2, 0.5]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+
+                    {/* R Foot Group */}
+                    <group ref={rightFootRef} position={[0, -0.7, -0.15]}>
+                        {/* R Foot (Trapezoid) */}
+                        <group position={[0, -0.254, 0.24]}>
+                            <Trapezoid args={[0.35, 0.1, 0.7, 0.9, 0.8]} color={feetColor} />
+                            {/* R Foot_1 (Child of R Foot) */}
+                            <group position={[0, 0.133, -0.016]} scale={[1, 1.2, 1]}>
+                                <Trapezoid args={[0.3, 0.2, 0.55, 0.6, 0.65]} color={armorColor} />
+                            </group>
                         </group>
                     </group>
+                </group>
+            </group>
+            
+            {/* Left Leg */}
+            <group ref={leftLegRef} position={[-0.25, -0.3, 0]} rotation={[0, 0, -0.05]}>
+                {/* L Thigh */}
+                <group position={[0, -0.4, 0]}>
+                    <mesh>
+                        <boxGeometry args={[0.35, 0.7, 0.4]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* L Thigh_1 */}
+                    <mesh position={[0, -0.4, -0.04]}>
+                        <boxGeometry args={[0.2, 0.4, 0.45]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+                </group>
+
+                {/* L Shin Group */}
+                <group ref={leftLowerLegRef} position={[0, -0.75, 0]}> 
+                    {/* L Shin */}
+                    <mesh position={[0, -0.45, 0]}>
+                        <boxGeometry args={[0.35, 0.75, 0.45]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* L Knee Pad */}
+                    <mesh position={[0, -0.1, 0.25]} rotation={[0.4, 0, 0]}>
+                        <boxGeometry args={[0.25, 0.6, 0.15]} />
+                        <MechMaterial color={armorColor} />
+                    </mesh>
+                    {/* L Shin_1 */}
+                    <mesh position={[0, -0.071, -0.04]}>
+                        <boxGeometry args={[0.2, 0.4, 0.45]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+                    {/* L Shin_2 */}
+                    <mesh position={[0, -0.863, 0]}>
+                        <boxGeometry args={[0.2, 0.2, 0.5]} />
+                        <MechMaterial color="#444444" />
+                    </mesh>
+
+                    {/* L Foot Group */}
+                    <group ref={leftFootRef} position={[0, -0.7, -0.15]}>
+                        {/* L Foot (Trapezoid) */}
+                        <group position={[0, -0.254, 0.24]}>
+                            <Trapezoid args={[0.35, 0.1, 0.7, 0.9, 0.8]} color={feetColor} />
+                            {/* L Foot_1 (Child of L Foot) */}
+                            <group position={[0, 0.133, -0.016]} scale={[1, 1.2, 1]}>
+                                <Trapezoid args={[0.3, 0.2, 0.55, 0.6, 0.65]} color={armorColor} />
+                            </group>
+                        </group>
+                    </group>
+                </group>
             </group>
         </group>
     </group>
