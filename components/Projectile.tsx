@@ -1,10 +1,9 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, Vector3, DoubleSide, AdditiveBlending } from 'three';
 import { Projectile as ProjectileType, Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
-import { playHitSound } from './Player'; 
+import { playHitSound } from './AudioController'; // Updated import
 
 interface Props {
   data: ProjectileType;

@@ -1,6 +1,6 @@
-
 import { Vector3 } from 'three';
-import React from 'react';
+// CHANGE: Use type-only import to prevent runtime cycle involvement
+import type React from 'react';
 
 // ... (ThreeElements interface unchanged) ...
 interface ThreeElements {
@@ -50,7 +50,6 @@ export interface GameEntity {
   knockbackDir?: Vector3;
   knockbackPower?: number;
   targetId?: string | null;
-  // NEW: Knockdown State
   isKnockedDown?: boolean; 
   wakeUpTime?: number;
 }
@@ -90,7 +89,6 @@ export interface RotationVector {
     z: number;
 }
 
-// A snapshot of the entire mech's rotation state
 export interface MechPose {
     TORSO: RotationVector;
     CHEST: RotationVector;
@@ -123,12 +121,11 @@ export interface MechPose {
     };
 }
 
-// Identifies a specific bone path (e.g., "LEFT_ARM.SHOULDER")
 export type BonePath = string;
 
 export interface Keyframe {
-    time: number; // Normalized time (0.0 to 1.0)
-    value: RotationVector | number; // Euler angles or scalar (for knee)
+    time: number; 
+    value: RotationVector | number; 
     easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 }
 
@@ -139,13 +136,12 @@ export interface AnimationTrack {
 
 export interface AnimationClip {
     name: string;
-    duration: number; // Normalized duration concept (1.0), speed handled by controller
+    duration: number; 
     loop: boolean;
     tracks: AnimationTrack[];
     basePose?: MechPose; 
 }
 
-// --- SLASH VFX CONFIGURATION TYPES ---
 export interface SlashSpec {
     color: string;
     pos: [number, number, number];
@@ -167,7 +163,22 @@ export interface SlashSpecsGroup {
     SIDE_SLASH_3: SlashSpec;
 }
 
-// Matches the initial JSX rotations in Player.tsx exactly
+// --- MODEL BUILDER TYPES ---
+export type ShapeType = 'group' | 'box' | 'cylinder' | 'head' | 'prism' | 'trapezoid';
+
+export interface ModelPart {
+    id: string;
+    name: string;
+    type: ShapeType;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+    args: number[]; 
+    color: string;
+    children: ModelPart[];
+    visible: boolean;
+}
+
 export const DEFAULT_MECH_POSE: MechPose = {
     TORSO: { x: 0, y: 0, z: 0 },
     CHEST: { x: 0, y: 0, z: 0 },
@@ -200,10 +211,7 @@ export const DEFAULT_MECH_POSE: MechPose = {
     }
 };
 
-
-// --- GLOBAL CONFIGURATION ---
 export const GLOBAL_CONFIG = {
-    // Movement
     BOUNDARY_LIMIT: 80,
     WALK_SPEED: 0.2,
     GROUND_TURN_SPEED: 0.10,
@@ -212,7 +220,6 @@ export const GLOBAL_CONFIG = {
     ASCENT_HORIZONTAL_ACCEL: 0.01,
     ASCENT_MAX_HORIZONTAL_SPEED: 0.2,
 
-    // Dash
     DASH_BURST_SPEED: 0.75,
     DASH_SUSTAIN_SPEED: 0.5,
     DASH_DECAY_FACTOR: 0.058,
@@ -223,14 +230,11 @@ export const GLOBAL_CONFIG = {
     DASH_GROUND_HOP_VELOCITY: 0.2,
     DASH_COOLDOWN_FRAMES: 30,
 
-    // Jump / Ascend
     JUMP_SHORT_HOP_FRAMES: 5,
     JUMP_SHORT_HOP_SPEED: 0.28,
 
-    // Falling Animation
     FALL_ANIM_RATIO: 0.2,
     FALL_ANIM_EXIT_SPEED: 0.1,
-    
     FALL_LEG_PITCH_RIGHT: -1.4,
     FALL_LEG_PITCH_LEFT: -0.8,
     FALL_KNEE_BEND_RIGHT: 2.6,
@@ -238,7 +242,6 @@ export const GLOBAL_CONFIG = {
     FALL_LEG_SPREAD: 0.2,
     FALL_BODY_TILT: 0.4,
 
-    // Landing Animation
     LANDING_VISUAL_DURATION: 35,
     LANDING_ANIM_RATIO: 0.06, 
     LANDING_BODY_TILT: 0.7,
@@ -251,7 +254,6 @@ export const GLOBAL_CONFIG = {
     LANDING_ANKLE_PITCH_LEFT: -1.3,
     LANDING_HIP_DIP: 0.8,
 
-    // Evade
     EVADE_SPEED: 0.45,
     EVADE_DURATION: 28,
     EVADE_BOOST_COST: 10,
@@ -260,7 +262,6 @@ export const GLOBAL_CONFIG = {
     EVADE_RECOVERY_FRAMES: 20,
     EVADE_TRAIL_DURATION: 28,
 
-    // Rainbow Step
     RAINBOW_STEP_SPEED: 0.75,
     RAINBOW_STEP_DURATION: 17,
     RAINBOW_STEP_BOOST_COST: 18,
@@ -268,36 +269,32 @@ export const GLOBAL_CONFIG = {
     RAINBOW_STEP_RECOVERY_FRAMES: 20,
     RAINBOW_STEP_TRAIL_DURATION:17,
     
-    // Melee - General
     MELEE_LUNGE_SPEED: 0.62,
-    MELEE_LUNGE_SPEED_MULT: 1.1, // Speed multiplier during lunge to close gaps effectively
+    MELEE_LUNGE_SPEED_MULT: 1.1, 
     MELEE_BOOST_CONSUMPTION: 0.4,
     MELEE_MAX_LUNGE_TIME: 50,
     MELEE_STARTUP_FRAMES: 10,
     MELEE_RECOVERY_FRAMES: 15,
-    // IMPORTANT: MELEE_RANGE slightly higher than SPACING to ensure we confirm hit BEFORE stopping
     MELEE_RANGE: 6.5, 
-    MELEE_ATTACK_SPACING: 4.0, // Default Global Spacing (Fallback)
-    MELEE_MAGNET_SPEED: 0.25, // How fast player snaps to sweet spot (0.0-1.0 lerp factor)
+    MELEE_ATTACK_SPACING: 4.0, 
+    MELEE_MAGNET_SPEED: 0.25, 
     MELEE_HIT_TOLERANCE: 0, 
     
-    // Melee - Side (Horizontal)
-    SIDE_MELEE_LUNGE_SPEED: 0.62, // Slightly faster to flank
-    SIDE_MELEE_ARC_STRENGTH: 0.8, // Controls how wide the curve is
-    SIDE_MELEE_STARTUP_FRAMES: 11, // Frames to play prep animation during lunge
+    SIDE_MELEE_LUNGE_SPEED: 0.62, 
+    SIDE_MELEE_ARC_STRENGTH: 0.8, 
+    SIDE_MELEE_STARTUP_FRAMES: 11, 
     
-    // --- MELEE COMBO ADJUSTMENTS (NEUTRAL) ---
     MELEE_COMBO_DATA: {
         SLASH_1: {
             DURATION_FRAMES: 17,
             KNOCKBACK_POWER: 2.5,
             CHASE_VELOCITY: 0.5, 
-            APPROACH_SPEED: 0, // Removed generic approach, using Magnet Snap instead
+            APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 3,
-            DAMAGE_DELAY: 3, // Frame to apply damage
-            ATTACK_SPACING: 0.9, // THRUST - Keep distance
+            DAMAGE_DELAY: 3, 
+            ATTACK_SPACING: 0.9, 
         },
         SLASH_2: {
             DURATION_FRAMES: 17,
@@ -308,23 +305,22 @@ export const GLOBAL_CONFIG = {
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 5,
             DAMAGE_DELAY: 3,
-            ATTACK_SPACING: 1, // CROSS CUT - Step in closer
+            ATTACK_SPACING: 1, 
         },
         SLASH_3: {
-            DURATION_FRAMES: 36, // Slower, heavier hit
+            DURATION_FRAMES: 36, 
             KNOCKBACK_POWER: 9.0, 
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
             HIT_STOP_FRAMES: 13, 
-            DAMAGE_DELAY: 20, // Later in animation
+            DAMAGE_DELAY: 20, 
             IS_KNOCKDOWN: true,
-            ATTACK_SPACING: 2, // FINISHER - Medium distance
+            ATTACK_SPACING: 2, 
         }
     },
 
-    // --- SIDE MELEE COMBO DATA (Independent) ---
     SIDE_MELEE_COMBO_DATA: {
         SLASH_1: {
             DURATION_FRAMES: 20,
@@ -335,7 +331,7 @@ export const GLOBAL_CONFIG = {
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 5,
             DAMAGE_DELAY: 5,
-            ATTACK_SPACING: 1.3, // WIDE SWING
+            ATTACK_SPACING: 1.3, 
         },
         SLASH_2: {
              DURATION_FRAMES: 23,
@@ -346,10 +342,10 @@ export const GLOBAL_CONFIG = {
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 5,
             DAMAGE_DELAY: 10,
-            ATTACK_SPACING: 1, // SPIN - Close
+            ATTACK_SPACING: 1, 
         },
         SLASH_3: {
-            DURATION_FRAMES: 36, // Slower, heavier hit
+            DURATION_FRAMES: 36, 
             KNOCKBACK_POWER: 9.0, 
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
@@ -362,42 +358,36 @@ export const GLOBAL_CONFIG = {
         }
     },
     
-    // --- CINEMATIC CAMERA ---
     CINEMATIC_CAMERA: {
-        OFFSET: { x: 8, y: 4.0, z: 6.0 }, // Left-Front relative to player
+        OFFSET: { x: 8, y: 4.0, z: 6.0 }, 
         FOV: 75,
         SMOOTHING: 0.8,
-        DURATION: 1200 // Duration in ms
+        DURATION: 1200 
     },
     
-    // --- KNOCKDOWN PHYSICS ---
     KNOCKDOWN: {
         GRAVITY: 0.03,
-        INIT_Y_VELOCITY: 0.7, // Pop up
+        INIT_Y_VELOCITY: 0.7, 
         AIR_DRAG: 0.98,
         GROUND_FRICTION: 0.8,
-        WAKEUP_DELAY: 1200, // ms lying on ground before standing
+        WAKEUP_DELAY: 1200, 
     },
 
-    // Input
     INPUT_ASCENT_HOLD_THRESHOLD: 115,
     INPUT_DASH_WINDOW: 210,
 
-    // Physics
     GRAVITY: 0.016,
-    MELEE_GRAVITY_SCALE: 0.0, // Antigravity during combos
+    MELEE_GRAVITY_SCALE: 0.0, 
     FRICTION_GROUND: 0.99,
     FRICTION_AIR: 0.99,
     MECH_COLLISION_RADIUS: 0.9, 
     MECH_COLLISION_HEIGHT: 1, 
     
-    // Boost
     BOOST_CONSUMPTION_DASH_INIT: 6,
     BOOST_CONSUMPTION_DASH_HOLD: 0.45,
     BOOST_CONSUMPTION_ASCENT: 0.55,
     BOOST_CONSUMPTION_SHORT_HOP: 4,
 
-    // Combat
     BULLET_SPEED: 1.28, 
     HOMING_LATERAL_SPEED: 0.28,
     MAX_AMMO: 20,
@@ -406,23 +396,19 @@ export const GLOBAL_CONFIG = {
     UNIT_HITBOX_RADIUS: 1.4,
     PROJECTILE_HITBOX_RADIUS: 0.5,
     
-    // Shooting Animation
     SHOT_STARTUP_FRAMES: 20,
     SHOT_AIM_DURATION: 8,
     SHOT_RECOVERY_FRAMES: 60,
     SHOT_RECOVERY_FRAMES_STOP: 25,
     
-    // Hit Response
     KNOCKBACK_DURATION: 500,
     KNOCKBACK_SPEED: 0.1,
     
-    // Landing Lag
     LANDING_LAG_MIN: 12,
     LANDING_LAG_MAX: 25,
     LANDING_LAG_OVERHEAT: 38,
     LANDING_LAG_BUFFER_WINDOW: 18,
     
-    // AI
     AI_SHOOT_PROBABILITY: 0.05,
     AI_SHOOT_COOLDOWN_MIN: 1.2,
     AI_SHOOT_COOLDOWN_MAX: 2.4,

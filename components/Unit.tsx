@@ -1,15 +1,20 @@
-import React, { useRef, useState, useEffect, useMemo, useLayoutEffect } from 'react';
+
+import React, { useRef, useState, useEffect, useMemo, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, Group, MathUtils, DoubleSide, Quaternion, Shape, AdditiveBlending, Matrix4, Euler, MeshToonMaterial, Color, BoxGeometry, CylinderGeometry, ShaderMaterial } from 'three';
-import { Text, Html, useGLTF, Outlines } from '@react-three/drei';
+import { Vector3, Group, MathUtils, Quaternion, Euler, Color, BoxGeometry, ShaderMaterial, AdditiveBlending, Matrix4 } from 'three';
+import { Html, useGLTF, Outlines } from '@react-three/drei';
 import { Team, GLOBAL_CONFIG, RED_LOCK_DISTANCE, MechPose, DEFAULT_MECH_POSE, RotationVector } from '../types';
 import { useGameStore } from '../store';
 import { ANIMATION_CLIPS } from '../animations'; 
-import { AnimationController, clonePose } from './AnimationSystem';
+import { AnimationController } from './AnimationSystem';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-// --- SHADER DEFINITIONS (MATCHING PLAYER.TSX) ---
+// --- DECOUPLED IMPORTS ---
+import { playBoostSound, playStepSound, playHitSound, playFootSound, playShootSound } from './AudioController';
+import { ProceduralSlashEffect, BoostBurst, ThrusterPlume, MuzzleFlash, GhostEmitter } from './VFX';
+
+// --- SHADER DEFINITIONS ---
 const MECH_VERTEX_SHADER = `
     varying vec3 vNormal;
     varying vec3 vViewPosition;
@@ -93,6 +98,7 @@ const MechMaterial: React.FC<{ color: string, rimColor?: string, rimPower?: numb
     );
 };
 
+// --- GEOMETRY FACTORY ---
 const GeoFactory = {
     box: (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d),
     trapz: (args: number[]) => {
@@ -115,7 +121,44 @@ const GeoFactory = {
     }
 };
 
-const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
+// --- VISUAL COMPONENTS ---
+
+const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color }) => {
+    const [width, height, depth, topScaleX, topScaleZ] = args;
+    const isOutlineOn = useGameStore(state => state.isOutlineOn);
+    
+    const geometry = useMemo(() => {
+        const geo = new BoxGeometry(width, height, depth);
+        const posAttribute = geo.attributes.position;
+        const positions = posAttribute.array;
+        
+        for (let i = 0; i < positions.length; i += 3) {
+            const y = positions[i+1];
+            if (y > 0) {
+                positions[i] *= topScaleX;
+                positions[i+2] *= topScaleZ;
+            }
+        }
+        geo.computeVertexNormals();
+        return geo;
+    }, [width, height, depth, topScaleX, topScaleZ]);
+
+    useEffect(() => {
+        return () => {
+            geometry.dispose();
+        };
+    }, [geometry]);
+
+    return (
+            <mesh geometry={geometry}>
+                <MechMaterial color={color} rimColor="#00ffff" rimPower={5} rimIntensity={3}/>
+                {isOutlineOn && <Outlines thickness={4} color="#111"  />}
+            </mesh>
+    );
+};
+
+// CHANGE: Use memo() directly
+const HipVisuals = memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
     const isOutlineOn = useGameStore(state => state.isOutlineOn);
     const { whiteGeo, darkGeo, redGeo, yellowGeo } = useMemo(() => {
         const buckets: Record<string, THREE.BufferGeometry[]> = {
@@ -203,7 +246,6 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
         };
     }, []);
 
-    // CLEANUP GEOMETRY
     useEffect(() => {
         return () => {
             if (whiteGeo) whiteGeo.dispose();
@@ -223,8 +265,8 @@ const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorCol
     );
 });
 
-// Consolidated Chest Visuals to reduce draw calls
-const ChestVisuals = React.memo(({ chestColor }: { chestColor: string }) => {
+// CHANGE: Use memo() directly
+const ChestVisuals = memo(({ chestColor }: { chestColor: string }) => {
     const isOutlineOn = useGameStore(state => state.isOutlineOn);
     
     const { chestGeo, yellowGeo, darkGeo } = useMemo(() => {
@@ -331,142 +373,6 @@ const ChestVisuals = React.memo(({ chestColor }: { chestColor: string }) => {
     );
 });
 
-const BoostBurst: React.FC<{ triggerTime: number }> = ({ triggerTime }) => {
-    const groupRef = useRef<Group>(null);
-    const DURATION = 0.4; 
-    const CONE_LENGTH = 1.6;
-    const CONE_WIDTH = 0.08;
-    const TILT_ANGLE = -35;
-    const BURST_COLOR = "#00ffff"; 
-
-    useFrame(() => {
-        if (!groupRef.current) return;
-        
-        const now = Date.now();
-        const elapsed = (now - triggerTime) / 1000;
-
-        if (elapsed > DURATION) {
-            groupRef.current.visible = false;
-            return;
-        }
-
-        groupRef.current.visible = true;
-
-        const scaleProgress = elapsed / DURATION;
-        const scale = MathUtils.lerp(0.5, 2.5, Math.pow(scaleProgress, 0.3));
-        groupRef.current.scale.setScalar(scale);
-
-        let opacity = 0;
-        if (elapsed < 0.1) {
-            opacity = elapsed / 0.1;
-        } else {
-            const fadeOutProgress = (elapsed - 0.1) / (DURATION - 0.1);
-            opacity = 1 - fadeOutProgress;
-        }
-        
-        groupRef.current.children.forEach((angleGroup: any) => {
-            if (angleGroup.children && angleGroup.children[0] && angleGroup.children[0].children[0]) {
-                const mesh = angleGroup.children[0].children[0];
-                if (mesh.material) mesh.material.opacity = opacity;
-            }
-        });
-    });
-
-    return (
-        <group ref={groupRef} visible={false} position={[0, -0.2, -0.3]} rotation={[0, 0, 0]}>
-            {[45, 135, 225, 315].map((angle, i) => (
-                <group key={i} rotation={[0, 0, MathUtils.degToRad(angle)]}>
-                    <group rotation={[MathUtils.degToRad(TILT_ANGLE), 0, 0]}>
-                        <mesh position={[0, CONE_LENGTH / 2, 0]}> 
-                            <cylinderGeometry args={[0, CONE_WIDTH, CONE_LENGTH, 8, 1]} /> 
-                            <meshBasicMaterial 
-                                color={BURST_COLOR} 
-                                transparent 
-                                depthWrite={false} 
-                                blending={AdditiveBlending} 
-                            />
-                        </mesh>
-                    </group>
-                </group>
-            ))}
-        </group>
-    );
-};
-
-const ThrusterPlume: React.FC<{ active: boolean, offset: [number, number, number], angle: [ number, number, number], isAscending?: boolean , isFoot?:boolean, isLeft?:boolean}> = ({ active, offset, angle, isAscending, isFoot, isLeft}) => {
-    const groupRef = useRef<Group>(null);
-    useFrame((state) => {
-        if (!groupRef.current) return;
-        const flicker = MathUtils.randFloat(0.3, 1.2);
-        const targetScale = active ? 1 : 0;
-        const lerpSpeed = 0.1;
-        groupRef.current.scale.z = MathUtils.lerp(groupRef.current.scale.z, targetScale * flicker, lerpSpeed);
-        groupRef.current.scale.x = MathUtils.lerp(groupRef.current.scale.x, targetScale, lerpSpeed);
-        groupRef.current.scale.y = MathUtils.lerp(groupRef.current.scale.y, targetScale, lerpSpeed);
-        groupRef.current.visible = groupRef.current.scale.z > 0.05;
-    });
-    if (angle)
-        angle[0]=isAscending?(isLeft?angle[0]-1.2:angle[0]):angle[0];
-    if(offset){
-        offset[1]=isAscending?(isLeft?offset[1]:offset[1]-0.15):offset[1]
-        offset[2]=isAscending?(isLeft?offset[2]+0.35:offset[2]+0.28):offset[2];
-        }
-    return (
-        <group ref={groupRef} position={[0,-0.1,isAscending?0.3:0]}>
-            <group rotation={[isAscending ? Math.PI + Math.PI/5 : -Math.PI/5 - Math.PI/2, 0, 0]}  visible={!isFoot}>
-                <mesh position={[0, -0.3, 0.8]}>
-                    <cylinderGeometry args={[0.02, 0.1, 1.5, 8]} rotation={[Math.PI/2, 0, 0]} />
-                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
-                </mesh>
-                <mesh position={[0, -0.3, 0.5]}>
-                    <cylinderGeometry args={[0.05, 0.15, 0.8, 8]} rotation={[Math.PI/2, 0, 0]} />
-                    <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
-                </mesh>
-            </group>
-            <group rotation={angle}  visible={isFoot}>
-                <mesh position={offset}>
-                    <cylinderGeometry args={[0.02, 0.1, 0.8, 8]} rotation={[0,0,0]} />
-                    <meshBasicMaterial color="#00ffff" transparent opacity={0.8} depthWrite={false} />
-                </mesh>
-            </group>
-        </group>
-    );
-};
-
-const MuzzleFlash: React.FC<{ active: boolean }> = ({ active }) => {
-    const ref = useRef<Mesh>(null);
-    const [scale, setScale] = useState(0);
-    
-    useEffect(() => {
-        if (active) setScale(1.5);
-    }, [active]);
-
-    useFrame(() => {
-        if (!ref.current) return;
-        if (scale > 0) {
-            setScale(s => Math.max(0, s - 0.2));
-            ref.current.scale.setScalar(scale);
-            ref.current.visible = true;
-        } else {
-            ref.current.visible = false;
-        }
-    });
-
-    return (
-        <mesh ref={ref} visible={false}>
-            <sphereGeometry args={[0.5, 8, 8]} />
-            <meshBasicMaterial color="#ffaa00" transparent opacity={0.8} />
-        </mesh>
-    );
-};
-
-// Keep ghost emitter compatible but lightweight for NPCs if needed
-const GhostEmitter: React.FC<{ active: boolean, size?: [number, number, number], offset?: [number, number, number], rainbow?: boolean }> = ({ active, size=[0.4, 0.6, 0.4], offset=[0,0,0], rainbow=false }) => {
-    // Simplified for Unit to save performance
-    if (!active) return null;
-    return null; 
-};
-
 const MODEL_PATH = '/models/head.glb';
 useGLTF.preload(MODEL_PATH);
 
@@ -495,42 +401,10 @@ const MechaHead: React.FC<{ mainColor: string }> = ({ mainColor }) => {
     );
 };
 
-// --- TRAPEZOID COMPONENT ---
-const Trapezoid: React.FC<{ args: number[], color: string }> = ({ args, color }) => {
-    const [width, height, depth, topScaleX, topScaleZ] = args;
-    const isOutlineOn = useGameStore(state => state.isOutlineOn);
-    
-    // Use useMemo for geometry to ensure stable reference for Edges
-    const geometry = useMemo(() => {
-        const geo = new BoxGeometry(width, height, depth);
-        const posAttribute = geo.attributes.position;
-        const positions = posAttribute.array;
-        
-        for (let i = 0; i < positions.length; i += 3) {
-            const y = positions[i+1];
-            if (y > 0) {
-                positions[i] *= topScaleX;
-                positions[i+2] *= topScaleZ;
-            }
-        }
-        geo.computeVertexNormals();
-        return geo;
-    }, [width, height, depth, topScaleX, topScaleZ]);
-
-    // CLEANUP GEOMETRY
-    useEffect(() => {
-        return () => {
-            geometry.dispose();
-        };
-    }, [geometry]);
-
-    return (
-            <mesh geometry={geometry}>
-                <MechMaterial color={color} rimColor="#00ffff" rimPower={5} rimIntensity={3}/>
-                {isOutlineOn && <Outlines thickness={4} color="#111"  />}
-            </mesh>
-    );
-};
+// --- AI LOGIC TYPES ---
+type MeleePhase = 
+    'NONE' | 'STARTUP' | 'LUNGE' | 'SLASH_1' | 'SLASH_2' | 'SLASH_3' | 'RECOVERY' |
+    'SIDE_STARTUP' | 'SIDE_LUNGE' | 'SIDE_SLASH_1' | 'SIDE_SLASH_2' | 'SIDE_SLASH_3' | 'SIDE_RECOVERY';
 
 interface UnitProps {
   id: string;
@@ -575,6 +449,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const shieldRef = useRef<Group>(null);
   const muzzleRef = useRef<Group>(null);
   
+  // NEW REFS FOR MELEE UPGRADE
+  const rightSaberRef = useRef<Group>(null);
+  const armShieldMountRef = useRef<Group>(null);
+  const backShieldMountRef = useRef<Group>(null);
+  const shieldTargetPos = useRef(new Vector3());
+  const shieldTargetRot = useRef(new Quaternion());
+  const isShieldDetached = useRef(false);
+  const wasDualWielding = useRef(false);
+
   const position = useRef(initialPos.clone());
   const velocity = useRef(new Vector3(0, 0, 0));
   const isGrounded = useRef(true);
@@ -594,12 +477,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const isOutlineOn = useGameStore(state => state.isOutlineOn);
 
   const walkCycle = useRef(0);
+  const lastWalkCycle = useRef(0);
   const currentWalkWeight = useRef(0);
 
-  const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING' | 'KNOCKED_DOWN' | 'WAKE_UP'>('IDLE');
+  // AI State Machine Expanded
+  const aiState = useRef<'IDLE' | 'DASHING' | 'ASCENDING' | 'FALLING' | 'SHOOTING' | 'MELEE' | 'EVADE' | 'KNOCKED_DOWN' | 'WAKE_UP'>('IDLE');
   const aiTimer = useRef(0);
   const shootMode = useRef<'MOVE' | 'STOP'>('STOP');
   
+  // NEW REFS FOR PLAYER-SYNCED SHOOTING LOGIC
+  const shootTimer = useRef(0);
+  const hasFired = useRef(false);
+
   const targetSwitchTimer = useRef(0);
   const localTargetId = useRef<string | null>(null);
   const shootCooldown = useRef(0);
@@ -612,6 +501,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const dashDirection = useRef(new Vector3(0, 0, 1));
   const currentDashSpeed = useRef(0);
   const moveInput = useRef(new Vector3(0, 0, 0));
+  
+  // Melee Logic Vars
+  const meleeState = useRef<MeleePhase>('NONE');
+  const meleeTimer = useRef(0);
+  const meleeStartupTimer = useRef(0);
+  const hasMeleeHitRef = useRef(false);
+  const meleeHitConfirmed = useRef(false);
+  const activeMeleeTargetId = useRef<string | null>(null);
+  const meleeSideDirection = useRef<number>(0);
+
+  // Evade Logic Vars
+  const evadeDirection = useRef(new Vector3(0,0,0));
 
   const [isThrusting, setIsThrusting] = useState(false);
   const [isAscendingState, setIsAscendingState] = useState(false); 
@@ -625,6 +526,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const headLookQuat = useRef(new Quaternion());
   
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
+  const applyHit = useGameStore(state => state.applyHit);
   const hitStop = useGameStore(state => state.hitStop); 
   const areNPCsPaused = useGameStore(state => state.areNPCsPaused); 
   const clockRef = useRef(0);
@@ -664,9 +566,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
        if (leftLowerLegRef.current) leftLowerLegRef.current.rotation.x = pose.LEFT_LEG.KNEE;
        setRot(leftFootRef, pose.LEFT_LEG.ANKLE);
 
-       if (shieldRef.current && pose.SHIELD) {
-           shieldRef.current.position.set(pose.SHIELD.POSITION.x, pose.SHIELD.POSITION.y, pose.SHIELD.POSITION.z);
-           shieldRef.current.rotation.set(pose.SHIELD.ROTATION.x, pose.SHIELD.ROTATION.y, pose.SHIELD.ROTATION.z);
+       // UPDATED: Shield Mount Animation (Synced with Player logic)
+       if (armShieldMountRef.current && pose.SHIELD) {
+           armShieldMountRef.current.position.set(pose.SHIELD.POSITION.x, pose.SHIELD.POSITION.y, pose.SHIELD.POSITION.z);
+           armShieldMountRef.current.rotation.set(pose.SHIELD.ROTATION.x, pose.SHIELD.ROTATION.y, pose.SHIELD.ROTATION.z);
        }
   };
 
@@ -674,18 +577,56 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (!groupRef.current || !rotateGroupRef.current) return;
 
     if (hitStop > 0) return;
-
+    
     clockRef.current += delta;
     const timeScale = delta * 60;
-
+    let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE' = 'IDLE';
     const freshState = useGameStore.getState();
     const freshTargets = freshState.targets;
     const freshPlayerPos = freshState.playerPos;
-
+    // 1. Resolve Target
     const getTargetPos = (): Vector3 | null => {
-        if (localTargetId.current === 'player') return freshPlayerPos.clone();
-        const t = freshTargets.find(t => t.id === localTargetId.current);
+        // MELEE STICKY LOGIC: If performing melee, ignore AI switching and stick to the locked melee target
+        const effectiveTargetId = (aiState.current === 'MELEE' && activeMeleeTargetId.current) 
+            ? activeMeleeTargetId.current 
+            : localTargetId.current;
+
+        if (effectiveTargetId === 'player') return freshPlayerPos.clone();
+        const t = freshTargets.find(t => t.id === effectiveTargetId);
         return t ? t.position.clone() : null;
+    };
+    
+    // 1b. Resolve Current Target Entity for Logic
+    const resolveCurrentEntity = () => {
+        const effectiveTargetId = (aiState.current === 'MELEE' && activeMeleeTargetId.current) 
+            ? activeMeleeTargetId.current 
+            : localTargetId.current;
+
+        if (effectiveTargetId === 'player') return { id: 'player', position: freshPlayerPos };
+        return freshTargets.find(t => t.id === effectiveTargetId);
+    }
+    const currentTarget = resolveCurrentEntity();
+
+    // 2. Helper: Detect incoming projectiles (Evasion Trigger)
+    const detectIncomingThreat = (): boolean => {
+         const projectiles = freshState.projectiles;
+         if (!projectiles) return false;
+         
+         const myPos = position.current;
+         for (const p of projectiles) {
+             if (p.team !== team) { // Enemy projectile
+                 const dist = p.position.distanceTo(myPos);
+                 if (dist < 15) { // Close range warning
+                      // Check if moving towards me
+                      const toMe = myPos.clone().sub(p.position).normalize();
+                      const pVel = p.velocity.clone().normalize();
+                      if (pVel.dot(toMe) > 0.8) { // Headed roughly at me
+                          return true;
+                      }
+                 }
+             }
+         }
+         return false;
     };
 
     const currentlyAscending = aiState.current === 'ASCENDING';
@@ -696,6 +637,71 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     const now = Date.now();
     const stunned = now - lastHitTime < lastHitDuration;
     setIsStunned(stunned);
+
+    // --- DUAL WIELD & SHIELD LOGIC (Frame Logic - Copied from Player) ---
+    const inDualSlashAnimation = meleeState.current === 'SIDE_SLASH_2' || meleeState.current === 'SIDE_SLASH_3';
+    if (inDualSlashAnimation) {
+        wasDualWielding.current = true;
+    } else if (meleeState.current === 'NONE') {
+        wasDualWielding.current = false;
+    }
+    const isDualMode = inDualSlashAnimation || (wasDualWielding.current && meleeState.current !== 'NONE');
+
+    if (rightSaberRef.current) {
+        rightSaberRef.current.visible = isDualMode;
+    }
+
+    if (shieldRef.current && armShieldMountRef.current && backShieldMountRef.current) {
+        const targetMount = isDualMode ? backShieldMountRef.current : armShieldMountRef.current;
+        
+        // Get target world transform
+        targetMount.updateMatrixWorld();
+        targetMount.getWorldPosition(shieldTargetPos.current);
+        targetMount.getWorldQuaternion(shieldTargetRot.current);
+
+        const currentWorldPos = new Vector3();
+        const currentWorldRot = new Quaternion();
+        shieldRef.current.getWorldPosition(currentWorldPos);
+        shieldRef.current.getWorldQuaternion(currentWorldRot);
+
+        let lerpFactor = 0.25 * timeScale;
+        
+        if (isDualMode) {
+            isShieldDetached.current = true;
+            lerpFactor = 0.15 * timeScale; 
+        } else {
+            if (isShieldDetached.current) {
+                const dist = currentWorldPos.distanceTo(shieldTargetPos.current);
+                if (dist < 0.25) {
+                    isShieldDetached.current = false;
+                    lerpFactor = 1.0;
+                } else {
+                    lerpFactor = 0.25 * timeScale;
+                }
+            } else {
+                 lerpFactor = 1.0;
+            }
+        }
+
+        if (lerpFactor >= 1.0) {
+            currentWorldPos.copy(shieldTargetPos.current);
+            currentWorldRot.copy(shieldTargetRot.current);
+        } else {
+            currentWorldPos.lerp(shieldTargetPos.current, lerpFactor);
+            currentWorldRot.slerp(shieldTargetRot.current, lerpFactor);
+        }
+
+        // Use rotateGroupRef for inverse calculation
+        const playerInvMatrix = rotateGroupRef.current.matrixWorld.clone().invert(); 
+        const parentWorldQuat = new Quaternion();
+        rotateGroupRef.current.getWorldQuaternion(parentWorldQuat);
+        const localQuat = parentWorldQuat.clone().invert().multiply(currentWorldRot);
+        const localPos = currentWorldPos.clone().applyMatrix4(playerInvMatrix);
+
+        shieldRef.current.position.copy(localPos);
+        shieldRef.current.quaternion.copy(localQuat);
+    }
+    // ---------------------------------------------------------------
 
     if (isKnockedDown && !wasKnockedDownRef.current) {
         aiState.current = 'KNOCKED_DOWN';
@@ -711,6 +717,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
         animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1);
         setIsThrusting(false);
+        meleeState.current = 'NONE';
+        activeMeleeTargetId.current = null;
     }
     wasKnockedDownRef.current = isKnockedDown;
 
@@ -756,6 +764,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     }
     else if (stunned) {
         setIsThrusting(false);
+        meleeState.current = 'NONE'; // Cancel melee on hit
+        activeMeleeTargetId.current = null;
+        aiState.current = 'IDLE'; // FORCE RESET AI STATE
         velocity.current.set(0, 0, 0);
         if (knockbackDir) {
              const force = GLOBAL_CONFIG.KNOCKBACK_SPEED * knockbackPower;
@@ -768,6 +779,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         animator.play(ANIMATION_CLIPS.IDLE, 0.1);
     }
     else {
+        // AI Target Switching
         targetSwitchTimer.current -= delta; 
         if (targetSwitchTimer.current <= 0) {
             targetSwitchTimer.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_TARGET_SWITCH_MIN, GLOBAL_CONFIG.AI_TARGET_SWITCH_MAX); 
@@ -780,22 +792,79 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 freshTargets.forEach(t => { if (t.team === Team.RED) potentialTargets.push(t.id); });
             }
             if (potentialTargets.length > 0) {
-                localTargetId.current = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
+                const newTarget = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
+                localTargetId.current = newTarget;
                 useGameStore.getState().updateUnitTarget(id, localTargetId.current);
             }
         }
 
         if (areNPCsPaused) {
-            if (aiState.current === 'DASHING' || aiState.current === 'ASCENDING' || aiState.current === 'SHOOTING') {
+            if (aiState.current !== 'IDLE') {
                  aiState.current = 'IDLE';
                  setIsThrusting(false);
                  moveInput.current.set(0,0,0);
                  dashDirection.current.set(0,0,0);
+                 meleeState.current = 'NONE';
+                 activeMeleeTargetId.current = null;
             }
         } else {
             shootCooldown.current -= delta;
             
-            if (landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && shootCooldown.current <= 0) {
+            // --- AI DECISION MAKING ---
+            // Prioritize: 1. Evade Threat -> 2. Melee if Close -> 3. Shoot if ready -> 4. Move
+
+            const isBusy = aiState.current === 'SHOOTING' || aiState.current === 'MELEE' || aiState.current === 'DASHING' || aiState.current === 'ASCENDING' || aiState.current === 'EVADE';
+            const canAct = !isBusy && landingFrames.current <= 0;
+
+            // 1. EVASION CHECK
+            if (canAct && boost.current > 15) {
+                if (detectIncomingThreat() && Math.random() < 0.4) { // 40% chance to dodge when threatened
+                    aiState.current = 'EVADE';
+                    // Dodge sideways relative to look dir
+                    const fwd = new Vector3(0,0,1).applyQuaternion(rotateGroupRef.current.quaternion);
+                    const right = new Vector3(0,1,0).cross(fwd).normalize();
+                    // Random left or right
+                    evadeDirection.current.copy(right).multiplyScalar(Math.random() > 0.5 ? 1 : -1);
+                    aiTimer.current = GLOBAL_CONFIG.EVADE_DURATION / 60 * 1000; 
+                    playBoostSound();
+                    // Deduct boost
+                    boost.current -= 15;
+                }
+            }
+
+            // 2. MELEE CHECK
+            if (canAct && aiState.current !== 'EVADE' && boost.current > 20) {
+                const tPos = getTargetPos();
+                if (tPos) {
+                    const dist = position.current.distanceTo(tPos);
+                    // If close, high chance to melee
+                    if (dist < 20 && Math.random() < 0.3) { 
+                         aiState.current = 'MELEE';
+                         // LOCK TARGET FOR MELEE
+                         activeMeleeTargetId.current = localTargetId.current;
+                         
+                         // 50/50 chance for Side Melee (Flanking) vs Direct Lunge
+                         if (Math.random() > 0.5) {
+                             meleeState.current = 'SIDE_LUNGE';
+                             // Randomize Left (1) or Right (-1)
+                             meleeSideDirection.current = Math.random() > 0.5 ? 1 : -1;
+                             meleeStartupTimer.current = GLOBAL_CONFIG.SIDE_MELEE_STARTUP_FRAMES;
+                         } else {
+                             meleeState.current = 'LUNGE';
+                             meleeSideDirection.current = 0;
+                             meleeStartupTimer.current = GLOBAL_CONFIG.MELEE_STARTUP_FRAMES;
+                         }
+                         
+                         // Use generic Melee specs
+                         meleeTimer.current = GLOBAL_CONFIG.MELEE_MAX_LUNGE_TIME; // Chase time
+                         // Look at target
+                         rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+                    }
+                }
+            }
+
+            // 3. SHOOTING CHECK
+            if (canAct && aiState.current !== 'EVADE' && aiState.current !== 'MELEE' && shootCooldown.current <= 0) {
                 if (Math.random() < GLOBAL_CONFIG.AI_SHOOT_PROBABILITY) { 
                      const tPos = getTargetPos();
                      let isFrontal = true;
@@ -808,24 +877,31 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                           if (fwd.dot(toTarget) < 0) isFrontal = false;
                      }
                      shootMode.current = isFrontal ? 'MOVE' : 'STOP';
+                     
+                     // INITIALIZE SHOOTING STATE
                      aiState.current = 'SHOOTING';
+                     shootTimer.current = 0;
+                     hasFired.current = false;
+                     
                      shootSequence.current = 0;
                      const currentRecovery = shootMode.current === 'STOP' ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
                      const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
+                     
+                     // aiTimer used only for behavior timeout backup, logical flow uses shootTimer
                      aiTimer.current = (totalFrames / 60) * 1000; 
                      shootCooldown.current = MathUtils.randFloat(GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MIN, GLOBAL_CONFIG.AI_SHOOT_COOLDOWN_MAX); 
                 }
             }
 
+            // 4. MOVEMENT CHECK
             aiTimer.current -= delta * 1000; 
-
-            if (aiState.current === 'SHOOTING' && aiTimer.current <= 0) {
+            
+            if (aiState.current === 'EVADE' && aiTimer.current <= 0) {
                 aiState.current = 'IDLE';
-                aiTimer.current = 500; 
-                shootSequence.current = 0;
+                aiTimer.current = 200;
             }
 
-            if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING') {
+            if (aiTimer.current <= 0 && landingFrames.current <= 0 && aiState.current !== 'SHOOTING' && aiState.current !== 'MELEE' && aiState.current !== 'EVADE') {
               if (aiState.current === 'DASHING') {
                   moveInput.current.set(0, 0, 0); 
                   if (Math.random() > 0.3) {
@@ -857,6 +933,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                       } else { velocity.current.y = 0; }
                       boost.current -= 15;
                       aiTimer.current = MathUtils.randInt(300, 600); 
+                      playBoostSound();
                   } else {
                       aiState.current = 'IDLE'; 
                       aiTimer.current = 500;
@@ -879,6 +956,30 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             landingFrames.current -= 1 * timeScale; 
             setIsThrusting(false);
         } else {
+            // --- EXECUTION LOGIC ---
+
+            const performMeleeSnap = (target: any) => {
+                if (!target) return;
+                // Only snap to target if we have a valid position object
+                const tPos = target.position || target; // Handle both GameEntity and Vector3
+                
+                position.current.y = MathUtils.lerp(position.current.y, tPos.y, 0.8);
+                velocity.current.y = 0; 
+                
+                if (rotateGroupRef.current) {
+                    const fwd = new Vector3();
+                    const worldFwd = new Vector3(0, 0, 1).applyQuaternion(rotateGroupRef.current.quaternion);
+                    worldFwd.y = 0; 
+                    if (worldFwd.lengthSq() > 0.001) {
+                        worldFwd.normalize();
+                        // Look at target
+                        const lookTarget = position.current.clone().add(worldFwd);
+                        rotateGroupRef.current.lookAt(lookTarget);
+                    }
+                    rotateGroupRef.current.updateMatrixWorld();
+                }
+            };
+
             if (aiState.current === 'SHOOTING') {
                 setIsThrusting(false);
                 if (shootMode.current === 'STOP') velocity.current.set(0,0,0);
@@ -891,12 +992,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 }
                 const currentRecovery = shootMode.current === 'STOP' ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
                 const totalFrames = GLOBAL_CONFIG.SHOT_STARTUP_FRAMES + currentRecovery;
-                const totalDurationMs = (totalFrames / 60) * 1000;
-                const elapsedMs = totalDurationMs - aiTimer.current;
-                const elapsedFrames = (elapsedMs / 1000) * 60;
+                
+                shootTimer.current += 1 * timeScale;
 
-                if (elapsedFrames >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && shootSequence.current === 0) {
-                    shootSequence.current = 1;
+                if (shootTimer.current >= GLOBAL_CONFIG.SHOT_STARTUP_FRAMES && !hasFired.current) {
+                    hasFired.current = true;
                     setShowMuzzleFlash(true);
                     setTimeout(() => setShowMuzzleFlash(false), 100);
                     const spawnPos = new Vector3();
@@ -916,6 +1016,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     const dist = tPos ? position.current.distanceTo(tPos) : 999;
                     const isRedLock = dist < RED_LOCK_DISTANCE;
                     const forwardDir = direction.clone();
+                    playShootSound();
                     spawnProjectile({
                         id: `proj-${id}-${Date.now()}`,
                         ownerId: id,
@@ -928,6 +1029,183 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         ttl: 300
                     });
                 }
+                
+                if (shootTimer.current >= totalFrames) {
+                    aiState.current = 'IDLE';
+                    shootTimer.current = 0;
+                    if (isGrounded.current && shootMode.current === 'STOP') landingFrames.current = Math.floor(GLOBAL_CONFIG.LANDING_LAG_MIN);
+                }
+            }
+            else if (aiState.current === 'EVADE') {
+                 setIsThrusting(true);
+                 const spd = GLOBAL_CONFIG.EVADE_SPEED;
+                 velocity.current.x = evadeDirection.current.x * spd;
+                 velocity.current.z = evadeDirection.current.z * spd;
+                 velocity.current.y = 0;
+            }
+            else if (aiState.current === 'MELEE') {
+                 // Safety check: If meleeState is NONE but we are in MELEE aiState, reset.
+                 if (meleeState.current === 'NONE') {
+                     aiState.current = 'IDLE';
+                     activeMeleeTargetId.current = null;
+                     return;
+                 }
+
+                 // NPC Melee Logic mirrored from Player.tsx (STICKY TARGET)
+                 setIsThrusting(true);
+                 // Use sticky target position if available, fallback to general logic
+                 const tPos = getTargetPos();
+                 const targetIdToHit = activeMeleeTargetId.current || localTargetId.current;
+                 
+                 if (meleeState.current === 'LUNGE' || meleeState.current === 'SIDE_LUNGE') {
+                     const isSide = meleeState.current === 'SIDE_LUNGE';
+
+                     if (tPos) {
+                         const dirToTarget = tPos.clone().sub(position.current).normalize();
+                         
+                         // Calculate speed
+                         let speed = (isSide ? GLOBAL_CONFIG.SIDE_MELEE_LUNGE_SPEED : GLOBAL_CONFIG.MELEE_LUNGE_SPEED) * GLOBAL_CONFIG.MELEE_LUNGE_SPEED_MULT;
+                         
+                         // MOVEMENT VECTOR MATH (Curve/Direct)
+                         const moveVec = dirToTarget.clone();
+
+                         if (isSide) {
+                             // Add perpendicular component for curve
+                             const up = new Vector3(0, 1, 0);
+                             const leftVec = new Vector3().crossVectors(up, dirToTarget).normalize();
+                             const curveStrength = GLOBAL_CONFIG.SIDE_MELEE_ARC_STRENGTH;
+                             const sideOffset = leftVec.multiplyScalar(meleeSideDirection.current * curveStrength);
+                             moveVec.add(sideOffset).normalize();
+                         }
+
+                         velocity.current.x = moveVec.x * speed;
+                         velocity.current.z = moveVec.z * speed;
+                         velocity.current.y = dirToTarget.y * speed;
+                         
+                         // Look at target
+                         rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+                     } else {
+                         // Fallback if no target
+                         const fwd = new Vector3(0,0,1).applyQuaternion(rotateGroupRef.current.quaternion);
+                         let speed = isSide ? GLOBAL_CONFIG.SIDE_MELEE_LUNGE_SPEED : GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
+                         velocity.current.x = fwd.x * speed;
+                         velocity.current.z = fwd.z * speed;
+                         velocity.current.y = fwd.y * speed;
+                     }
+                     
+                     meleeTimer.current -= timeScale;
+                     meleeStartupTimer.current -= timeScale;
+                     const dist = tPos ? position.current.distanceTo(tPos) : 999;
+                     const isStartupComplete = meleeStartupTimer.current <= 0;
+
+                     if (isStartupComplete && dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                         // HIT CONFIRMED -> Transition to Slash 1
+                         meleeState.current = isSide ? 'SIDE_SLASH_1' : 'SLASH_1';
+                         const comboData = isSide ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
+                         meleeTimer.current = comboData.DURATION_FRAMES;
+                         velocity.current.set(0,0,0);
+                         hasMeleeHitRef.current = false;
+                         meleeHitConfirmed.current = true;
+                         performMeleeSnap({position: tPos});
+                     } else if (meleeTimer.current <= 0) {
+                         // TIMEOUT (Whiff)
+                         meleeState.current = isSide ? 'SIDE_SLASH_1' : 'SLASH_1';
+                         const comboData = isSide ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
+                         meleeTimer.current = comboData.DURATION_FRAMES;
+                         hasMeleeHitRef.current = false;
+                         meleeHitConfirmed.current = false;
+                         velocity.current.set(0,0,0);
+                     }
+                 } 
+                 else if (meleeState.current.includes('SLASH')) {
+                     const isSide = meleeState.current.includes('SIDE');
+                     const stage = meleeState.current.endsWith('1') ? 1 : (meleeState.current.endsWith('2') ? 2 : 3);
+                     let comboData;
+                     let nextState: MeleePhase | 'RECOVERY' | 'SIDE_RECOVERY';
+                     
+                     if (isSide) {
+                         if (stage === 1) { comboData = GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1; nextState = 'SIDE_SLASH_2'; }
+                         else if (stage === 2) { comboData = GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_2; nextState = 'SIDE_SLASH_3'; }
+                         else { comboData = GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_3; nextState = 'SIDE_RECOVERY'; }
+                     } else {
+                         if (stage === 1) { comboData = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1; nextState = 'SLASH_2'; }
+                         else if (stage === 2) { comboData = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2; nextState = 'SLASH_3'; }
+                         else { comboData = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3; nextState = 'RECOVERY'; }
+                     }
+
+                     const passed = comboData.DURATION_FRAMES - meleeTimer.current;
+                     const isDamageFrame = passed >= comboData.DAMAGE_DELAY;
+
+                     // MAGNET SNAP
+                     if (meleeHitConfirmed.current && tPos && !hasMeleeHitRef.current) {
+                         const spacing = (comboData as any).ATTACK_SPACING ?? GLOBAL_CONFIG.MELEE_ATTACK_SPACING;
+                         const dirToTarget = new Vector3().subVectors(tPos, position.current).normalize();
+                         const idealPos = tPos.clone().sub(dirToTarget.multiplyScalar(spacing));
+                         const snapSpeed = GLOBAL_CONFIG.MELEE_MAGNET_SPEED * timeScale;
+                         position.current.lerp(idealPos, snapSpeed);
+                         rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+                     }
+
+                     // FORWARD STEP (Whiff or Slide)
+                     if (!meleeHitConfirmed.current) {
+                          const fwd = new Vector3(0, 0, 1).applyQuaternion(rotateGroupRef.current.quaternion).normalize();
+                          fwd.y = 0;
+                          velocity.current.x = fwd.x * comboData.FORWARD_STEP_SPEED;
+                          velocity.current.z = fwd.z * comboData.FORWARD_STEP_SPEED;
+                     } else {
+                         velocity.current.set(0,0,0);
+                     }
+
+                     if (!hasMeleeHitRef.current && isDamageFrame && meleeHitConfirmed.current && tPos && targetIdToHit) {
+                         const dist = position.current.distanceTo(tPos);
+                         if (dist < GLOBAL_CONFIG.MELEE_RANGE * 1.5) {
+                             const knockback = new Vector3().subVectors(tPos, position.current).normalize();
+                             const isKnockdown = (stage === 3) ? true : false;
+                             
+                             // Apply hit to target
+                             useGameStore.getState().applyHit(targetIdToHit, knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown);
+                             
+                             const chaseDir = new Vector3().subVectors(tPos, position.current).normalize();
+                             chaseDir.y = 0;
+                             velocity.current.add(chaseDir.multiplyScalar(comboData.CHASE_VELOCITY));
+
+                             playHitSound(position.current.distanceTo(useGameStore.getState().playerPos));
+                             hasMeleeHitRef.current = true;
+                             performMeleeSnap({position: tPos});
+                         }
+                     }
+
+                     meleeTimer.current -= timeScale;
+                     if (meleeTimer.current <= 0) {
+                         if (!nextState.includes('RECOVERY') && meleeHitConfirmed.current) {
+                              // Auto-Chain if hit confirmed
+                              meleeState.current = nextState as MeleePhase;
+                              // Determine duration for next stage
+                              const nextStage = stage + 1;
+                              const nextConfig = isSide 
+                                ? (nextStage === 2 ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_2 : GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_3)
+                                : (nextStage === 2 ? GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3);
+                                
+                              meleeTimer.current = nextConfig.DURATION_FRAMES;
+                              hasMeleeHitRef.current = false;
+                              if (tPos) performMeleeSnap({position: tPos});
+                         } else {
+                              meleeState.current = isSide ? 'SIDE_RECOVERY' : 'RECOVERY';
+                              meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
+                         }
+                     }
+                 }
+                 else if (meleeState.current === 'RECOVERY' || meleeState.current === 'SIDE_RECOVERY') {
+                     meleeTimer.current -= timeScale;
+                     velocity.current.y -= GLOBAL_CONFIG.GRAVITY * 0.5 * timeScale; 
+                     
+                     if (meleeTimer.current <= 0) {
+                         aiState.current = 'IDLE';
+                         meleeState.current = 'NONE';
+                         activeMeleeTargetId.current = null;
+                         aiTimer.current = 500;
+                     }
+                 }
             }
             else if (aiState.current === 'DASHING') {
                 setIsThrusting(true);
@@ -950,7 +1228,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 }
             }
 
-            if (aiState.current !== 'SHOOTING') {
+            if (aiState.current !== 'SHOOTING' && aiState.current !== 'MELEE' && aiState.current !== 'EVADE') {
                  const friction = isGrounded.current ? GLOBAL_CONFIG.FRICTION_GROUND : GLOBAL_CONFIG.FRICTION_AIR;
                  const frictionFactor = Math.pow(friction, timeScale);
                  velocity.current.x *= frictionFactor;
@@ -986,6 +1264,14 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         }
     }
 
+    // SYNC VISUAL STATE
+    if (aiState.current === 'DASHING') nextVisualState = 'DASH';
+    else if (aiState.current === 'ASCENDING') nextVisualState = 'ASCEND';
+    else if (aiState.current === 'MELEE') nextVisualState = 'MELEE';
+    else if (aiState.current === 'EVADE') nextVisualState = 'EVADE';
+    else if (aiState.current === 'SHOOTING') nextVisualState = 'SHOOT';
+    else if (isGrounded.current && velocity.current.lengthSq() > 0.01) nextVisualState = 'WALK';
+
     useGameStore.getState().updateTargetPosition(id, position.current.clone());
 
     groupRef.current.position.copy(position.current);
@@ -993,14 +1279,21 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
 
-        if (aiState.current === 'SHOOTING') {
+        if (aiState.current === 'SHOOTING' || aiState.current === 'MELEE' || aiState.current === 'EVADE') {
             const tPos = getTargetPos();
-            if (tPos && shootMode.current === 'STOP') {
+            if (tPos) {
                  rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
-        }
+            }
         } else if (aiState.current === 'DASHING') {
             const lookPos = position.current.clone().add(dashDirection.current);
             rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+        } else if (aiState.current === 'ASCENDING') {
+             // If moving horizontally, align to movement direction, otherwise preserve rotation (don't snap to target)
+             const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+             if (horizVel.lengthSq() > 0.01) {
+                const lookPos = position.current.clone().add(horizVel);
+                rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+             }
         } else if (isWalking) {
             const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
             if (horizVel.lengthSq() > 0.001) {
@@ -1018,13 +1311,44 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         rotateGroupRef.current.updateMatrixWorld(true);
     }
 
+    // ANIMATION SELECTION
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const isIdle = isGrounded.current && aiState.current === 'IDLE' && landingFrames.current <= 0;
         let activeClip = isIdle ? ANIMATION_CLIPS.IDLE : ANIMATION_CLIPS.NEUTRAL;
         
         if (aiState.current === 'DASHING') activeClip = ANIMATION_CLIPS.DASH_GUN;
+        if (aiState.current === 'EVADE') activeClip = ANIMATION_CLIPS.DASH_SABER; 
         
-        animator.play(activeClip, 0.2);
+        if (aiState.current === 'MELEE') {
+             if (meleeState.current === 'LUNGE') activeClip = ANIMATION_CLIPS.MELEE_STARTUP;
+             else if (meleeState.current === 'SIDE_LUNGE') activeClip = ANIMATION_CLIPS.MELEE_SIDE_LUNGE;
+             else if (meleeState.current === 'SLASH_1') activeClip = ANIMATION_CLIPS.MELEE_SLASH_1;
+             else if (meleeState.current === 'SLASH_2') activeClip = ANIMATION_CLIPS.MELEE_SLASH_2;
+             else if (meleeState.current === 'SLASH_3') activeClip = ANIMATION_CLIPS.MELEE_SLASH_3;
+             else if (meleeState.current === 'SIDE_SLASH_1') activeClip = ANIMATION_CLIPS.SIDE_SLASH_1;
+             else if (meleeState.current === 'SIDE_SLASH_2') activeClip = ANIMATION_CLIPS.SIDE_SLASH_2;
+             else if (meleeState.current === 'SIDE_SLASH_3') activeClip = ANIMATION_CLIPS.SIDE_SLASH_3;
+             else if (meleeState.current.includes('RECOVERY')) activeClip = ANIMATION_CLIPS.MELEE_RECOVERY;
+        }
+        
+        // CORRECT SPEED CALCULATION FOR MELEE
+        let speed = 1.0;
+        let blend = 0.2;
+        if (aiState.current === 'MELEE' && meleeState.current.includes('SLASH')) {
+             const isSide = meleeState.current.includes('SIDE');
+             const stage = meleeState.current.endsWith('1') ? 1 : (meleeState.current.endsWith('2') ? 2 : 3);
+             
+             let comboData;
+             if (isSide) {
+                  comboData = stage === 1 ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : (stage === 2 ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_2 : GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_3);
+             } else {
+                  comboData = stage === 1 ? GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1 : (stage === 2 ? GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_2 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3);
+             }
+             speed = 60 / comboData.DURATION_FRAMES;
+             blend = 0.05;
+        }
+
+        animator.play(activeClip, blend, speed);
     }
     
     animator.update(delta);
@@ -1035,9 +1359,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     if (!isKnockedDown && !stunned && aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         
-        const isFalling = !isGrounded.current && aiState.current !== 'DASHING' && aiState.current !== 'ASCENDING';
+        const isFalling = !isGrounded.current && aiState.current !== 'DASHING' && aiState.current !== 'ASCENDING' && aiState.current !== 'MELEE' && aiState.current !== 'EVADE';
         if (isFalling && !wasFallingRef.current) {
-             const vy = velocity.current.y;
+             const vy = velocity.current.y; 
              const h = position.current.y;
              const g = GLOBAL_CONFIG.GRAVITY;
              const discriminant = vy * vy + 2 * g * h;
@@ -1095,7 +1419,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, GLOBAL_CONFIG.LANDING_BODY_TILT * w);
         }
 
-        const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
+        const isWalking = nextVisualState === 'WALK' && isGrounded.current;
         const targetWalkWeight = isWalking ? 1.0 : 0.0;
         currentWalkWeight.current = MathUtils.lerp(currentWalkWeight.current, targetWalkWeight, 0.15 * timeScale);
 
@@ -1103,7 +1427,11 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             if (isWalking) {
                 const speedVal = new Vector3(velocity.current.x, 0, velocity.current.z).length();
                 if (speedVal > 0.05) {
+                    lastWalkCycle.current = walkCycle.current;
                     walkCycle.current += delta * 9.5;
+                    const prevStep = Math.floor(lastWalkCycle.current / Math.PI);
+                    const currStep = Math.floor(walkCycle.current / Math.PI);
+                    if (currStep !== prevStep) playFootSound();
                 }
             }
             const t = walkCycle.current;
@@ -1121,16 +1449,22 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             const lAnkleTarget = (lKneeTarget * 0.1) + (sin * 0.6);
             animatedPose.RIGHT_LEG.ANKLE.x = MathUtils.lerp(animatedPose.RIGHT_LEG.ANKLE.x, rAnkleTarget, w);
             animatedPose.LEFT_LEG.ANKLE.x = MathUtils.lerp(animatedPose.LEFT_LEG.ANKLE.x, lAnkleTarget, w);
+            
+            // UPDATED: Procedural Sway/Tilt from Player.tsx
             animatedPose.TORSO.x = MathUtils.lerp(animatedPose.TORSO.x, 0.5, w); 
+            //animatedPose.TORSO.z = MathUtils.lerp(animatedPose.TORSO.z, -cos * 0.05, w);
+            animatedPose.TORSO.y = MathUtils.lerp(animatedPose.TORSO.y, -cos * 0.05, w);
             animatedPose.CHEST.y = MathUtils.lerp(animatedPose.CHEST.y, sin * 0.22, w);
             animatedPose.CHEST.z = MathUtils.lerp(animatedPose.CHEST.z, cos * 0.1, w);
             animatedPose.HEAD.y = MathUtils.lerp(animatedPose.HEAD.y, -sin * 0.22, w);
             
             animatedPose.RIGHT_LEG.THIGH.z = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.z, 0, w);
             animatedPose.LEFT_LEG.THIGH.z = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.z, 0, w);
+            animatedPose.RIGHT_LEG.THIGH.y = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.y, 0, w);
+            animatedPose.LEFT_LEG.THIGH.y = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.y, 0, w);
         }
 
-        if (aiState.current === 'SHOOTING' && gunArmRef.current) {
+        if (aiState.current === 'SHOOTING' && gunArmRef.current && currentTarget) {
              const tPos = getTargetPos();
              if (tPos) {
                  const shoulderPos = new Vector3();
@@ -1146,20 +1480,19 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                  const aiming = GLOBAL_CONFIG.SHOT_AIM_DURATION;
                  const recovery = shootMode.current === 'STOP' ? GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES_STOP : GLOBAL_CONFIG.SHOT_RECOVERY_FRAMES;
                  const totalFrames = startup + recovery;
-                 const totalDurationMs = (totalFrames / 60) * 1000;
-                 const elapsedMs = totalDurationMs - aiTimer.current;
-                 const elapsedFrames = (elapsedMs / 1000) * 60;
-
+                 
+                 // Fix: Using shootTimer (counting UP) instead of aiTimer (counting DOWN)
+                 // to calculate aimWeight, matching Player logic
                  let aimWeight = 0;
-                 if (elapsedFrames < startup) {
-                     if (elapsedFrames < aiming) {
-                         const t = elapsedFrames / aiming;
+                 if (shootTimer.current < startup) {
+                     if (shootTimer.current < aiming) {
+                         const t = shootTimer.current / aiming;
                          aimWeight = 1 - Math.pow(1 - t, 3);
                      } else {
                          aimWeight = 1.0;
                      }
                  } else {
-                     const t = (elapsedFrames - startup) / recovery;
+                     const t = (shootTimer.current - startup) / recovery;
                      aimWeight = 1.0 - t;
                  }
                  
@@ -1173,12 +1506,13 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     let targetInertiaX = 0;
     let targetInertiaZ = 0;
     if (!stunned && aiState.current !== 'KNOCKED_DOWN') {
-        const allowInertia = false; 
+        // FIXED: Only EVADE should trigger inertia sway, not DASHING (matches Player.tsx)
+        const allowInertia = aiState.current === 'EVADE'; 
         if (allowInertia) { 
              const invRot = rotateGroupRef.current.quaternion.clone().invert();
              const localVel = velocity.current.clone().applyQuaternion(invRot);
-             targetInertiaX = localVel.z * 1.0; 
-             targetInertiaZ = -localVel.x * 1.0;
+             targetInertiaX = localVel.z * 1.5; 
+             targetInertiaZ = -localVel.x * 1.5;
         }
     }
     const swaySpeed = 0.2 * timeScale;
@@ -1239,12 +1573,23 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   const armorColor = team === Team.RED ? '#ff8888' : '#E9EAEB';
   const chestColor = team === Team.RED ? '#880000' : '#727CDB';
   const feetColor = team === Team.RED ? '#333333' : '#D94850';
-  const activeWeapon = 'GUN' as 'GUN' | 'SABER'; 
+  const activeWeapon = aiState.current === 'MELEE' || aiState.current === 'EVADE' ? 'SABER' : 'GUN'; 
   const waistColor = '#D94850';
 
   return (
     <group ref={groupRef}>
       <group ref={rotateGroupRef}>
+         {/* ROOT SLASH EFFECT */}
+         <ProceduralSlashEffect meleeState={meleeState} parentRef={groupRef} />
+         
+         {/* INDEPENDENT FLOATING SHIELD */}
+         <group ref={shieldRef}>
+             <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
+                 <mesh position={[0, 0, 0]}><boxGeometry args={[0.1, 1.7, 0.7]} /><MechMaterial color={armorColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                 <mesh position={[0.06, 0, 0]}><boxGeometry args={[0.1, 1.55, 0.5]} /><MechMaterial color={waistColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+             </group>
+         </group>
+         
          <group position={[0, 2.0, 0]}>
             <group ref={torsoRef}>
                 <group position={[0, 0.26, -0.043]} rotation={[0, 0, 0]} scale={[0.8, 0.7, 0.9]}>
@@ -1308,24 +1653,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                                 <MechMaterial color="#222222" />
                                                 {isOutlineOn && <Outlines thickness={4} color="#111" />}
                                             </mesh>
+                                            
+                                            {/* RIGHT SABER (DUAL WIELD) */}
+                                            <group ref={rightSaberRef} visible={false} position={[0, 0, 0.1]} rotation={[1.74, 0, 0]}>
+                                                <mesh position={[0, -0.25, 0]}><cylinderGeometry args={[0.035, 0.04, 0.7, 8]} /><MechMaterial color="#ffffff" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
+                                                <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.05, 0.05, 2.4, 8]} /><meshBasicMaterial color="#ffffff" /></mesh>
+                                                <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.12, 0.12, 2.6, 8]} /><meshBasicMaterial color="#ff0088" transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} /></mesh>
+                                            </group>
                                         </group>
                                     </group>
 
-                                    {/* Shield Group (ref assigned here for animation) */}
-                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={shieldRef}>
-                                            <group position={[0.35, 0, 0.1]} rotation={[0, 0, -0.32]}>
-                                                <mesh position={[0, 0, 0]}>
-                                                    <boxGeometry args={[0.1, 1.7, 0.7]} />
-                                                    <MechMaterial color={armorColor} />
-                                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                                                </mesh>
-                                                <mesh position={[0.06, 0, 0]}>
-                                                    <boxGeometry args={[0.1, 1.55, 0.5]} />
-                                                    <MechMaterial color={waistColor} />
-                                                    {isOutlineOn && <Outlines thickness={4} color="#111" />}
-                                                </mesh>
-                                            </group>
-                                    </group>
+                                    {/* Shield Mount (Arm) */}
+                                    <group position={[0, -0.5, 0.1]} rotation={[-0.2, 0, 0]} ref={armShieldMountRef} />
 
                                 </group>
                             </group>
@@ -1407,6 +1746,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                         <group position={[0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
                         <group position={[-0.25, -0.9, -0.4]}><cylinderGeometry args={[0.1, 0.15, 0.2]} /><MechMaterial color="#666" /><ThrusterPlume active={isThrusting} offset={[0, -0.1, 0]} isAscending={isAscending} /></group>
                         <BoostBurst triggerTime={dashTriggerTime} />
+                        
+                        {/* BACK SHIELD MOUNT */}
+                        <group position={[0, -0.8, -0.2]} rotation={[0, 1.57, 0]} ref={backShieldMountRef} />
                     </group>
                 </group>
             </group>
@@ -1430,7 +1772,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                                 </mesh>
                             </group>
 
-                            <GhostEmitter active={isTrailActive} size={[0.35, 0.7, 0.4]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
+                            <GhostEmitter active={isTrailActive} size={[0.35, 0.2, 0.7]} offset={[0, -0.4, 0]} rainbow={trailRainbow.current} />
                             
                             {/* R Shin Group */}
                             <group ref={rightLowerLegRef} position={[0, -0.75, 0]}> 

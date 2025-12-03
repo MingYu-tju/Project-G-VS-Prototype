@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameScene } from './components/GameScene';
 import { HUD } from './components/HUD';
@@ -7,7 +6,7 @@ import { GamepadControls } from './components/GamepadControls';
 import { PoseEditor } from './components/PoseEditor';
 import { ModelBuilder } from './components/ModelBuilder';
 import { useGameStore } from './store';
-import { resumeAudioContext } from './components/Player';
+import { resumeAudioContext } from './components/AudioController'; // Updated Import
 
 function App() {
   const { 

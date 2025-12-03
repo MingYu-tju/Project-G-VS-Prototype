@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, PerspectiveCamera, Html } from '@react-three/drei';
@@ -6,7 +5,7 @@ import { DoubleSide, Vector3, Matrix4, Quaternion, Euler, MathUtils, Group } fro
 import { MechPose, DEFAULT_MECH_POSE, RotationVector, AnimationClip, AnimationTrack, Keyframe, SlashSpecsGroup, SlashSpec } from '../types';
 import { PosableUnit } from './PosableUnit';
 import { clonePose } from './AnimationSystem';
-import { ProceduralSlashEffect, DEFAULT_SLASH_SPECS } from './Player';
+import { ProceduralSlashEffect, DEFAULT_SLASH_SPECS } from './VFX'; // Updated Import
 
 // --- HELPER TYPES & UTILS ---
 

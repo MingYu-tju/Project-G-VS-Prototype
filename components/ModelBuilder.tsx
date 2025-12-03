@@ -4,23 +4,8 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid, useCursor, Html, useGLTF, Edges } from '@react-three/drei';
 import { Vector3, Euler, Mesh, Group, MathUtils, Color, AdditiveBlending, BoxGeometry } from 'three';
 import {INITIAL_MODEL} from '../assets'
-
+import {ShapeType,ModelPart} from '../types'
 // --- TYPES ---
-
-type ShapeType = 'group' | 'box' | 'cylinder' | 'head' | 'prism' | 'trapezoid';
-
-export interface ModelPart {
-    id: string;
-    name: string;
-    type: ShapeType;
-    position: [number, number, number];
-    rotation: [number, number, number];
-    scale: [number, number, number];
-    args: number[]; 
-    color: string;
-    children: ModelPart[];
-    visible: boolean;
-}
 
 // --- ASSETS (Copied from Player.tsx for visual fidelity) ---
 const MODEL_PATH = '/models/head.glb';
