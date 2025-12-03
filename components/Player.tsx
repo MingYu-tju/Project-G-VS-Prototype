@@ -125,6 +125,114 @@ const GeoFactory = {
     }
 };
 
+// Consolidated Chest Visuals to reduce draw calls
+const ChestVisuals = React.memo(({ chestColor }: { chestColor: string }) => {
+    const isOutlineOn = useGameStore(state => state.isOutlineOn);
+    
+    const { chestGeo, yellowGeo, darkGeo } = useMemo(() => {
+        const buckets: Record<string, THREE.BufferGeometry[]> = {
+            chest: [], yellow: [], dark: []
+        };
+
+        const add = (
+            geo: THREE.BufferGeometry, 
+            bucketKey: string, 
+            local: { p: number[], r: number[], s: number[] },
+            parent?: { p: number[], r: number[], s: number[] }
+        ) => {
+            if (local.s) geo.scale(local.s[0], local.s[1], local.s[2]);
+            if (local.r) { 
+                geo.rotateZ(local.r[2]); 
+                geo.rotateY(local.r[1]); 
+                geo.rotateX(local.r[0]); 
+            }
+            if (local.p) geo.translate(local.p[0], local.p[1], local.p[2]);
+
+            if (parent) {
+                if (parent.s) geo.scale(parent.s[0], parent.s[1], parent.s[2]);
+                if (parent.r) { 
+                     const parentRot = new THREE.Matrix4().makeRotationFromEuler(
+                        new THREE.Euler(parent.r[0], parent.r[1], parent.r[2], 'XYZ')
+                     );
+                     geo.applyMatrix4(parentRot);
+                }
+                if (parent.p) geo.translate(parent.p[0], parent.p[1], parent.p[2]);
+            }
+            buckets[bucketKey].push(geo);
+        };
+
+        // 1. Chest Armor Plate (Trapezoid)
+        add(GeoFactory.trapz([0.5, 0.5, 0.25, 1, 5.85]), 'chest', 
+            { p: [0, -0.264, 0.284], r: [0.3, 0, 0], s: [0.4, 1.6, 0.3] }
+        );
+
+        // 2. Left Vent Group
+        const ventL = { p: [0.226, -0.088, 0.431], r: [0.315, 0, 0], s: [0.7, 0.8, 1.1] };
+        // Main Box
+        add(GeoFactory.box(0.35, 0.25, 0.05), 'yellow', { p: [0, 0, 0], r: [0,0,0], s: [1,1,1] }, ventL);
+        // Dark Slats
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, -0.091, 0.03], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventL);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, -0.034, 0.032], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventL);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, 0.022, 0.033], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventL);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, 0.079, 0.029], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventL);
+
+        // 3. Right Vent Group
+        const ventR = { p: [-0.225, -0.091, 0.43], r: [0.315, 0, 0], s: [0.7, 0.8, 1.1] };
+        // Main Box
+        add(GeoFactory.box(0.35, 0.25, 0.05), 'yellow', { p: [0, 0, 0], r: [0,0,0], s: [1,1,1] }, ventR);
+        // Dark Slats
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, -0.091, 0.03], r: [0,0,0], s: [0.9, 0.1, 0.1] }, ventR);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, -0.034, 0.03], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventR);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, 0.022, 0.03], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventR);
+        add(GeoFactory.box(0.3, 0.2, 0.05), 'dark', { p: [0, 0.079, 0.03], r: [0,0,0], s: [0.9, 0.1, 0.2] }, ventR);
+
+        // 4. CHEST_1 (Main Block)
+        add(GeoFactory.box(0.5, 0.5, 0.5), 'chest', 
+            { p: [0, 0.013, -0.043], r: [0,0,0], s: [1.5, 1.2, 0.8] }
+        );
+
+        // 5. CHEST_2 (Top Detail)
+        add(GeoFactory.box(0.5, 0.5, 0.5), 'yellow', 
+            { p: [0, 0.321, -0.016], r: [0,0,0], s: [0.8, 0.1, 0.7] }
+        );
+
+        // 6. CHEST_3 (Upper Chest Plate)
+        add(GeoFactory.trapz([0.5, 0.35, 0.35, 1, 0.45]), 'chest',
+            { p: [0, -0.025, 0.236], r: [1.9, 0, 0], s: [1.5, 1, 1.5] }
+        );
+
+        // 7. CHEST_4 (Collar/Neck Guard)
+        add(GeoFactory.trapz([0.1, 0.2, 0.4, 1, 0.4]), 'yellow',
+            { p: [0, 0.254, 0.215], r: [2.21, -1.572, 0], s: [0.8, 1, 1] }
+        );
+
+        const merge = (arr: THREE.BufferGeometry[]) => arr.length > 0 ? BufferGeometryUtils.mergeGeometries(arr) : null;
+
+        return {
+            chestGeo: merge(buckets.chest),
+            yellowGeo: merge(buckets.yellow),
+            darkGeo: merge(buckets.dark)
+        };
+    }, []);
+
+    // Clean up
+    useEffect(() => {
+        return () => {
+            if (chestGeo) chestGeo.dispose();
+            if (yellowGeo) yellowGeo.dispose();
+            if (darkGeo) darkGeo.dispose();
+        };
+    }, [chestGeo, yellowGeo, darkGeo]);
+
+    return (
+        <group name="ChestMerged">
+            {chestGeo && <mesh geometry={chestGeo}><MechMaterial color={chestColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
+            {yellowGeo && <mesh geometry={yellowGeo}><MechMaterial color="#FFD966" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
+            {darkGeo && <mesh geometry={darkGeo}><MechMaterial color="#444444" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>}
+        </group>
+    );
+});
+
 const HipVisuals = React.memo(({ armorColor, feetColor, waistColor }: { armorColor: string, feetColor: string, waistColor: string }) => {
     const isOutlineOn = useGameStore(state => state.isOutlineOn);
     const { whiteGeo, darkGeo, redGeo, yellowGeo } = useMemo(() => {
@@ -1977,7 +2085,11 @@ export const Player: React.FC = () => {
                          // Let's verify: 
                          // Player at (0,0,10), Target at (0,0,0). ToTarget = (0,0,-1). Up = (0,1,0).
                          // Up x ToTarget = (0,1,0) x (0,0,-1) = (-1, 0, 0) = Left.
-                         // So 'tangent' vector points LEFT.
+                         // So 'tangent' vector points RIGHT.
+                         // WAIT. (0,1,0) cross (0,0,-1) = (-1, 0, 0) which is -X (Right in ThreeJS is +X, Left is -X... wait no)
+                         // ThreeJS: +X Right, -X Left, +Y Up, +Z Back (towards camera)
+                         // (0,1,0) x (0,0,-1) = (-1, 0, 0). This is Left.
+                         // So Tangent points Left.
                          
                          const radiusVec = toTarget.normalize();
                          const tangent = new Vector3().crossVectors(new Vector3(0, 1, 0), radiusVec).normalize();
@@ -2641,27 +2753,9 @@ export const Player: React.FC = () => {
                         {/* Hidden Logic Box */}
                         <mesh position={[0, 0, 0]} visible={false}><boxGeometry args={[0.1, 0.1, 0.1]} /><meshBasicMaterial color="red" /></mesh>
 
-                        {/* CHEST GROUP */}
+                        {/* CHEST GROUP - OPTIMIZED */}
                         <group ref={upperBodyRef} position={[0, 0.65, 0]}>
-                            <group name="ChestVisuals">
-                                <group position={[0, -0.264, 0.284]} rotation={[0.3, 0, 0]} scale={[0.4, 1.6, 0.3]}><Trapezoid args={[0.5, 0.5, 0.25, 1, 5.85]} color={chestColor} /></group>
-                                <group position={[0.226, -0.088, 0.431]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}><mesh><boxGeometry args={[0.35, 0.25, 0.05]} /><MechMaterial color="#FFD966" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                    <mesh position={[0, -0.091, 0.03]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, -0.034, 0.032]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, 0.022, 0.033]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, 0.079, 0.029]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                </group>
-                                <group position={[-0.225, -0.091, 0.43]} rotation={[0.315, 0, 0]} scale={[0.7, 0.8, 1.1]}><mesh><boxGeometry args={[0.35, 0.25, 0.05]} /><MechMaterial color="#FFD966" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh>
-                                    <mesh position={[0, -0.091, 0.03]} scale={[0.9, 0.1, 0.1]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, -0.034, 0.03]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, 0.022, 0.03]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                    <mesh position={[0, 0.079, 0.03]} scale={[0.9, 0.1, 0.2]}><boxGeometry args={[0.3, 0.2, 0.05]} /><MechMaterial color="#444444" /></mesh>
-                                </group>
-                                <group position={[0, 0.013, -0.043]} scale={[1.5, 1.2, 0.8]}><mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color={chestColor} />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh></group>
-                                <group position={[0, 0.321, -0.016]} scale={[0.8, 0.1, 0.7]}><mesh><boxGeometry args={[0.5, 0.5, 0.5]} /><MechMaterial color="#FFD966" />{isOutlineOn && <Outlines thickness={4} color="#111" />}</mesh></group>
-                                <group position={[0, -0.025, 0.236]} rotation={[1.9, 0, 0]} scale={[1.5, 1, 1.5]}><Trapezoid args={[0.5, 0.35, 0.35, 1, 0.45]} color={chestColor} /></group>
-                                <group position={[0, 0.254, 0.215]} rotation={[2.21, -1.572, 0]} scale={[0.8, 1, 1]}><Trapezoid args={[0.1, 0.2, 0.4, 1, 0.4]} color="#FFD966" /></group>
-                            </group>
+                            <ChestVisuals chestColor={chestColor} />
 
                             {/* HEAD */}
                             <group ref={headRef}>
