@@ -353,31 +353,34 @@ const RAW_SIDE_MELEE_HOLD: MechPose = {
 
 // NEW: Knockdown Poses
 const RAW_KNOCKDOWN: MechPose = {
-    ...DEFAULT_MECH_POSE,
-    TORSO: { x: -1.4, y: 0, z: 0 }, // Lie flat on back
+    TORSO: { x: -1.4, y: 0, z: 0 },
     CHEST: { x: 0, y: 0, z: 0 },
-    HEAD: { x: 0.3, y: 0, z: 0 }, // Head up slightly
-    LEFT_ARM: { 
-        SHOULDER: { x: -0.5, y: 0, z: -0.5 },
-        ELBOW: { x: -0.2, y: 0, z: 0 },
-        FOREARM: { x: 0, y: 0, z: 0 },
-        WRIST: { x: 0, y: 0, z: 0 }
+    HEAD: { x: 0.3, y: 0, z: 0 },
+    LEFT_ARM: {
+        SHOULDER: { x: 0.36, y: 0, z: -0.5 },
+        ELBOW: { x: 0.06, y: 0, z: 0 },
+        FOREARM: { x: -0.54, y: 0, z: 0 },
+        WRIST: { x: 0.66, y: 0, z: 0 }
     },
-    RIGHT_ARM: { 
+    RIGHT_ARM: {
         SHOULDER: { x: 0.5, y: 0, z: 0.5 },
         ELBOW: { x: -0.2, y: 0, z: 0 },
         FOREARM: { x: 0, y: 0, z: 0 },
         WRIST: { x: 0, y: 0, z: 0 }
     },
-    LEFT_LEG: { 
-        THIGH: { x: 0.2, y: 0, z: -0.2 },
-        KNEE: 0.2,
-        ANKLE: { x: 0.5, y: 0, z: 0 }
+    LEFT_LEG: {
+        THIGH: { x: -1.99, y: 0, z: -0.2 },
+        KNEE: 1.2,
+        ANKLE: { x: 0.26, y: 0, z: 0 }
     },
-    RIGHT_LEG: { 
-        THIGH: { x: 0.2, y: 0, z: 0.2 },
+    RIGHT_LEG: {
+        THIGH: { x: -1.49, y: 0, z: 0.2 },
         KNEE: 0.2,
-        ANKLE: { x: 0.5, y: 0, z: 0 }
+        ANKLE: { x: 0.36, y: 0, z: 0 }
+    },
+    SHIELD: {
+        POSITION: { x: 0, y: -0.5, z: 0.1 },
+        ROTATION: { x: -0.2, y: 0, z: 0 }
     }
 };
 

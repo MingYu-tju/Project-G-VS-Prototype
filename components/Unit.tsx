@@ -417,9 +417,10 @@ interface UnitProps {
   knockbackDir?: Vector3;
   knockbackPower?: number;
   isKnockedDown?: boolean;
+  hitStop: number; // NEW: Passed from GameScene via store mapping
 }
 
-export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, lastHitDuration = GLOBAL_CONFIG.KNOCKBACK_DURATION, knockbackDir, knockbackPower = 1.0, isKnockedDown = false }) => {
+export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name, isTargeted, lastHitTime, lastHitDuration = GLOBAL_CONFIG.KNOCKBACK_DURATION, knockbackDir, knockbackPower = 1.0, isKnockedDown = false, hitStop }) => {
   const groupRef = useRef<Group>(null);
   const rotateGroupRef = useRef<Group>(null); 
   
@@ -527,7 +528,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   
   const spawnProjectile = useGameStore(state => state.spawnProjectile);
   const applyHit = useGameStore(state => state.applyHit);
-  const hitStop = useGameStore(state => state.hitStop); 
+  // const hitStop = useGameStore(state => state.hitStop); // REMOVED: Use local hitStop prop
   const areNPCsPaused = useGameStore(state => state.areNPCsPaused); 
   const clockRef = useRef(0);
 
@@ -576,7 +577,22 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   useFrame((state, delta) => {
     if (!groupRef.current || !rotateGroupRef.current) return;
 
-    if (hitStop > 0) return;
+    // --- LOCAL HIT STOP VIBRATION ---
+    if (hitStop > 0) {
+         const shakeIntensity = 0.1; 
+         const rx = (Math.random() - 0.5) * shakeIntensity;
+         const ry = (Math.random() - 0.5) * shakeIntensity;
+         const rz = (Math.random() - 0.5) * shakeIntensity;
+         
+         const currentPos = position.current.clone();
+         groupRef.current.position.set(
+             currentPos.x + rx,
+             currentPos.y + ry,
+             currentPos.z + rz
+         );
+         // Skip logic update
+         return;
+    }
     
     clockRef.current += delta;
     const timeScale = delta * 60;
@@ -606,6 +622,16 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         return freshTargets.find(t => t.id === effectiveTargetId);
     }
     const currentTarget = resolveCurrentEntity();
+
+    // Calculate distance-based volume
+    const soundDist = position.current.distanceTo(freshPlayerPos);
+    // SQUARED FALLOFF for better attenuation
+    const getVolume = (base: number) => {
+        const maxDist = 100;
+        if (soundDist > maxDist) return 0;
+        const factor = 1 - (soundDist / maxDist);
+        return factor * factor * base;
+    };
 
     // 2. Helper: Detect incoming projectiles (Evasion Trigger)
     const detectIncomingThreat = (): boolean => {
@@ -826,7 +852,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     // Random left or right
                     evadeDirection.current.copy(right).multiplyScalar(Math.random() > 0.5 ? 1 : -1);
                     aiTimer.current = GLOBAL_CONFIG.EVADE_DURATION / 60 * 1000; 
-                    playBoostSound();
+                    playBoostSound(getVolume(0.6));
                     // Deduct boost
                     boost.current -= 15;
                 }
@@ -933,7 +959,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                       } else { velocity.current.y = 0; }
                       boost.current -= 15;
                       aiTimer.current = MathUtils.randInt(300, 600); 
-                      playBoostSound();
+                      playBoostSound(getVolume(0.6));
                   } else {
                       aiState.current = 'IDLE'; 
                       aiTimer.current = 500;
@@ -1016,7 +1042,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     const dist = tPos ? position.current.distanceTo(tPos) : 999;
                     const isRedLock = dist < RED_LOCK_DISTANCE;
                     const forwardDir = direction.clone();
-                    playShootSound();
+                    playShootSound(getVolume(0.4));
                     spawnProjectile({
                         id: `proj-${id}-${Date.now()}`,
                         ownerId: id,
@@ -1163,7 +1189,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                              const isKnockdown = (stage === 3) ? true : false;
                              
                              // Apply hit to target
-                             useGameStore.getState().applyHit(targetIdToHit, knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown);
+                             // FIXED: Added attacker ID (self id) to allow hit detection logic to know who attacked
+                             useGameStore.getState().applyHit(targetIdToHit, id, knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown);
                              
                              const chaseDir = new Vector3().subVectors(tPos, position.current).normalize();
                              chaseDir.y = 0;
@@ -1431,7 +1458,7 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                     walkCycle.current += delta * 9.5;
                     const prevStep = Math.floor(lastWalkCycle.current / Math.PI);
                     const currStep = Math.floor(walkCycle.current / Math.PI);
-                    if (currStep !== prevStep) playFootSound();
+                    if (currStep !== prevStep) playFootSound(getVolume(0.2));
                 }
             }
             const t = walkCycle.current;
@@ -1502,6 +1529,37 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
              }
         }
     }
+    
+    // --- HIT REACTION LOGIC (NPC) ---
+    // We calculate offsets locally and apply them to the mesh ref *after* applying the base animation pose.
+    // This prevents the animation controller's internal state from accumulating hit offsets.
+    let hitPitch = 0;
+    let hitRoll = 0;
+
+    if (stunned && knockbackPower > 0.1 && knockbackDir) {
+         const timeSinceHit = now - lastHitTime;
+         const HIT_REACTION_DURATION = 400; // ms
+         
+         if (timeSinceHit < HIT_REACTION_DURATION) {
+             const progress = timeSinceHit / HIT_REACTION_DURATION;
+             const intensity = Math.sin(progress * Math.PI) * (1 - progress);
+             
+             // Convert Knockback (Force) vector to local space
+             // RotateGroupRef handles Y-rotation, so invert it to get local direction
+             if (rotateGroupRef.current) {
+                 const invQuat = rotateGroupRef.current.quaternion.clone().invert();
+                 const localImpact = knockbackDir.clone().applyQuaternion(invQuat).normalize();
+                 
+                 const PITCH_MAX = 1.5;
+                 const ROLL_MAX = 1.3;
+                 
+                 // Impact Front (Z+) -> Pitch Back (X-)
+                 hitPitch = localImpact.z * PITCH_MAX * intensity;
+                 // Impact Right (X+) -> Roll Left (Z+)
+                 hitRoll = -localImpact.x * ROLL_MAX * intensity;
+             }
+         }
+    }
 
     let targetInertiaX = 0;
     let targetInertiaZ = 0;
@@ -1535,7 +1593,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
         currentHipOffset.current = MathUtils.lerp(currentHipOffset.current, 0, 0.2 * timeScale);
     }
 
+    // Apply base animation pose
     applyPoseToModel(animatedPose, currentHipOffset.current, currentLegInertiaRot.current);
+    
+    // APPLY HIT REACTION OFFSETS (Post-application)
+    // Add offset directly to the mesh rotation, skipping the animation controller
+    if (torsoRef.current && (hitPitch !== 0 || hitRoll !== 0)) {
+        torsoRef.current.rotation.x += hitPitch;
+        torsoRef.current.rotation.z += hitRoll;
+    }
 
     if (headRef.current && !stunned && aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
         const neutralLocalQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));

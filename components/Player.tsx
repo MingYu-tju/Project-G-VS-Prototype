@@ -433,7 +433,8 @@ export const Player: React.FC = () => {
         playerKnockbackPower,
         cutTracking,
         applyHit,
-        hitStop,
+        playerHitStop, // Use local hit stop
+        hitStop: globalHitStop, // To avoid naming conflict if needed, though we use local
         isGameStarted,
         setCinematicCamera
     } = useGameStore();
@@ -1075,7 +1076,26 @@ export const Player: React.FC = () => {
             shieldRef.current.quaternion.copy(localQuat);
         }
 
-        if (hitStop <= 0) {
+        // --- HITSTOP VIBRATION ---
+        // Use local hitStop for player
+        if (playerHitStop > 0) {
+             // Apply random jitter to simulate tension/impact
+             const shakeIntensity = 0.1;
+             const rx = (Math.random() - 0.5) * shakeIntensity;
+             const ry = (Math.random() - 0.5) * shakeIntensity;
+             const rz = (Math.random() - 0.5) * shakeIntensity;
+             
+             meshRef.current.position.set(
+                 position.current.x + rx,
+                 position.current.y + ry,
+                 position.current.z + rz
+             );
+             
+             // Skip normal logic updates
+             return; 
+        }
+
+        if (playerHitStop <= 0) {
             const now = Date.now();
             
             // Resolve active target: Sticky target OR current lock
@@ -1415,7 +1435,8 @@ export const Player: React.FC = () => {
                                  const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                  const isKnockdown = (stage === 3) ? true : false;
                                  
-                                 applyHit(currentTarget.id, knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown); 
+                                 // Apply Hit with Attacker ID = 'player'
+                                 applyHit(currentTarget.id, 'player', knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown); 
                                  
                                  // Visual Impact Stop
                                  velocity.current.set(0, 0, 0);
@@ -1506,38 +1527,14 @@ export const Player: React.FC = () => {
                     const currentSpeed = isRainbowStep.current ? GLOBAL_CONFIG.RAINBOW_STEP_SPEED : GLOBAL_CONFIG.EVADE_SPEED;
 
                     // --- CIRCULAR EVADE LOGIC (TANGENT VELOCITY FIX) ---
-                    // If we have a target and initiated a side dodge, we use tangent velocity for smooth orbit.
                     if (currentTarget && evadeCircularDir.current !== 0) {
-                         // 1. Vector from Target to Player (Radius)
                          const toTarget = new Vector3().subVectors(currentTarget.position, position.current);
                          toTarget.y = 0; 
-                         
-                         // 2. Calculate Tangent Direction
-                         // Cross Product: Up (Y) x Radius (Player-Target) gives a vector pointing RIGHT (CW).
-                         // But we need Radius to be Player->Target? Yes.
-                         // Up x (Target - Player) -> Points Left relative to look direction? 
-                         // Let's verify: 
-                         // Player at (0,0,10), Target at (0,0,0). ToTarget = (0,0,-1). Up = (0,1,0).
-                         // Up x ToTarget = (0,1,0) x (0,0,-1) = (-1, 0, 0) = Left.
-                         // So 'tangent' vector points RIGHT.
-                         // WAIT. (0,1,0) cross (0,0,-1) = (-1, 0, 0) which is -X (Right in ThreeJS is +X, Left is -X... wait no)
-                         // ThreeJS: +X Right, -X Left, +Y Up, +Z Back (towards camera)
-                         // (0,1,0) x (0,0,-1) = (-1, 0, 0). This is Left.
-                         // So Tangent points Left.
-                         
                          const radiusVec = toTarget.normalize();
                          const tangent = new Vector3().crossVectors(new Vector3(0, 1, 0), radiusVec).normalize();
-                         
-                         // 3. Direction
-                         // Input A (Left) -> evadeCircularDir = 1.
-                         // We want the Tangent which is Left. So Velocity = Tangent * Speed * 1
-                         // Input D (Right) -> evadeCircularDir = -1.
-                         // We want -Tangent which is Right. So Velocity = Tangent * Speed * -1.
-                         
                          velocity.current.copy(tangent).multiplyScalar(currentSpeed * evadeCircularDir.current);
-                         
                     } else {
-                        // Standard Linear Dodge (No target or Forward/Back)
+                        // Standard Linear Dodge
                         velocity.current.x = evadeDirection.current.x * currentSpeed;
                         velocity.current.z = evadeDirection.current.z * currentSpeed;
                         velocity.current.y = 0; 
@@ -1896,6 +1893,39 @@ export const Player: React.FC = () => {
                 if (leftLegRef.current) animatedPose.LEFT_LEG.THIGH.z = smoothRot(leftLegRef.current.rotation.z, targetLeftThighZ);
                 if (torsoRef.current) animatedPose.TORSO.x = smoothRot(torsoRef.current.rotation.x, targetBodyTilt);
             }
+            
+            // --- HIT REACTION LOGIC ---
+            // We calculate offsets locally and apply them to the mesh ref *after* applying the base animation pose.
+            // This prevents the animation controller's internal state from accumulating hit offsets, which caused spinning bugs.
+            let hitPitch = 0;
+            let hitRoll = 0;
+
+            if (stunned && playerKnockbackPower > 0.1) {
+                 const timeSinceHit = now - playerLastHitTime;
+                 const HIT_REACTION_DURATION = 400; // ms
+                 
+                 if (timeSinceHit < HIT_REACTION_DURATION) {
+                     // 1. Calculate animation intensity (sine wave: starts 0, peaks, ends 0)
+                     const progress = timeSinceHit / HIT_REACTION_DURATION;
+                     const intensity = Math.sin(progress * Math.PI) * (1 - progress);
+                     
+                     // 2. Get local direction of impact relative to player
+                     if (playerKnockbackDir && meshRef.current) {
+                         const invQuat = meshRef.current.quaternion.clone().invert();
+                         const localImpact = playerKnockbackDir.clone().applyQuaternion(invQuat).normalize();
+                         
+                         const PITCH_MAX = 1.5; // Max radians pitch
+                         const ROLL_MAX = 1.3;  // Max radians roll
+                         
+                         // Impact from Front (Force vector pointing back, Z > 0) -> Lean Backward (Rotate X negative)
+                         // Note: If localImpact.z is positive (hit from front, pushed back), we want Torso X to go negative (lean back).
+                         // However, the previous logic accumulated this. Here we just calculate the offset.
+                         
+                         hitPitch = localImpact.z * PITCH_MAX * intensity;
+                         hitRoll = -localImpact.x * ROLL_MAX * intensity;
+                     }
+                 }
+            }
 
             if (visualState === 'LANDING') {
                 const total = GLOBAL_CONFIG.LANDING_VISUAL_DURATION;
@@ -1954,7 +1984,7 @@ export const Player: React.FC = () => {
                 animatedPose.RIGHT_LEG.THIGH.z = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.z, 0, w);
                 animatedPose.LEFT_LEG.THIGH.z = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.z, 0, w);
                 animatedPose.RIGHT_LEG.THIGH.y = MathUtils.lerp(animatedPose.RIGHT_LEG.THIGH.y, 0, w);
-                animatedPose.LEFT_LEG.THIGH.y = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.y, 0, w);
+                                animatedPose.LEFT_LEG.THIGH.y = MathUtils.lerp(animatedPose.LEFT_LEG.THIGH.y, 0, w);
             }
 
             if (isShooting.current && currentTarget && gunArmRef.current) {
@@ -2019,7 +2049,16 @@ export const Player: React.FC = () => {
                 currentHipOffset.current = MathUtils.lerp(currentHipOffset.current, 0, 0.2 * timeScale);
             }
 
+            // Apply the base pose from animation
             applyPoseToModel(animatedPose, currentHipOffset.current, currentLegInertiaRot.current);
+            
+            // APPLY HIT REACTION OFFSETS (Post-application)
+            // This prevents accumulation because we are modifying the THREE.js object directly 
+            // after the frame's base animation has been set, without mutating the animation state source.
+            if (torsoRef.current && (hitPitch !== 0 || hitRoll !== 0)) {
+                torsoRef.current.rotation.x += hitPitch;
+                torsoRef.current.rotation.z += hitRoll;
+            }
 
             if (headRef.current && !stunned) {
                 const animHeadQuat = new Quaternion().setFromEuler(new Euler(animatedPose.HEAD.x, animatedPose.HEAD.y, animatedPose.HEAD.z));
@@ -2122,7 +2161,7 @@ export const Player: React.FC = () => {
             }
         }
         
-        if (hitStop > 0) {
+        if (playerHitStop > 0) {
             const shake = 0.3; 
             targetCamPos.add(new Vector3((Math.random()-0.5)*shake, (Math.random()-0.5)*shake, (Math.random()-0.5)*shake));
         } else if (wasStunnedRef.current) {

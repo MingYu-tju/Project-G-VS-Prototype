@@ -1,3 +1,4 @@
+
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber';
 import { Grid, Stars, Sparkles, Environment, Lightformer, Html, Sky } from '@react-three/drei';
@@ -482,6 +483,7 @@ export const GameScene: React.FC = () => {
           knockbackDir={t.knockbackDir}
           knockbackPower={t.knockbackPower}
           isKnockedDown={t.isKnockedDown}
+          hitStop={t.hitStop}
         />
       ))}
 

@@ -17,6 +17,7 @@ interface GameState {
   playerLastHitDuration: number; 
   playerKnockbackDir: Vector3;
   playerKnockbackPower: number;
+  playerHitStop: number; // NEW: Local player hitstop
 
   // Projectiles & Combat
   projectiles: Projectile[];
@@ -25,7 +26,7 @@ interface GameState {
   lastShotTime: number;
   
   // Global Effects
-  hitStop: number; 
+  // hitStop: number; // REMOVED: Replaced by individual hitStops
   hitEffects: HitEffectData[];
   
   // Lock-on System
@@ -45,7 +46,7 @@ interface GameState {
   areNPCsPaused: boolean;
   
   // Graphics Settings
-  isDarkScene: boolean; // NEW: Scene mode
+  isDarkScene: boolean; 
   isRimLightOn: boolean;
   isOutlineOn: boolean; 
   showStats: boolean;
@@ -64,7 +65,8 @@ interface GameState {
   updateProjectiles: (delta: number) => void;
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
-  applyHit: (targetId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void;
+  // Updated Signature: now accepts attackerId
+  applyHit: (targetId: string, attackerId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void;
   decrementHitStop: (delta: number) => void;
   
   // New: Cut Tracking (Step)
@@ -74,7 +76,7 @@ interface GameState {
   toggleNPCsPaused: () => void;
   
   // Graphics Actions
-  toggleScene: () => void; // NEW: Action
+  toggleScene: () => void; 
   toggleRimLight: () => void;
   toggleOutline: () => void; 
   toggleStats: () => void;
@@ -82,9 +84,9 @@ interface GameState {
 
 // Initial Targets
 const initialTargets: GameEntity[] = [
-  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
-  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
-  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false },
+  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
+  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
+  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -98,6 +100,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerLastHitDuration: 500,
   playerKnockbackDir: new Vector3(0, 0, 0),
   playerKnockbackPower: 1,
+  playerHitStop: 0,
 
   currentTargetIndex: 0,
   lockState: LockState.GREEN,
@@ -107,7 +110,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   maxAmmo: GLOBAL_CONFIG.MAX_AMMO,
   lastShotTime: 0,
   
-  hitStop: 0,
   hitEffects: [],
 
   boost: 100,
@@ -118,7 +120,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
   areNPCsPaused: true,
-  isDarkScene: false, // Default to Light
+  isDarkScene: false,
   isRimLightOn: true,
   isOutlineOn: false, 
   showStats: false,
@@ -206,17 +208,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   updateProjectiles: (delta: number) => {
-    // If hit stop is active, freeze projectiles
-    if (get().hitStop > 0) return;
-
-    // Calculate Time Scale: 
-    // If delta is 1/60 (16ms), timeScale is 1.
+    // Projectiles update independently now. 
+    // They will handle their own hit detection which triggers local hit stops.
+    
     const timeScale = delta * 60;
 
     set((state) => {
       const nextProjectiles = state.projectiles
         .map(p => {
-          // 1. Move Projectile (Velocity is defined as "Units per 60hz Frame", so multiply by timeScale)
           const movementStep = p.velocity.clone().multiplyScalar(timeScale);
           const newPos = p.position.clone().add(movementStep);
           
@@ -235,47 +234,29 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (targetPos) {
                // Aim at chest height
                const aimTargetPos = targetPos.clone().add(new Vector3(0, 1.5, 0));
-               
-               // Vector from Bullet to Target
                const toTarget = aimTargetPos.sub(newPos);
                const dirToTarget = toTarget.clone().normalize();
                const currentDir = p.velocity.clone().normalize();
                
-               // Stop homing if we passed the target (dot product check)
                if (currentDir.dot(dirToTarget) < 0) {
                    isStillHoming = false;
                } else {
-                   // --- CONSTANT VELOCITY HOMING LOGIC ---
-                   
-                   // 1. Get Fixed Forward Velocity (Bullet Logic: Always moves forward at BULLET_SPEED)
                    const fwd = p.forwardDirection.clone().normalize();
                    const forwardVel = fwd.clone().multiplyScalar(GLOBAL_CONFIG.BULLET_SPEED);
-                   
-                   // 2. Calculate Desired Lateral Direction
-                   // We want the component of 'toTarget' that is PERPENDICULAR to 'fwd'.
-                   // Projection of A onto B: (A . B) * B
                    const forwardComponent = fwd.clone().multiplyScalar(toTarget.dot(fwd));
                    const lateralVector = toTarget.clone().sub(forwardComponent);
                    
-                   // 3. Apply Fixed Lateral Speed
-                   // If there is a need to correct laterally...
                    if (lateralVector.lengthSq() > 0.001) {
                        lateralVector.normalize();
                        const lateralVel = lateralVector.multiplyScalar(GLOBAL_CONFIG.HOMING_LATERAL_SPEED);
-                       
-                       // 4. Combine: New Velocity = Fixed Forward + Fixed Lateral
-                       // NOTE: Velocity is stored as "units per frame", so we don't multiply by timeScale here.
-                       // Movement step calculation above handles timeScale.
                        newVel = forwardVel.add(lateralVel);
                    } else {
-                       // Perfectly aligned, just move forward
                        newVel = forwardVel;
                    }
                }
             }
           }
 
-          // 3. Decrease TTL (TTL is in frames, so decrease by timeScale)
           return { ...p, position: newPos, velocity: newVel, isHoming: isStillHoming, ttl: p.ttl - timeScale };
         })
         .filter(p => p.ttl > 0); 
@@ -284,7 +265,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  applyHit: (targetId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0, isKnockdown: boolean = false) => {
+  applyHit: (targetId: string, attackerId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0, isKnockdown: boolean = false) => {
       set((state) => {
           // Spawn VFX
           let impactPos = new Vector3();
@@ -294,56 +275,83 @@ export const useGameStore = create<GameState>((set, get) => ({
               const t = state.targets.find(t => t.id === targetId);
               if (t) impactPos.copy(t.position).add(new Vector3(0, 1.5, 0));
           }
-          // Offset slightly towards where the hit came from
           impactPos.sub(impactDirection.clone().multiplyScalar(0.5));
 
           const newEffect: HitEffectData = {
               id: `hit-${Date.now()}-${Math.random()}`,
               position: impactPos,
               startTime: Date.now(),
-              type: 'SLASH', // Or determine based on source
-              scale: force > 1.5 ? 1.5 : 1.0 // Big hits = big flash
+              type: 'SLASH', 
+              scale: force > 1.5 ? 1.5 : 1.0
           };
 
           const updates: Partial<GameState> = {
-              hitStop: hitStopFrames,
               hitEffects: [...state.hitEffects, newEffect]
           };
 
+          // Apply to Victim
           if (targetId === 'player') {
               updates.playerLastHitTime = Date.now();
               updates.playerLastHitDuration = stunDuration;
               updates.playerKnockbackDir = impactDirection;
               updates.playerKnockbackPower = force;
+              updates.playerHitStop = hitStopFrames; // Freeze player
           } else {
-              updates.targets = state.targets.map(t => t.id === targetId ? { 
-                  ...t, 
-                  lastHitTime: Date.now(),
-                  lastHitDuration: stunDuration,
-                  knockbackDir: impactDirection,
-                  knockbackPower: force,
-                  isKnockedDown: isKnockdown
-              } : t);
+              // Map through targets to update victim
+              // We'll handle Attacker in a second pass or same pass
+              // Better to do one map
           }
+          
+          // Apply to Attacker (Hit Stop / Impact Pause)
+          if (attackerId === 'player') {
+               updates.playerHitStop = hitStopFrames;
+          } 
+
+          // Unified update for targets array
+          updates.targets = state.targets.map(t => {
+              let newT = { ...t };
+              // Is this the victim?
+              if (t.id === targetId) {
+                   newT.lastHitTime = Date.now();
+                   newT.lastHitDuration = stunDuration;
+                   newT.knockbackDir = impactDirection;
+                   newT.knockbackPower = force;
+                   newT.isKnockedDown = isKnockdown;
+                   newT.hitStop = hitStopFrames;
+              }
+              // Is this the attacker?
+              if (t.id === attackerId) {
+                   newT.hitStop = hitStopFrames;
+              }
+              return newT;
+          });
+
           return updates;
       });
   },
 
   decrementHitStop: (delta: number) => {
       set(state => {
-          if (state.hitStop > 0) {
-              // Convert delta (seconds) to frames (assuming 60fps baseline)
-              const decay = delta * 60;
-              return { hitStop: Math.max(0, state.hitStop - decay) };
-          }
+          const decay = delta * 60;
+          const newPlayerHitStop = Math.max(0, state.playerHitStop - decay);
           
+          const newTargets = state.targets.map(t => ({
+              ...t,
+              hitStop: Math.max(0, t.hitStop - decay)
+          }));
+
           // Clean up old effects occasionally
           const now = Date.now();
+          let newEffects = state.hitEffects;
           if (state.hitEffects.length > 0 && now - state.hitEffects[0].startTime > 1000) {
-               return { hitEffects: state.hitEffects.filter(e => now - e.startTime < 1000) };
+               newEffects = state.hitEffects.filter(e => now - e.startTime < 1000);
           }
           
-          return {};
+          return { 
+              playerHitStop: newPlayerHitStop,
+              targets: newTargets,
+              hitEffects: newEffects
+          };
       });
   },
 

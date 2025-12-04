@@ -1,9 +1,10 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Vector3, DoubleSide, AdditiveBlending } from 'three';
+import { Mesh, Vector3, DoubleSide, AdditiveBlending, MathUtils } from 'three';
 import { Projectile as ProjectileType, Team, GLOBAL_CONFIG } from '../types';
 import { useGameStore } from '../store';
-import { playHitSound } from './AudioController'; // Updated import
+import { playHitSound } from './AudioController';
 
 interface Props {
   data: ProjectileType;
@@ -25,13 +26,14 @@ export const Projectile: React.FC<Props> = ({ data }) => {
   const applyHit = useGameStore(state => state.applyHit);
   const targets = useGameStore(state => state.targets);
   const playerPos = useGameStore(state => state.playerPos);
-  const hitStop = useGameStore(state => state.hitStop);
-
+  // Use local projectile hit logic, but we check if the *owner* is in hitstop for pausing? 
+  // Actually projectile movement should generally only freeze if the game is paused, 
+  // but for "Hit Stop", usually the projectile freezes momentarily if it caused the hit.
+  // However, in this architecture, projectiles handle their own updates.
+  // We will rely on the store's updateProjectiles loop for movement, but visual effects run here.
+  
   useFrame(() => {
-    // Hit Stop Check: Freeze scaling and movement
-    if (hitStop > 0) return;
-
-    // 1. Visual Effects Phase: If already hit (React state updated), shrink the explosion
+    // 1. Visual Effects Phase: ALWAYS RUN
     if (hit) {
         if (hitScale > 0) {
             setHitScale(prev => Math.max(0, prev - 0.08));
@@ -39,8 +41,7 @@ export const Projectile: React.FC<Props> = ({ data }) => {
         return; 
     }
 
-    // 2. Logic Guard Phase: If hit occurred logically (Ref updated) but React hasn't re-rendered 'hit' state yet,
-    // stop processing movement/collision to prevent bullet staying 'active' inside target.
+    // 3. Logic Guard Phase
     if (isHitRef.current) return;
 
     if (!meshRef.current) return;
@@ -74,7 +75,6 @@ export const Projectile: React.FC<Props> = ({ data }) => {
   });
 
   const triggerHit = (targetId: string) => {
-      // Critical: Check Sync Ref to ensure we only trigger ONCE per projectile life
       if (isHitRef.current) return;
       isHitRef.current = true;
 
@@ -83,8 +83,8 @@ export const Projectile: React.FC<Props> = ({ data }) => {
       setImpactPos(data.position.clone());
       
       const knockbackDir = data.velocity.clone().normalize();
-      // Bullets cause minor stun, no hit stop
-      applyHit(targetId, knockbackDir, 1.0, GLOBAL_CONFIG.KNOCKBACK_DURATION, 0);
+      // FIXED: Passed data.ownerId as the second argument (attackerId)
+      applyHit(targetId, data.ownerId, knockbackDir, 1.0, GLOBAL_CONFIG.KNOCKBACK_DURATION, 0);
       
       const distanceToPlayer = data.position.distanceTo(playerPos);
       playHitSound(distanceToPlayer);

@@ -52,6 +52,7 @@ export interface GameEntity {
   targetId?: string | null;
   isKnockedDown?: boolean; 
   wakeUpTime?: number;
+  hitStop: number; // NEW: Individual hit stop counter
 }
 
 export enum LockState {
@@ -298,13 +299,13 @@ export const GLOBAL_CONFIG = {
         },
         SLASH_2: {
             DURATION_FRAMES: 17,
-            KNOCKBACK_POWER: 4.3,
+            KNOCKBACK_POWER: 4,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 1000,
             HIT_STOP_FRAMES: 5,
-            DAMAGE_DELAY: 3,
+            DAMAGE_DELAY: 5,
             ATTACK_SPACING: 1, 
         },
         SLASH_3: {
@@ -314,8 +315,8 @@ export const GLOBAL_CONFIG = {
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 13, 
-            DAMAGE_DELAY: 20, 
+            HIT_STOP_FRAMES: 15, 
+            DAMAGE_DELAY: 19, 
             IS_KNOCKDOWN: true,
             ATTACK_SPACING: 2, 
         }
@@ -335,7 +336,7 @@ export const GLOBAL_CONFIG = {
         },
         SLASH_2: {
              DURATION_FRAMES: 23,
-            KNOCKBACK_POWER: 4.3,
+            KNOCKBACK_POWER: 4,
             CHASE_VELOCITY: 0.5, 
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
@@ -351,8 +352,8 @@ export const GLOBAL_CONFIG = {
             APPROACH_SPEED: 0, 
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
-            HIT_STOP_FRAMES: 13, 
-            DAMAGE_DELAY: 20,
+            HIT_STOP_FRAMES: 15, 
+            DAMAGE_DELAY: 19,
             IS_KNOCKDOWN: true,
             ATTACK_SPACING: 2, 
         }

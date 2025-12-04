@@ -132,14 +132,14 @@ const playSoundBuffer = (buffer: AudioBuffer | null, volume: number = 1.0, pitch
     source.start(0);
 };
 
-export const playBeamRifleSynth = (ctx: AudioContext) => {
+export const playBeamRifleSynth = (ctx: AudioContext, volume: number = 0.1) => {
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'square';
     osc.frequency.setValueAtTime(1500, t);
     osc.frequency.exponentialRampToValueAtTime(300, t + 0.15);
-    gain.gain.setValueAtTime(0.1, t);
+    gain.gain.setValueAtTime(volume, t);
     gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
     osc.connect(gain);
     gain.connect(ctx.destination);
@@ -147,21 +147,23 @@ export const playBeamRifleSynth = (ctx: AudioContext) => {
     osc.stop(t + 0.2);
 };
 
-export const playShootSound = () => {
+// UPDATED: Functions now accept an optional volume override
+export const playShootSound = (volume: number = 0.4) => {
     if (shootAudioBuffer) {
-        playSoundBuffer(shootAudioBuffer, 0.4, 0.2);
+        playSoundBuffer(shootAudioBuffer, volume, 0.2);
     } else {
         const ctx = getAudioContext();
-        if(ctx) playBeamRifleSynth(ctx);
+        if(ctx) playBeamRifleSynth(ctx, volume * 0.25);
     }
 };
 
-export const playBoostSound = () => playSoundBuffer(boostAudioBuffer, 0.6);
-export const playSwitchSound = () => playSoundBuffer(switchAudioBuffer, 0.6, 0.1);
-export const playStepSound = () => playSoundBuffer(stepAudioBuffer, 0.8, 0.1);
-export const playDropSound = () => playSoundBuffer(dropAudioBuffer, 0.8, 0.2);
-export const playFootSound = () => playSoundBuffer(footAudioBuffer, 0.55, 0.15);
+export const playBoostSound = (volume: number = 0.6) => playSoundBuffer(boostAudioBuffer, volume);
+export const playSwitchSound = (volume: number = 0.6) => playSoundBuffer(switchAudioBuffer, volume, 0.1);
+export const playStepSound = (volume: number = 0.8) => playSoundBuffer(stepAudioBuffer, volume, 0.1);
+export const playDropSound = (volume: number = 0.8) => playSoundBuffer(dropAudioBuffer, volume, 0.2);
+export const playFootSound = (volume: number = 0.55) => playSoundBuffer(footAudioBuffer, volume, 0.15);
 
+// playHitSound takes distance as primary argument to auto-calc volume
 export const playHitSound = (distance: number) => {
     const maxDist = 100;
     const vol = Math.max(0.05, 1 - (distance / maxDist));
