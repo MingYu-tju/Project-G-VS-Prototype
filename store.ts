@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { Vector3, MathUtils } from 'three';
-import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG, HitEffectData } from './types';
+import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG, HitEffectData, NPCConfig, DEFAULT_NPC_CONFIG } from './types';
 
 interface GameState {
   // Game Lifecycle
@@ -17,7 +17,10 @@ interface GameState {
   playerLastHitDuration: number; 
   playerKnockbackDir: Vector3;
   playerKnockbackPower: number;
-  playerHitStop: number; // NEW: Local player hitstop
+  playerHitStop: number; 
+
+  // New: Player Offense State (Who is player hitting?)
+  playerMeleeTargetId: string | null;
 
   // Projectiles & Combat
   projectiles: Projectile[];
@@ -25,8 +28,11 @@ interface GameState {
   maxAmmo: number;
   lastShotTime: number;
   
+  // Guidance Breaking
+  // Maps entity ID -> Timestamp of last Cut
+  lastMeleeCutTime: Record<string, number>;
+  
   // Global Effects
-  // hitStop: number; // REMOVED: Replaced by individual hitStops
   hitEffects: HitEffectData[];
   
   // Lock-on System
@@ -44,6 +50,7 @@ interface GameState {
   
   // AI Control
   areNPCsPaused: boolean;
+  npcConfig: NPCConfig;
   
   // Graphics Settings
   isDarkScene: boolean; 
@@ -55,6 +62,9 @@ interface GameState {
   setPlayerPos: (pos: Vector3) => void;
   updateTargetPosition: (id: string, pos: Vector3) => void;
   updateUnitTarget: (id: string, targetId: string | null) => void;
+  updateUnitMeleeTarget: (id: string, meleeTargetId: string | null) => void; // NEW
+  setPlayerMeleeTarget: (targetId: string | null) => void; // NEW
+  
   cycleTarget: () => void;
   consumeBoost: (amount: number) => boolean;
   refillBoost: () => void;
@@ -65,15 +75,16 @@ interface GameState {
   updateProjectiles: (delta: number) => void;
   consumeAmmo: () => boolean;
   recoverAmmo: () => void;
-  // Updated Signature: now accepts attackerId
   applyHit: (targetId: string, attackerId: string, impactDirection: Vector3, force?: number, stunDuration?: number, hitStopFrames?: number, isKnockdown?: boolean) => void;
   decrementHitStop: (delta: number) => void;
   
-  // New: Cut Tracking (Step)
-  cutTracking: (targetId: string) => void;
+  // Guidance Actions
+  cutTracking: (targetId: string) => void; // For projectiles
+  triggerMeleeCut: (targetId: string) => void; // For Melee (NEW)
   
   // AI Actions
   toggleNPCsPaused: () => void;
+  updateNpcConfig: (config: Partial<NPCConfig>) => void;
   
   // Graphics Actions
   toggleScene: () => void; 
@@ -84,9 +95,9 @@ interface GameState {
 
 // Initial Targets
 const initialTargets: GameEntity[] = [
-  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
-  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
-  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
+  { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, meleeTargetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
+  { id: 'enemy-2', position: new Vector3(30, 5, -30), type: 'ENEMY', team: Team.RED, name: "DOM Trooper", lastHitTime: 0, lastHitDuration: 500, targetId: null, meleeTargetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
+  { id: 'ally-1', position: new Vector3(-20, 0, -10), type: 'ALLY', team: Team.BLUE, name: "GM Sniper", lastHitTime: 0, lastHitDuration: 500, targetId: null, meleeTargetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
 ];
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -101,6 +112,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerKnockbackDir: new Vector3(0, 0, 0),
   playerKnockbackPower: 1,
   playerHitStop: 0,
+  
+  playerMeleeTargetId: null, // Who is player lunging at?
 
   currentTargetIndex: 0,
   lockState: LockState.GREEN,
@@ -111,6 +124,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastShotTime: 0,
   
   hitEffects: [],
+  lastMeleeCutTime: {},
 
   boost: 100,
   maxBoost: 100,
@@ -120,6 +134,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCinematicCamera: (active) => set({ isCinematicCameraActive: active }),
   
   areNPCsPaused: true,
+  npcConfig: DEFAULT_NPC_CONFIG, 
+  
   isDarkScene: false,
   isRimLightOn: true,
   isOutlineOn: false, 
@@ -150,6 +166,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => ({
       targets: state.targets.map(t => t.id === id ? { ...t, targetId } : t)
     }));
+  },
+  
+  // Update who a Unit is melee attacking
+  updateUnitMeleeTarget: (id, meleeTargetId) => {
+    set((state) => ({
+      targets: state.targets.map(t => t.id === id ? { ...t, meleeTargetId } : t)
+    }));
+  },
+
+  // Update who Player is melee attacking
+  setPlayerMeleeTarget: (targetId) => {
+    set({ playerMeleeTargetId: targetId });
   },
 
   cycleTarget: () => {
@@ -208,9 +236,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   updateProjectiles: (delta: number) => {
-    // Projectiles update independently now. 
-    // They will handle their own hit detection which triggers local hit stops.
-    
     const timeScale = delta * 60;
 
     set((state) => {
@@ -296,11 +321,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               updates.playerKnockbackDir = impactDirection;
               updates.playerKnockbackPower = force;
               updates.playerHitStop = hitStopFrames; // Freeze player
-          } else {
-              // Map through targets to update victim
-              // We'll handle Attacker in a second pass or same pass
-              // Better to do one map
-          }
+          } 
           
           // Apply to Attacker (Hit Stop / Impact Pause)
           if (attackerId === 'player') {
@@ -355,6 +376,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
   },
 
+  // CUT TRACKING FOR PROJECTILES
   cutTracking: (targetId: string) => {
       set((state) => ({
           projectiles: state.projectiles.map(p => 
@@ -362,9 +384,25 @@ export const useGameStore = create<GameState>((set, get) => ({
           )
       }));
   },
+
+  // NEW: CUT MELEE TRACKING
+  triggerMeleeCut: (targetId: string) => {
+      set(state => ({
+          lastMeleeCutTime: {
+              ...state.lastMeleeCutTime,
+              [targetId]: Date.now()
+          }
+      }));
+  },
   
   toggleNPCsPaused: () => {
       set(state => ({ areNPCsPaused: !state.areNPCsPaused }));
+  },
+  
+  updateNpcConfig: (config) => {
+      set(state => ({
+          npcConfig: { ...state.npcConfig, ...config }
+      }));
   },
   
   toggleScene: () => {

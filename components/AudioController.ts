@@ -147,7 +147,7 @@ export const playBeamRifleSynth = (ctx: AudioContext, volume: number = 0.1) => {
     osc.stop(t + 0.2);
 };
 
-// UPDATED: Functions now accept an optional volume override
+// Updated: Allow volume overrides
 export const playShootSound = (volume: number = 0.4) => {
     if (shootAudioBuffer) {
         playSoundBuffer(shootAudioBuffer, volume, 0.2);
@@ -163,7 +163,6 @@ export const playStepSound = (volume: number = 0.8) => playSoundBuffer(stepAudio
 export const playDropSound = (volume: number = 0.8) => playSoundBuffer(dropAudioBuffer, volume, 0.2);
 export const playFootSound = (volume: number = 0.55) => playSoundBuffer(footAudioBuffer, volume, 0.15);
 
-// playHitSound takes distance as primary argument to auto-calc volume
 export const playHitSound = (distance: number) => {
     const maxDist = 100;
     const vol = Math.max(0.05, 1 - (distance / maxDist));
