@@ -6,7 +6,7 @@ import { MobileControls } from './components/MobileControls';
 import { GamepadControls } from './components/GamepadControls';
 import { PoseEditor } from './components/PoseEditor';
 import { ModelBuilder } from './components/ModelBuilder';
-import { AISettingsPanel } from './components/AISettingsPanel'; // NEW IMPORT
+import { AIEditor } from './components/AIEditor'; 
 import { useGameStore } from './store';
 import { resumeAudioContext } from './components/AudioController'; 
 
@@ -28,7 +28,7 @@ function App() {
   
   const [showEditor, setShowEditor] = useState(false);
   const [showModelBuilder, setShowModelBuilder] = useState(false);
-  const [showAISettings, setShowAISettings] = useState(false); // NEW STATE
+  const [showAIEditor, setShowAIEditor] = useState(false); 
   
   // UI State for Tools Menu Collapse
   const [isToolsOpen, setIsToolsOpen] = useState(true);
@@ -64,7 +64,7 @@ function App() {
 
   // --- AUTO-START ON INPUT ---
   useEffect(() => {
-    if (isGameStarted || showEditor || showModelBuilder || showAISettings) return;
+    if (isGameStarted || showEditor || showModelBuilder || showAIEditor) return;
 
     // 1. Keyboard Listener
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -98,7 +98,7 @@ function App() {
         window.removeEventListener('keydown', handleKeyDown);
         cancelAnimationFrame(animationFrameId);
     };
-  }, [isGameStarted, showEditor, showModelBuilder, showAISettings, handleStart]);
+  }, [isGameStarted, showEditor, showModelBuilder, showAIEditor, handleStart]);
 
   return (
     <div className="w-full h-screen relative bg-black select-none overflow-hidden">
@@ -106,9 +106,9 @@ function App() {
       {/* OVERLAYS */}
       {showEditor && <PoseEditor onClose={() => setShowEditor(false)} />}
       {showModelBuilder && <ModelBuilder onClose={() => setShowModelBuilder(false)} />}
-      {showAISettings && <AISettingsPanel onClose={() => setShowAISettings(false)} />}
+      {showAIEditor && <AIEditor onClose={() => setShowAIEditor(false)} />}
 
-      {!showEditor && !showModelBuilder && !showAISettings && (
+      {!showEditor && !showModelBuilder && !showAIEditor && (
           <>
             {/* START SCREEN OVERLAY */}
             {!isGameStarted && (
@@ -174,10 +174,10 @@ function App() {
                 {/* Collapsible Container */}
                 <div className={`flex flex-row space-x-2 overflow-hidden transition-all duration-300 origin-left ${isToolsOpen ? 'opacity-100 max-w-[800px]' : 'opacity-0 max-w-0'}`}>
                     <button 
-                        onClick={() => setShowAISettings(true)}
-                        className="bg-gray-800 hover:bg-gray-700 text-cyan-400 hover:text-white text-[10px] px-3 py-1 rounded border border-cyan-900/50 transition-colors font-mono whitespace-nowrap"
+                        onClick={() => setShowAIEditor(true)}
+                        className="bg-purple-900/50 hover:bg-purple-800 text-purple-300 hover:text-white text-[10px] px-3 py-1 rounded border border-purple-700/50 transition-colors font-mono whitespace-nowrap"
                     >
-                        AI CONFIG
+                        AI EDITOR
                     </button>
                     <button 
                         onClick={() => setShowEditor(true)}

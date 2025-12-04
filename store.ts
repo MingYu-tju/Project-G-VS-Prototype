@@ -1,8 +1,9 @@
-
 import { create } from 'zustand';
 import { Vector3, MathUtils } from 'three';
 import { GameEntity, Team, RED_LOCK_DISTANCE, LockState, Projectile, GLOBAL_CONFIG, HitEffectData, NPCConfig, DEFAULT_NPC_CONFIG } from './types';
+import { AINodeDefinition } from './components/AIEngine'; 
 
+// ... (GameState interface remains unchanged) ...
 interface GameState {
   // Game Lifecycle
   isGameStarted: boolean;
@@ -29,7 +30,6 @@ interface GameState {
   lastShotTime: number;
   
   // Guidance Breaking
-  // Maps entity ID -> Timestamp of last Cut
   lastMeleeCutTime: Record<string, number>;
   
   // Global Effects
@@ -51,6 +51,7 @@ interface GameState {
   // AI Control
   areNPCsPaused: boolean;
   npcConfig: NPCConfig;
+  aiTreeData: AINodeDefinition; // Dynamic AI Tree Data
   
   // Graphics Settings
   isDarkScene: boolean; 
@@ -62,8 +63,8 @@ interface GameState {
   setPlayerPos: (pos: Vector3) => void;
   updateTargetPosition: (id: string, pos: Vector3) => void;
   updateUnitTarget: (id: string, targetId: string | null) => void;
-  updateUnitMeleeTarget: (id: string, meleeTargetId: string | null) => void; // NEW
-  setPlayerMeleeTarget: (targetId: string | null) => void; // NEW
+  updateUnitMeleeTarget: (id: string, meleeTargetId: string | null) => void; 
+  setPlayerMeleeTarget: (targetId: string | null) => void; 
   
   cycleTarget: () => void;
   consumeBoost: (amount: number) => boolean;
@@ -79,12 +80,13 @@ interface GameState {
   decrementHitStop: (delta: number) => void;
   
   // Guidance Actions
-  cutTracking: (targetId: string) => void; // For projectiles
-  triggerMeleeCut: (targetId: string) => void; // For Melee (NEW)
+  cutTracking: (targetId: string) => void; 
+  triggerMeleeCut: (targetId: string) => void; 
   
   // AI Actions
   toggleNPCsPaused: () => void;
   updateNpcConfig: (config: Partial<NPCConfig>) => void;
+  updateAiTree: (newTree: AINodeDefinition) => void; 
   
   // Graphics Actions
   toggleScene: () => void; 
@@ -93,6 +95,127 @@ interface GameState {
   toggleStats: () => void;
 }
 
+// --- EXVS "VETERAN" AI TREE ---
+// Logic Flow:
+// 1. SURVIVAL: If threatened -> Step (Side Dash).
+// 2. CANCELS (Flow): 
+//    - If Shot Fired -> Dash (Zunda).
+//    - If Melee Whiff -> Rainbow Step.
+//    - If Dashing > 0.3s -> Ascend (Inertia Jump).
+// 3. OFFENSE (Initiation):
+//    - If Close -> Melee.
+//    - If Mid -> Shoot.
+// 4. MOVEMENT (Default):
+//    - If Idle -> Start Dash (Begins Inertia Loop).
+
+const DEFAULT_AI_TREE: AINodeDefinition = {
+  "id": "root_exvs_pro",
+  "type": "Selector",
+  "children": [
+    {
+      "id": "survival_layer",
+      "type": "Sequence",
+      "children": [
+        { "id": "cond_threat", "type": "CheckThreat" },
+        { "id": "cond_can_defend", "type": "CheckCanDefend" },
+        { "id": "cond_boost_safe", "type": "CheckBoost", "params": { "threshold": 5 } },
+        // High reflex dodge
+        { "id": "act_evade", "type": "ActionEvade", "params": { "isRainbow": false } }
+      ]
+    },
+    {
+      "id": "melee_defense_layer",
+      "type": "Sequence",
+      "children": [
+        { "id": "cond_melee_threat", "type": "CheckMeleeTargeted" },
+        { "id": "cond_can_defend_2", "type": "CheckCanDefend" },
+        { "id": "cond_dist_melee_def", "type": "CheckDistance", "params": { "operator": "<", "value": 20 } },
+        { "id": "act_evade_melee", "type": "ActionEvade", "params": { "isRainbow": false } }
+      ]
+    },
+    {
+      "id": "cancel_layer",
+      "type": "Selector",
+      "children": [
+        {
+          "id": "melee_rainbow_cancel",
+          "type": "Sequence",
+          "children": [
+            { "id": "check_is_meleeing", "type": "CheckState", "params": { "state": "MELEE" } },
+            { "id": "check_whiff", "type": "CheckMeleeWhiff" },
+            { "id": "cond_boost_rb", "type": "CheckBoost", "params": { "threshold": 20 } },
+            { "id": "act_rainbow", "type": "ActionEvade", "params": { "isRainbow": true } }
+          ]
+        },
+        {
+          "id": "zunda_cancel",
+          "type": "Sequence",
+          "children": [
+            { "id": "check_is_shooting", "type": "CheckState", "params": { "state": "SHOOTING" } },
+            { "id": "check_fired", "type": "CheckShotFired" },
+            { "id": "cond_boost_zunda", "type": "CheckBoost", "params": { "threshold": 10 } },
+            { "id": "act_dash_cancel", "type": "ActionDash" }
+          ]
+        },
+        {
+          "id": "inertia_jump_execution",
+          "type": "Sequence",
+          "children": [
+             // If we have been dashing for > 0.3s, conserve momentum by Ascending
+            { "id": "check_dashing", "type": "CheckState", "params": { "state": "DASHING" } },
+            { "id": "check_dash_time", "type": "CheckStateDuration", "params": { "min": 0.3 } },
+            { "id": "cond_boost_ascend", "type": "CheckBoost", "params": { "threshold": 10 } },
+            { "id": "act_ascend", "type": "ActionAscend" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "offense_layer",
+      "type": "Selector",
+      "children": [
+          {
+            "id": "melee_attack",
+            "type": "Sequence",
+            "children": [
+              { "id": "cond_can_act_m", "type": "CheckCanAct" },
+              { "id": "cond_dist_melee", "type": "CheckDistance", "params": { "operator": "<", "value": "CONFIG_MELEE" } },
+              { "id": "cond_boost_m", "type": "CheckBoost", "params": { "threshold": 30 } },
+              { "id": "prob_melee_start", "type": "Probability", "params": { "chance": "CONFIG_MELEE_AGGRESSION" } },
+              { "id": "act_melee_start", "type": "ActionMelee" }
+            ]
+          },
+          {
+            "id": "shoot_attack",
+            "type": "Sequence",
+            "children": [
+              { "id": "cond_can_act_s", "type": "CheckCanAct" },
+              // Don't shoot if too far (Red Lock range approx)
+              { "id": "cond_dist_shoot", "type": "CheckDistance", "params": { "operator": "<", "value": 70 } },
+              { "id": "cond_ammo", "type": "CheckAmmo" },
+              // If we just dashed (Zunda window), higher chance to shoot
+              { "id": "prob_shoot", "type": "Probability", "params": { "chance": "CONFIG_SHOOT" } },
+              { "id": "act_shoot_start", "type": "ActionShoot" }
+            ]
+          }
+      ]
+    },
+    {
+      "id": "movement_init_layer",
+      "type": "Sequence",
+      "children": [
+        // If we are IDLE (landed or standing), start the loop again
+        { "id": "cond_can_act_move", "type": "CheckCanAct" },
+        { "id": "cond_boost_move", "type": "CheckBoost", "params": { "threshold": 15 } },
+        // High probability to move, low probability to stand still
+        { "id": "prob_move", "type": "Probability", "params": { "chance": 0.9 } },
+        { "id": "act_dash_move", "type": "ActionDash" }
+      ]
+    }
+  ]
+};
+
+// ... (Rest of store.ts remains identical, just updated DEFAULT_AI_TREE) ...
 // Initial Targets
 const initialTargets: GameEntity[] = [
   { id: 'enemy-1', position: new Vector3(0, 2, -50), type: 'ENEMY', team: Team.RED, name: "ZAKU-II Custom", lastHitTime: 0, lastHitDuration: 500, targetId: null, meleeTargetId: null, knockbackPower: 1, isKnockedDown: false, hitStop: 0 },
@@ -135,6 +258,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   areNPCsPaused: true,
   npcConfig: DEFAULT_NPC_CONFIG, 
+  aiTreeData: DEFAULT_AI_TREE, 
   
   isDarkScene: false,
   isRimLightOn: true,
@@ -144,7 +268,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPlayerPos: (pos) => {
     set({ playerPos: pos });
     
-    // Update Lock State based on distance
     const { targets, currentTargetIndex } = get();
     const target = targets[currentTargetIndex];
     if (target) {
@@ -168,14 +291,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     }));
   },
   
-  // Update who a Unit is melee attacking
   updateUnitMeleeTarget: (id, meleeTargetId) => {
     set((state) => ({
       targets: state.targets.map(t => t.id === id ? { ...t, meleeTargetId } : t)
     }));
   },
 
-  // Update who Player is melee attacking
   setPlayerMeleeTarget: (targetId) => {
     set({ playerMeleeTargetId: targetId });
   },
@@ -210,8 +331,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   setOverheat: (status) => set({ isOverheated: status }),
-
-  // --- COMBAT ACTIONS ---
 
   consumeAmmo: () => {
     const { ammo } = get();
@@ -257,7 +376,6 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
 
             if (targetPos) {
-               // Aim at chest height
                const aimTargetPos = targetPos.clone().add(new Vector3(0, 1.5, 0));
                const toTarget = aimTargetPos.sub(newPos);
                const dirToTarget = toTarget.clone().normalize();
@@ -292,7 +410,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   applyHit: (targetId: string, attackerId: string, impactDirection: Vector3, force: number = 1.0, stunDuration: number = 500, hitStopFrames: number = 0, isKnockdown: boolean = false) => {
       set((state) => {
-          // Spawn VFX
           let impactPos = new Vector3();
           if (targetId === 'player') {
               impactPos.copy(state.playerPos).add(new Vector3(0, 1.5, 0));
@@ -314,24 +431,20 @@ export const useGameStore = create<GameState>((set, get) => ({
               hitEffects: [...state.hitEffects, newEffect]
           };
 
-          // Apply to Victim
           if (targetId === 'player') {
               updates.playerLastHitTime = Date.now();
               updates.playerLastHitDuration = stunDuration;
               updates.playerKnockbackDir = impactDirection;
               updates.playerKnockbackPower = force;
-              updates.playerHitStop = hitStopFrames; // Freeze player
+              updates.playerHitStop = hitStopFrames; 
           } 
           
-          // Apply to Attacker (Hit Stop / Impact Pause)
           if (attackerId === 'player') {
                updates.playerHitStop = hitStopFrames;
           } 
 
-          // Unified update for targets array
           updates.targets = state.targets.map(t => {
               let newT = { ...t };
-              // Is this the victim?
               if (t.id === targetId) {
                    newT.lastHitTime = Date.now();
                    newT.lastHitDuration = stunDuration;
@@ -340,7 +453,6 @@ export const useGameStore = create<GameState>((set, get) => ({
                    newT.isKnockedDown = isKnockdown;
                    newT.hitStop = hitStopFrames;
               }
-              // Is this the attacker?
               if (t.id === attackerId) {
                    newT.hitStop = hitStopFrames;
               }
@@ -361,7 +473,6 @@ export const useGameStore = create<GameState>((set, get) => ({
               hitStop: Math.max(0, t.hitStop - decay)
           }));
 
-          // Clean up old effects occasionally
           const now = Date.now();
           let newEffects = state.hitEffects;
           if (state.hitEffects.length > 0 && now - state.hitEffects[0].startTime > 1000) {
@@ -376,7 +487,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
   },
 
-  // CUT TRACKING FOR PROJECTILES
   cutTracking: (targetId: string) => {
       set((state) => ({
           projectiles: state.projectiles.map(p => 
@@ -385,7 +495,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       }));
   },
 
-  // NEW: CUT MELEE TRACKING
   triggerMeleeCut: (targetId: string) => {
       set(state => ({
           lastMeleeCutTime: {
@@ -403,6 +512,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({
           npcConfig: { ...state.npcConfig, ...config }
       }));
+  },
+
+  updateAiTree: (newTree) => {
+      set({ aiTreeData: newTree });
   },
   
   toggleScene: () => {

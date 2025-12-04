@@ -12,7 +12,6 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import { playBoostSound, playSwitchSound, playStepSound, playDropSound, playFootSound, playShootSound, playHitSound, loadAllSounds, resumeAudioContext } from './AudioController';
 import { ProceduralSlashEffect, BoostBurst, ThrusterPlume, MuzzleFlash, GhostEmitter, SlashMaterial } from './VFX';
 
-// ... [All shader definitions and MechMaterial remain exactly the same] ...
 const MECH_VERTEX_SHADER = `
     varying vec3 vNormal;
     varying vec3 vViewPosition;
@@ -102,7 +101,7 @@ const GeoFactory = {
         const [w, h, d, tx, tz] = args;
         const g = new THREE.BoxGeometry(w, h, d);
         const pos = g.attributes.position;
-        for (let i = 0; i < pos.count; i++) {
+           for (let i = 0; i < pos.count; i++) {
             if (pos.getY(i) > 0) {
                 pos.setX(i, pos.getX(i) * tx);
                 pos.setZ(i, pos.getZ(i) * tz);
