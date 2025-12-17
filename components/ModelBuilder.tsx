@@ -729,7 +729,7 @@ ${code}
                             <input 
                                 type="text" 
                                 value={activePart.name} 
-                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'name', e.target.value)}
+                                onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'name', e.target.value)}
                                 className="w-full bg-gray-800 border border-gray-700 px-2 py-1 rounded text-white"
                             />
                         </div>
@@ -758,13 +758,13 @@ ${code}
                                         <input 
                                             type="color" 
                                             value={activePart.color} 
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
                                             className="h-6 w-8 bg-transparent border-none cursor-pointer"
                                         />
                                         <input 
                                             type="text" 
                                             value={activePart.color}
-                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id, 'color', e.target.value)}
+                                            onChange={(e) => activePart && handleSidebarUpdate(activePart.id as string, 'color', e.target.value)}
                                             className="flex-1 bg-gray-800 border border-gray-700 px-2 text-xs"
                                         />
                                     </div>
@@ -795,7 +795,7 @@ ${code}
                                                             if (activePart) {
                                                                 const newArgs = [...activePart.args];
                                                                 newArgs[i] = parseFloat(e.target.value);
-                                                                handleSidebarUpdate(activePart.id, 'args', newArgs);
+                                                                handleSidebarUpdate(activePart.id as string, 'args', newArgs);
                                                             }
                                                         }}
                                                         className="w-full bg-gray-800 border border-gray-700 px-1 py-0.5 text-xs"

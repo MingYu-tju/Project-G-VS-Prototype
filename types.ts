@@ -1,4 +1,3 @@
-
 import { Vector3 } from 'three';
 // CHANGE: Use type-only import to prevent runtime cycle involvement
 import type React from 'react';
@@ -51,10 +50,9 @@ export interface GameEntity {
   knockbackDir?: Vector3;
   knockbackPower?: number;
   targetId?: string | null;
-  meleeTargetId?: string | null; // NEW: Who is this unit lunging at?
   isKnockedDown?: boolean; 
   wakeUpTime?: number;
-  hitStop: number; 
+  hitStop: number; // NEW: Individual hit stop counter
 }
 
 export enum LockState {
@@ -181,40 +179,6 @@ export interface ModelPart {
     children: ModelPart[];
     visible: boolean;
 }
-
-// --- NPC AI CONFIG ---
-export interface NPCConfig {
-    // Combat Aggression
-    MELEE_TRIGGER_DISTANCE: number; // Distance to consider melee
-    MELEE_AGGRESSION_RATE: number;  // Chance per check to initiate melee (0.0 - 1.0)
-    
-    // Defensive
-    DODGE_CHECK_RADIUS: number;     // Distance to detect incoming projectiles
-    DODGE_REACTION_RATE: number;    // Chance to successfully dodge when threat detected (0.0 - 1.0)
-    MELEE_DEFENSE_RATE: number;     // NEW: Chance to dodge incoming Melee (0.0 - 1.0)
-
-    // Shooting
-    SHOOT_PROBABILITY: number;      // Chance per check to shoot
-    SHOOT_COOLDOWN_MIN: number;     // Min seconds between shots
-    SHOOT_COOLDOWN_MAX: number;     // Max seconds between shots
-    
-    // Movement
-    TARGET_SWITCH_MIN: number;
-    TARGET_SWITCH_MAX: number;
-}
-
-export const DEFAULT_NPC_CONFIG: NPCConfig = {
-    MELEE_TRIGGER_DISTANCE: 20.0,
-    MELEE_AGGRESSION_RATE: 0.3,
-    DODGE_CHECK_RADIUS: 15.0,
-    DODGE_REACTION_RATE: 0.5,
-    MELEE_DEFENSE_RATE: 0.6, // Default fair reaction
-    SHOOT_PROBABILITY: 0.05,
-    SHOOT_COOLDOWN_MIN: 1.2,
-    SHOOT_COOLDOWN_MAX: 2.4,
-    TARGET_SWITCH_MIN: 5.0,
-    TARGET_SWITCH_MAX: 10.0,
-};
 
 export const DEFAULT_MECH_POSE: MechPose = {
     TORSO: { x: 0, y: 0, z: 0 },
@@ -352,7 +316,7 @@ export const GLOBAL_CONFIG = {
             FORWARD_STEP_SPEED: 0.1,
             STUN_DURATION: 2000,
             HIT_STOP_FRAMES: 15, 
-            DAMAGE_DELAY: 19,
+            DAMAGE_DELAY: 19, 
             IS_KNOCKDOWN: true,
             ATTACK_SPACING: 2, 
         }
@@ -446,7 +410,6 @@ export const GLOBAL_CONFIG = {
     LANDING_LAG_OVERHEAT: 38,
     LANDING_LAG_BUFFER_WINDOW: 18,
     
-    // DEPRECATED: Now inside NPCConfig
     AI_SHOOT_PROBABILITY: 0.05,
     AI_SHOOT_COOLDOWN_MIN: 1.2,
     AI_SHOOT_COOLDOWN_MAX: 2.4,

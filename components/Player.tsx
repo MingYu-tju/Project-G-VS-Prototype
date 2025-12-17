@@ -12,6 +12,7 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import { playBoostSound, playSwitchSound, playStepSound, playDropSound, playFootSound, playShootSound, playHitSound, loadAllSounds, resumeAudioContext } from './AudioController';
 import { ProceduralSlashEffect, BoostBurst, ThrusterPlume, MuzzleFlash, GhostEmitter, SlashMaterial } from './VFX';
 
+// ... [All shader definitions and MechMaterial remain exactly the same] ...
 const MECH_VERTEX_SHADER = `
     varying vec3 vNormal;
     varying vec3 vViewPosition;
@@ -101,7 +102,7 @@ const GeoFactory = {
         const [w, h, d, tx, tz] = args;
         const g = new THREE.BoxGeometry(w, h, d);
         const pos = g.attributes.position;
-           for (let i = 0; i < pos.count; i++) {
+        for (let i = 0; i < pos.count; i++) {
             if (pos.getY(i) > 0) {
                 pos.setX(i, pos.getX(i) * tx);
                 pos.setZ(i, pos.getZ(i) * tz);
@@ -431,14 +432,11 @@ export const Player: React.FC = () => {
         playerKnockbackDir,
         playerKnockbackPower,
         cutTracking,
-        triggerMeleeCut, // NEW
-        setPlayerMeleeTarget, // NEW
         applyHit,
         playerHitStop, // Use local hit stop
         hitStop: globalHitStop, // To avoid naming conflict if needed, though we use local
         isGameStarted,
-        setCinematicCamera,
-        lastMeleeCutTime // NEW
+        setCinematicCamera
     } = useGameStore();
 
     const velocity = useRef(new Vector3(0, 0, 0));
@@ -511,9 +509,6 @@ export const Player: React.FC = () => {
     const meleeHitConfirmed = useRef(false);
     // STICKY TARGET LOGIC
     const activeMeleeTargetId = useRef<string | null>(null);
-    
-    // Store when we last checked for cuts
-    const meleeStartTimeRef = useRef(0);
 
     const [visualState, setVisualState] = useState<'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE'>('IDLE');
     const [isStunned, setIsStunned] = useState(false);
@@ -521,11 +516,6 @@ export const Player: React.FC = () => {
     const [activeWeapon, setActiveWeapon] = useState<'GUN' | 'SABER'>('GUN');
 
     useEffect(() => { loadAllSounds(); }, []);
-
-    // Update Store with melee state
-    useEffect(() => {
-        setPlayerMeleeTarget(activeMeleeTargetId.current);
-    }, [activeMeleeTargetId.current]);
 
     // ... [Key and input handlers omitted for brevity, identical to previous] ...
  const getDirectionFromKey = (key: string) => {
@@ -728,10 +718,7 @@ export const Player: React.FC = () => {
                                 evadeTimer.current = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_DURATION : GLOBAL_CONFIG.EVADE_DURATION;
                                 trailTimer.current = isRainbow ? GLOBAL_CONFIG.RAINBOW_STEP_TRAIL_DURATION : GLOBAL_CONFIG.EVADE_TRAIL_DURATION;
                                 trailRainbow.current = isRainbow;
-                                
-                                // NEW: Cut tracking for both projectiles AND melee attackers
                                 cutTracking('player');
-                                triggerMeleeCut('player');
                                 
                                 // CIRCULAR EVADE LOGIC
                                 const state = useGameStore.getState();
@@ -833,7 +820,6 @@ export const Player: React.FC = () => {
                         meleeComboBuffer.current = false;
                         visualLandingFrames.current = 0;
                         meleeHitConfirmed.current = false; // Reset hit confirmation
-                        meleeStartTimeRef.current = Date.now(); // Reset Cut timer check
                         
                         // STICKY TARGET INIT
                         // When starting a melee, lock the target immediately if one exists
@@ -1012,6 +998,8 @@ export const Player: React.FC = () => {
         
         // --- DUAL WIELD & SHIELD LOGIC (Frame Logic) ---
         // 1. Determine if in Dual Mode (Second slash onwards)
+        // const isDualMode = meleeState.current === 'SIDE_SLASH_2' || meleeState.current === 'SIDE_SLASH_3';
+        
         const inDualSlashAnimation = meleeState.current === 'SIDE_SLASH_2' || meleeState.current === 'SIDE_SLASH_3';
         if (inDualSlashAnimation) {
             wasDualWielding.current = true;
@@ -1028,6 +1016,8 @@ export const Player: React.FC = () => {
         // 3. Shield Interpolation (World Space Tracking)
         if (shieldRef.current && armShieldMountRef.current && backShieldMountRef.current) {
             const targetMount = isDualMode ? backShieldMountRef.current : armShieldMountRef.current;
+            
+            // Get target world transform
             targetMount.updateMatrixWorld();
             targetMount.getWorldPosition(shieldTargetPos.current);
             targetMount.getWorldQuaternion(shieldTargetRot.current);
@@ -1040,34 +1030,46 @@ export const Player: React.FC = () => {
             let lerpFactor = 0.25 * timeScale;
             
             if (isDualMode) {
+                // Moving to Back (Detached)
                 isShieldDetached.current = true;
                 lerpFactor = 0.15 * timeScale; 
             } else {
+                // Moving to Arm (Attached?)
                 if (isShieldDetached.current) {
+                    // We are currently "detached/returning", check if we are close enough to re-attach
                     const dist = currentWorldPos.distanceTo(shieldTargetPos.current);
-                    if (dist < 0.25) {
+                    if (dist < 0.25) { // Threshold to snap
                         isShieldDetached.current = false;
                         lerpFactor = 1.0;
                     } else {
-                        lerpFactor = 0.25 * timeScale; 
+                        lerpFactor = 0.25 * timeScale; // Fly back speed
                     }
                 } else {
+                     // Already attached -> Snap perfectly every frame to avoid lag
                      lerpFactor = 1.0;
                 }
             }
 
+            // Apply
             if (lerpFactor >= 1.0) {
+                // Snap instantly
                 currentWorldPos.copy(shieldTargetPos.current);
                 currentWorldRot.copy(shieldTargetRot.current);
             } else {
+                // Interpolate
                 currentWorldPos.lerp(shieldTargetPos.current, lerpFactor);
                 currentWorldRot.slerp(shieldTargetRot.current, lerpFactor);
             }
 
+            // Convert back to Local Space (relative to Player Mesh)
             const playerInvMatrix = meshRef.current.matrixWorld.clone().invert();
+            
+            // Apply rotation: LocalRot = ParentWorldInv * WorldRot
             const parentWorldQuat = new Quaternion();
             meshRef.current.getWorldQuaternion(parentWorldQuat);
             const localQuat = parentWorldQuat.clone().invert().multiply(currentWorldRot);
+            
+            // Apply position: LocalPos = WorldPos applied to InvMatrix
             const localPos = currentWorldPos.clone().applyMatrix4(playerInvMatrix);
 
             shieldRef.current.position.copy(localPos);
@@ -1075,7 +1077,9 @@ export const Player: React.FC = () => {
         }
 
         // --- HITSTOP VIBRATION ---
+        // Use local hitStop for player
         if (playerHitStop > 0) {
+             // Apply random jitter to simulate tension/impact
              const shakeIntensity = 0.1;
              const rx = (Math.random() - 0.5) * shakeIntensity;
              const ry = (Math.random() - 0.5) * shakeIntensity;
@@ -1086,6 +1090,8 @@ export const Player: React.FC = () => {
                  position.current.y + ry,
                  position.current.z + rz
              );
+             
+             // Skip normal logic updates
              return; 
         }
 
@@ -1158,6 +1164,7 @@ export const Player: React.FC = () => {
             }
 
             let nextVisualState: 'IDLE' | 'WALK' | 'DASH' | 'ASCEND' | 'LANDING' | 'SHOOT' | 'EVADE' | 'MELEE' = 'IDLE';
+            // ... [Ascent Input checks same as before] ...
             const isLHeld = keys.current['l'];
             const lHeldDuration = isLHeld ? (now - lPressStartTime.current) : 0;
             const isEvadeCancelInput = isEvading.current && isLHeld && !lConsumedByDash.current;
@@ -1236,6 +1243,7 @@ export const Player: React.FC = () => {
                         worldFwd.y = 0; 
                         if (worldFwd.lengthSq() > 0.001) {
                             worldFwd.normalize();
+                            // Look at target
                             const lookTarget = position.current.clone().add(worldFwd);
                             meshRef.current.lookAt(lookTarget);
                         }
@@ -1250,11 +1258,12 @@ export const Player: React.FC = () => {
                     if (isDashing.current || isEvading.current) {
                         meleeState.current = 'NONE';
                         meleeHitConfirmed.current = false;
-                        activeMeleeTargetId.current = null; 
+                        activeMeleeTargetId.current = null; // Reset on cancel
                         setCinematicCamera(false);
                     }
                     
                     if (!meleeState.current.includes('LUNGE')) {
+                         // In slash phase, zero out velocity unless we are snapping
                          velocity.current.set(0, 0, 0);
                     }
                     
@@ -1263,11 +1272,12 @@ export const Player: React.FC = () => {
                         velocity.current.set(0, 0, 0);
                         meleeTimer.current -= timeScale;
                         if (meleeTimer.current <= 0) {
+                            // Transition to Slash 1 (Whiff)
                             meleeState.current = (meleeState.current === 'SIDE_STARTUP') ? 'SIDE_SLASH_1' : 'SLASH_1';
                             const comboData = (meleeState.current === 'SIDE_SLASH_1') ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
                             meleeTimer.current = comboData.DURATION_FRAMES;
                             hasMeleeHitRef.current = false; 
-                            meleeHitConfirmed.current = false; 
+                            meleeHitConfirmed.current = false; // STARTUP timeout = miss
                         }
                     }
                     
@@ -1277,29 +1287,21 @@ export const Player: React.FC = () => {
                         let dist = 999;
                         const isSide = meleeState.current === 'SIDE_LUNGE';
                         
-                        // --- NEW: CHECK FOR GUIDANCE CUT ---
-                        if (currentTarget && isMeleeTrackingActive.current) {
-                             const lastCut = lastMeleeCutTime[currentTarget.id] || 0;
-                             // If a cut happened AFTER we started this melee sequence
-                             if (lastCut > meleeStartTimeRef.current) {
-                                 isMeleeTrackingActive.current = false;
-                                 meleeHitConfirmed.current = false;
-                                 // Force timeout to simulate immediate whiff/distance limit
-                                 meleeTimer.current = 0; 
-                             }
-                        }
-
-                        if (currentTarget && isMeleeTrackingActive.current) {
+                        if (currentTarget) {
                             dist = position.current.distanceTo(currentTarget.position);
                             const targetPos = currentTarget.position.clone();
                             const dirToTarget = targetPos.clone().sub(position.current).normalize();
                             
+                            // Use LUNGE_SPEED_MULT to chase faster
                             let speed = (isSide ? GLOBAL_CONFIG.SIDE_MELEE_LUNGE_SPEED : GLOBAL_CONFIG.MELEE_LUNGE_SPEED) * GLOBAL_CONFIG.MELEE_LUNGE_SPEED_MULT;
                             if (isMeleePenaltyActive.current) speed *= MELEE_EMPTY_BOOST_PENALTY;
                             
+                            // VECTOR MATH FOR MOVEMENT
                             const moveVec = dirToTarget.clone();
                             
+                            // If Side Melee, add perpendicular component for curve
                             if (isSide) {
+                                // Calculate Left Vector relative to target direction (Up x Forward)
                                 const up = new Vector3(0, 1, 0);
                                 const leftVec = new Vector3().crossVectors(up, dirToTarget).normalize();
                                 const curveStrength = GLOBAL_CONFIG.SIDE_MELEE_ARC_STRENGTH;
@@ -1311,9 +1313,11 @@ export const Player: React.FC = () => {
                             velocity.current.z = moveVec.z * speed;
                             velocity.current.y = dirToTarget.y * speed; 
                             
+                            // Look at target always (even when strafing)
                             meshRef.current.lookAt(currentTarget.position);
                             
                         } else {
+                            // No target fallback
                             const fwd = new Vector3(0,0,1).applyQuaternion(meshRef.current.quaternion);
                             let speed = isSide ? GLOBAL_CONFIG.SIDE_MELEE_LUNGE_SPEED : GLOBAL_CONFIG.MELEE_LUNGE_SPEED;
                             velocity.current.x = fwd.x * speed;
@@ -1321,30 +1325,37 @@ export const Player: React.FC = () => {
                             velocity.current.y = fwd.y * speed;
                         }
                         
-                        meleeTimer.current -= timeScale; 
-                        meleeStartupTimer.current -= timeScale; 
+                        // Decrement Timers
+                        meleeTimer.current -= timeScale; // Max chase duration
+                        meleeStartupTimer.current -= timeScale; // Animation windup duration
                         
                         const isStartupComplete = meleeStartupTimer.current <= 0;
                         
+                        // --- CONFIRMATION LOGIC ---
+                        // If we are within range, trigger the slash immediately (Confirm Hit)
                         if (isStartupComplete && dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                            // Hit Connect (CONFIRMED)
                             meleeState.current = isSide ? 'SIDE_SLASH_1' : 'SLASH_1';
                             const comboData = isSide ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
                             meleeTimer.current = comboData.DURATION_FRAMES;
                             
                             hasMeleeHitRef.current = false; 
-                            meleeHitConfirmed.current = true; 
+                            meleeHitConfirmed.current = true; // HIT CONFIRMED!
                             
+                            // --- STICKY TARGET SET ---
+                            // Ensure we stick to this target for the combo
                             if (currentTarget) activeMeleeTargetId.current = currentTarget.id;
 
                             velocity.current.set(0,0,0);
                             performMeleeSnap(currentTarget);
                         } 
                         else if (meleeTimer.current <= 0) {
+                            // Timeout (Whiff) - Force transition but unconfirmed
                             meleeState.current = isSide ? 'SIDE_SLASH_1' : 'SLASH_1';
                             const comboData = isSide ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_1 : GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_1;
                             meleeTimer.current = comboData.DURATION_FRAMES;
                             hasMeleeHitRef.current = false; 
-                            meleeHitConfirmed.current = false; 
+                            meleeHitConfirmed.current = false; // NOT CONFIRMED (Whiff)
                             
                             velocity.current.set(0,0,0); 
                             isMeleeTrackingActive.current = false;
@@ -1356,6 +1367,7 @@ export const Player: React.FC = () => {
                         const isSide = meleeState.current.includes('SIDE');
                         const stage = meleeState.current.endsWith('1') ? 1 : (meleeState.current.endsWith('2') ? 2 : 3);
                         
+                        // Get correct config
                         let comboData;
                         let nextState: MeleePhase | 'RECOVERY' | 'SIDE_RECOVERY';
                         
@@ -1369,7 +1381,9 @@ export const Player: React.FC = () => {
                             else { comboData = GLOBAL_CONFIG.MELEE_COMBO_DATA.SLASH_3; nextState = 'RECOVERY'; }
                         }
 
+                        // ** CAMERA TRIGGER LOGIC **
                         if (stage === 3 && Math.abs(meleeTimer.current - comboData.DURATION_FRAMES) < 0.1) {
+                             // ONLY TRIGGER CINEMATIC IF STILL LOCKED ON THE SAME TARGET
                              const currentLockId = targets[currentTargetIndex]?.id;
                              if (activeMeleeTargetId.current === currentLockId) {
                                  camera.getWorldQuaternion(stableCamQuat.current);
@@ -1381,31 +1395,53 @@ export const Player: React.FC = () => {
                         const passed = comboData.DURATION_FRAMES - meleeTimer.current;
                         const activeTracking = isMeleeTrackingActive.current;
 
+                        // --- MAGNET SNAP LOGIC (If Confirmed) ---
+                        // If the hit is confirmed, we force the player to slide to the ideal blade spacing
+                        // Use currentTarget (which is now stickied via resolve at top of loop)
                         if (meleeHitConfirmed.current && currentTarget && !hasMeleeHitRef.current) {
+                             // Use per-move spacing if available, otherwise fallback to global default
                              const spacing = (comboData as any).ATTACK_SPACING ?? GLOBAL_CONFIG.MELEE_ATTACK_SPACING;
+                             
+                             // Calculate Ideal Position: Target Position - (DirectionToTarget * Spacing)
                              const dirToTarget = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                              const idealPos = currentTarget.position.clone().sub(dirToTarget.multiplyScalar(spacing));
+                             
+                             // Lerp towards ideal pos for smooth "magnet" effect
                              const snapSpeed = GLOBAL_CONFIG.MELEE_MAGNET_SPEED * timeScale;
                              position.current.lerp(idealPos, snapSpeed);
+                             
+                             // Look at target
                              meshRef.current.lookAt(currentTarget.position);
                         }
                         
+                        // Step Forward Logic (Whiff or confirmed slide)
                         if (activeTracking && !meleeHitConfirmed.current) {
+                             // Whiff drift
                              const fwd = new Vector3(0, 0, 1).applyQuaternion(meshRef.current.quaternion).normalize();
                              fwd.y = 0;
                              velocity.current.x = fwd.x * comboData.FORWARD_STEP_SPEED;
                              velocity.current.z = fwd.z * comboData.FORWARD_STEP_SPEED;
                         }
 
+                        // --- DAMAGE APPLICATION (Deterministic Frame Check) ---
+                        // Instead of collision, we check if we passed the Damage Frame AND if Hit is Confirmed
                         const isDamageFrame = passed >= comboData.DAMAGE_DELAY;
                         
                         if (!hasMeleeHitRef.current && isDamageFrame && meleeHitConfirmed.current && currentTarget) {
+                             // HIT EXECUTION
                              const dist = position.current.distanceTo(currentTarget.position);
+                             
                              if (dist < GLOBAL_CONFIG.MELEE_RANGE * 1.5) {
                                  const knockback = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                  const isKnockdown = (stage === 3) ? true : false;
+                                 
+                                 // Apply Hit with Attacker ID = 'player'
                                  applyHit(currentTarget.id, 'player', knockback, comboData.KNOCKBACK_POWER, comboData.STUN_DURATION, comboData.HIT_STOP_FRAMES, isKnockdown); 
+                                 
+                                 // Visual Impact Stop
                                  velocity.current.set(0, 0, 0);
+                                 
+                                 // Post-hit slide (Chase Velocity)
                                  const chaseDir = new Vector3().subVectors(currentTarget.position, position.current).normalize();
                                  chaseDir.y = 0;
                                  velocity.current.add(chaseDir.multiplyScalar(comboData.CHASE_VELOCITY));
@@ -1416,19 +1452,25 @@ export const Player: React.FC = () => {
                              }
                         }
                         
+                        // Re-confirm chance
                         if (!hasMeleeHitRef.current && !meleeHitConfirmed.current && isDamageFrame && currentTarget) {
                              const dist = position.current.distanceTo(currentTarget.position);
                              if (dist < GLOBAL_CONFIG.MELEE_RANGE) {
+                                 // Late confirm!
                                  meleeHitConfirmed.current = true;
+                                 // Sticky target if re-confirmed
                                  activeMeleeTargetId.current = currentTarget.id;
                              }
                         }
                         
                         meleeTimer.current -= timeScale;
                         
+                        // End of Move
                         if (meleeTimer.current <= 0) {
                             if (meleeComboBuffer.current && !nextState.includes('RECOVERY')) {
+                                // Advance Combo
                                 meleeState.current = nextState as MeleePhase;
+                                // Lookup duration for next state
                                 const nextStage = stage + 1;
                                 const nextConfig = isSide 
                                     ? (nextStage===2 ? GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_2 : GLOBAL_CONFIG.SIDE_MELEE_COMBO_DATA.SLASH_3)
@@ -1439,23 +1481,26 @@ export const Player: React.FC = () => {
                                 meleeComboBuffer.current = false; 
                                 velocity.current.set(0,0,0);
                                 
+                                // --- COMBO CHAIN CONFIRMATION CHECK ---
                                 if (currentTarget && activeTracking) {
                                     const dist = position.current.distanceTo(currentTarget.position);
+                                    // More generous range for combos since enemy might be knocked back
                                     if (dist < GLOBAL_CONFIG.MELEE_RANGE * 1.5) {
                                         meleeHitConfirmed.current = true;
                                         performMeleeSnap(currentTarget);
                                     } else {
-                                        meleeHitConfirmed.current = false; 
+                                        meleeHitConfirmed.current = false; // Lost track
                                     }
                                 } else {
                                     meleeHitConfirmed.current = false;
                                 }
 
                             } else {
+                                // End Combo
                                 meleeState.current = isSide ? 'SIDE_RECOVERY' : 'RECOVERY';
                                 meleeTimer.current = GLOBAL_CONFIG.MELEE_RECOVERY_FRAMES;
                                 meleeHitConfirmed.current = false;
-                                activeMeleeTargetId.current = null; 
+                                activeMeleeTargetId.current = null; // Release sticky
                             }
                         }
                     }
@@ -1467,7 +1512,7 @@ export const Player: React.FC = () => {
                         
                         if (meleeTimer.current <= 0) {
                             meleeState.current = 'NONE';
-                            activeMeleeTargetId.current = null; 
+                            activeMeleeTargetId.current = null; // Ensure cleared
                             if (position.current.y < 1.5) {
                                 velocity.current.y = 0.02; 
                                 isGrounded.current = false; 
@@ -1481,6 +1526,7 @@ export const Player: React.FC = () => {
                     
                     const currentSpeed = isRainbowStep.current ? GLOBAL_CONFIG.RAINBOW_STEP_SPEED : GLOBAL_CONFIG.EVADE_SPEED;
 
+                    // --- CIRCULAR EVADE LOGIC (TANGENT VELOCITY FIX) ---
                     if (currentTarget && evadeCircularDir.current !== 0) {
                          const toTarget = new Vector3().subVectors(currentTarget.position, position.current);
                          toTarget.y = 0; 
@@ -1488,6 +1534,7 @@ export const Player: React.FC = () => {
                          const tangent = new Vector3().crossVectors(new Vector3(0, 1, 0), radiusVec).normalize();
                          velocity.current.copy(tangent).multiplyScalar(currentSpeed * evadeCircularDir.current);
                     } else {
+                        // Standard Linear Dodge
                         velocity.current.x = evadeDirection.current.x * currentSpeed;
                         velocity.current.z = evadeDirection.current.z * currentSpeed;
                         velocity.current.y = 0; 
@@ -1503,6 +1550,7 @@ export const Player: React.FC = () => {
                     }
                     if (evadeTimer.current <= 0) {
                         isEvading.current = false; 
+                        // Friction handles stop
                         if (isRainbowStep.current && position.current.y < 1.5) {
                              velocity.current.y = 0.02; 
                              isGrounded.current = false; 
@@ -1677,6 +1725,7 @@ export const Player: React.FC = () => {
             if (!stunned) {
                 const isSideLunge = meleeState.current === 'SIDE_LUNGE' || meleeState.current === 'SIDE_STARTUP';
                 if (isSideLunge) {
+                    // If stickied, look at sticky target, otherwise current
                     const target = activeMeleeTargetId.current 
                         ? targets.find(t => t.id === activeMeleeTargetId.current) 
                         : targets[currentTargetIndex];
@@ -1718,7 +1767,9 @@ export const Player: React.FC = () => {
                     }
                 }
                 
+                // Allow manual rotation during EVADE only if it's LINEAR, otherwise Orbit handles lookAt
                 if (nextVisualState === 'EVADE' && evadeCircularDir.current !== 0 && currentTarget) {
+                     // Already handled inside circular logic
                 } else {
                     const shouldRealignHorizon = meleeState.current.includes('RECOVERY') || (visualState === 'IDLE' && !isShooting.current) || visualState === 'EVADE';
                     if (shouldRealignHorizon) {
@@ -1844,6 +1895,8 @@ export const Player: React.FC = () => {
             }
             
             // --- HIT REACTION LOGIC ---
+            // We calculate offsets locally and apply them to the mesh ref *after* applying the base animation pose.
+            // This prevents the animation controller's internal state from accumulating hit offsets, which caused spinning bugs.
             let hitPitch = 0;
             let hitRoll = 0;
 
@@ -1852,15 +1905,21 @@ export const Player: React.FC = () => {
                  const HIT_REACTION_DURATION = 400; // ms
                  
                  if (timeSinceHit < HIT_REACTION_DURATION) {
+                     // 1. Calculate animation intensity (sine wave: starts 0, peaks, ends 0)
                      const progress = timeSinceHit / HIT_REACTION_DURATION;
                      const intensity = Math.sin(progress * Math.PI) * (1 - progress);
                      
+                     // 2. Get local direction of impact relative to player
                      if (playerKnockbackDir && meshRef.current) {
                          const invQuat = meshRef.current.quaternion.clone().invert();
                          const localImpact = playerKnockbackDir.clone().applyQuaternion(invQuat).normalize();
                          
-                         const PITCH_MAX = 1.5; 
-                         const ROLL_MAX = 1.3;  
+                         const PITCH_MAX = 1.5; // Max radians pitch
+                         const ROLL_MAX = 1.3;  // Max radians roll
+                         
+                         // Impact from Front (Force vector pointing back, Z > 0) -> Lean Backward (Rotate X negative)
+                         // Note: If localImpact.z is positive (hit from front, pushed back), we want Torso X to go negative (lean back).
+                         // However, the previous logic accumulated this. Here we just calculate the offset.
                          
                          hitPitch = localImpact.z * PITCH_MAX * intensity;
                          hitRoll = -localImpact.x * ROLL_MAX * intensity;
@@ -1993,6 +2052,9 @@ export const Player: React.FC = () => {
             // Apply the base pose from animation
             applyPoseToModel(animatedPose, currentHipOffset.current, currentLegInertiaRot.current);
             
+            // APPLY HIT REACTION OFFSETS (Post-application)
+            // This prevents accumulation because we are modifying the THREE.js object directly 
+            // after the frame's base animation has been set, without mutating the animation state source.
             if (torsoRef.current && (hitPitch !== 0 || hitRoll !== 0)) {
                 torsoRef.current.rotation.x += hitPitch;
                 torsoRef.current.rotation.z += hitRoll;
