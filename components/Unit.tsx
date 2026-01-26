@@ -497,7 +497,9 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   
   const wakeUpTimer = useRef(0);
   const wasKnockedDownRef = useRef(false);
-  const knockdownTriggerTimeRef = useRef(0); 
+  const knockdownTriggerTimeRef = useRef(0);
+  const knockbackDirRef = useRef(new Vector3(0, 0, 1));  // 击退方向，用于倒地/起身的根旋转
+  const lyingQuatRef = useRef(new Quaternion());         // 仰面贴地时的四元数，起身时 slerp 起点 
 
   const dashDirection = useRef(new Vector3(0, 0, 1));
   const currentDashSpeed = useRef(0);
@@ -732,14 +734,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
     if (isKnockedDown && !wasKnockedDownRef.current) {
         aiState.current = 'KNOCKED_DOWN';
         velocity.current.y = GLOBAL_CONFIG.KNOCKDOWN.INIT_Y_VELOCITY;
-        knockdownTriggerTimeRef.current = lastHitTime; 
-        
+        knockdownTriggerTimeRef.current = lastHitTime;
+
         if (knockbackDir) {
             const horiz = knockbackDir.clone();
-            horiz.y = 0; 
-            if(horiz.lengthSq() > 0) horiz.normalize();
+            horiz.y = 0;
+            if (horiz.lengthSq() > 0) horiz.normalize();
+            else horiz.set(0, 0, 1);
+            knockbackDirRef.current.copy(horiz);
             velocity.current.x = horiz.x * GLOBAL_CONFIG.KNOCKDOWN.INIT_Y_VELOCITY * 0.5;
             velocity.current.z = horiz.z * GLOBAL_CONFIG.KNOCKDOWN.INIT_Y_VELOCITY * 0.5;
+        } else {
+            knockbackDirRef.current.set(0, 0, 1);
         }
         animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1);
         setIsThrusting(false);
@@ -762,30 +768,70 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
             }
             animator.play(ANIMATION_CLIPS.IDLE, 0.1);
         } else {
+            // Apply Gravity & Drag
             velocity.current.y -= GLOBAL_CONFIG.KNOCKDOWN.GRAVITY * timeScale;
             velocity.current.x *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
             velocity.current.z *= GLOBAL_CONFIG.KNOCKDOWN.AIR_DRAG;
             position.current.add(velocity.current.clone().multiplyScalar(timeScale));
-            
-            if (position.current.y <= 0) {
-                position.current.y = 0;
-                velocity.current.set(0,0,0);
+
+            // --- AIRBORNE ROTATION LOGIC ---
+            // Smoothly transition to lying posture while in air
+            // Target: lyingQuatRef (calculated on init)
+            const isFalling = velocity.current.y < 0;
+            const lerpFactor = isFalling ? 0.15 : 0.05; // Rotate faster when falling
+            rotateGroupRef.current.quaternion.slerp(lyingQuatRef.current, lerpFactor * timeScale);
+
+            // --- GROUND HIT (PHYSICS BASED) ---
+            // Allow falling UNTIL we hit the lying offset (e.g. -0.85), simulating sinking/lying flat
+            if (position.current.y <= GLOBAL_CONFIG.KNOCKDOWN.GROUND_OFFSET) {
+                position.current.y = GLOBAL_CONFIG.KNOCKDOWN.GROUND_OFFSET;
+                velocity.current.set(0, 0, 0);
+                
+                // Transition to WAKE_UP
                 aiState.current = 'WAKE_UP';
-                wakeUpTimer.current = GLOBAL_CONFIG.KNOCKDOWN.WAKEUP_DELAY;
+                wakeUpTimer.current = 4000; // 3s Static + 1s Rise
+                
+                // Snap to perfect flat lie on impact
+                rotateGroupRef.current.quaternion.copy(lyingQuatRef.current);
             }
             animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1);
         }
     }
     else if (aiState.current === 'WAKE_UP') {
         wakeUpTimer.current -= delta * 1000;
-        if (wakeUpTimer.current < 500) {
-             animator.play(ANIMATION_CLIPS.WAKEUP, 0.5);
+        
+        // Recalculate Standing Quat
+        const headToward = knockbackDirRef.current.clone().negate();
+        if (headToward.lengthSq() < 0.001) headToward.set(0, 0, -1);
+        else headToward.normalize();
+        const standingQuat = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), headToward);
+
+        if (wakeUpTimer.current > 1000) {
+            // --- PHASE 1: STATIC LYING (3000ms) ---
+            animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1);
+            velocity.current.set(0, 0, 0);
+            position.current.y = GLOBAL_CONFIG.KNOCKDOWN.GROUND_OFFSET; // Lock at floor
+            rotateGroupRef.current.quaternion.copy(lyingQuatRef.current);
         } else {
-             animator.play(ANIMATION_CLIPS.KNOCKDOWN, 0.1); 
+            // --- PHASE 2: RISING (1000ms) ---
+            animator.play(ANIMATION_CLIPS.WAKEUP, 0.2); 
+            
+            const progress = 1 - (wakeUpTimer.current / 1000); // 0 to 1
+            
+            // 1. Rotate up to standing
+            rotateGroupRef.current.quaternion.copy(lyingQuatRef.current).slerp(standingQuat, progress);
+            
+            // 2. Rise from Floor (Offset -> 0)
+            // Use easeOutQuad for natural "getting up" motion
+            const riseProgress = 1 - (1 - progress) * (1 - progress);
+            position.current.y = MathUtils.lerp(GLOBAL_CONFIG.KNOCKDOWN.GROUND_OFFSET, 0, riseProgress);
         }
+
         if (wakeUpTimer.current <= 0) {
             aiState.current = 'IDLE';
+            position.current.y = 0; // Ensure perfect 0
             animator.play(ANIMATION_CLIPS.IDLE, 0.5);
+            useGameStore.getState().clearKnockdown(id);
         }
     }
     else if (stunned) {
@@ -1303,40 +1349,75 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     groupRef.current.position.copy(position.current);
 
-    if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
-        const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
+        if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
 
-        if (aiState.current === 'SHOOTING' || aiState.current === 'MELEE' || aiState.current === 'EVADE') {
-            const tPos = getTargetPos();
-            if (tPos) {
-                 rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
-            }
-        } else if (aiState.current === 'DASHING') {
-            const lookPos = position.current.clone().add(dashDirection.current);
-            rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-        } else if (aiState.current === 'ASCENDING') {
-             // If moving horizontally, align to movement direction, otherwise preserve rotation (don't snap to target)
-             const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-             if (horizVel.lengthSq() > 0.01) {
-                const lookPos = position.current.clone().add(horizVel);
+            const isWalking = isGrounded.current && velocity.current.lengthSq() > 0.01 && aiState.current !== 'DASHING' && aiState.current !== 'SHOOTING';
+
+    
+
+            if (aiState.current === 'SHOOTING' || aiState.current === 'MELEE' || aiState.current === 'EVADE') {
+
+                const tPos = getTargetPos();
+
+                if (tPos) {
+
+                     rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+
+                }
+
+            } else if (aiState.current === 'DASHING') {
+
+                const lookPos = position.current.clone().add(dashDirection.current);
+
                 rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-             }
-        } else if (isWalking) {
-            const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-            if (horizVel.lengthSq() > 0.001) {
-                const lookPos = position.current.clone().add(horizVel);
-                rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-            }
-        } else {
-            const tPos = getTargetPos();
-            if (tPos) {
-                rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+
+            } else if (aiState.current === 'ASCENDING') {
+
+                 const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+
+                 if (horizVel.lengthSq() > 0.01) {
+
+                    const lookPos = position.current.clone().add(horizVel);
+
+                    rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+
+                 }
+
+            } else if (isWalking) {
+
+                const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+
+                if (horizVel.lengthSq() > 0.001) {
+
+                    const lookPos = position.current.clone().add(horizVel);
+
+                    rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
+
+                }
+
             } else {
-                 rotateGroupRef.current.lookAt(0, position.current.y, 0);
+
+                const tPos = getTargetPos();
+
+                if (tPos) {
+
+                    rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
+
+                } else {
+
+                     rotateGroupRef.current.lookAt(0, position.current.y, 0);
+
+                }
+
             }
-        }
+
+        } 
+
+        // KNOCKED_DOWN & WAKE_UP rotations are handled inside their state blocks above.
+
+        
+
         rotateGroupRef.current.updateMatrixWorld(true);
-    }
 
     // ANIMATION SELECTION
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {

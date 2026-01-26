@@ -71,7 +71,9 @@ interface GameState {
   
   // New: Cut Tracking (Step)
   cutTracking: (targetId: string) => void;
-  
+  // 起身时清除倒地标记
+  clearKnockdown: (targetId: string) => void;
+
   // AI Actions
   toggleNPCsPaused: () => void;
   
@@ -359,6 +361,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       set((state) => ({
           projectiles: state.projectiles.map(p => 
               p.targetId === targetId ? { ...p, isHoming: false } : p
+          )
+      }));
+  },
+
+  clearKnockdown: (targetId: string) => {
+      set((state) => ({
+          targets: state.targets.map(t =>
+              t.id === targetId ? { ...t, isKnockedDown: false } : t
           )
       }));
   },

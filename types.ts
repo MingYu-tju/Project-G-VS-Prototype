@@ -371,7 +371,8 @@ export const GLOBAL_CONFIG = {
         INIT_Y_VELOCITY: 0.7, 
         AIR_DRAG: 0.98,
         GROUND_FRICTION: 0.8,
-        WAKEUP_DELAY: 1200, 
+        WAKEUP_DELAY: 3000,
+        GROUND_OFFSET: -0.85, // Negative value to sink model into ground when lying supine
     },
 
     INPUT_ASCENT_HOLD_THRESHOLD: 115,
