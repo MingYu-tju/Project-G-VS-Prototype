@@ -517,6 +517,10 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
   // Evade Logic Vars
   const evadeDirection = useRef(new Vector3(0,0,0));
 
+  // Ascent Turn Logic - simulates forward input toward target after inertial jump
+  const ascentTurnTimer = useRef(0);
+  const ascentTurnDirection = useRef(new Vector3(0, 0, 1));
+
   const [isThrusting, setIsThrusting] = useState(false);
   const [isAscendingState, setIsAscendingState] = useState(false); 
   const [isStunned, setIsStunned] = useState(false);
@@ -979,6 +983,18 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                   if (Math.random() > 0.3) {
                       aiState.current = 'ASCENDING';
                       aiTimer.current = MathUtils.randInt(400, 800); 
+                      
+                      // Set forward input toward target for brief duration (simulates keyboard input)
+                      const tPos = getTargetPos();
+                      if (tPos) {
+                          const dirToTarget = tPos.clone().sub(position.current);
+                          dirToTarget.y = 0;
+                          if (dirToTarget.lengthSq() > 0.01) {
+                              dirToTarget.normalize();
+                              ascentTurnDirection.current.copy(dirToTarget);
+                              ascentTurnTimer.current = GLOBAL_CONFIG.AI_ASCENT_TURN_FRAMES; // ~0.5 seconds
+                          }
+                      }
                   } else {
                       aiState.current = 'FALLING';
                       aiTimer.current = MathUtils.randInt(500, 1000);
@@ -1355,14 +1371,22 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     
 
-            if (aiState.current === 'SHOOTING' || aiState.current === 'MELEE' || aiState.current === 'EVADE') {
-
+            if (aiState.current === 'SHOOTING') {
+                // GRADUAL ROTATION with slerp (matches Player.tsx)
                 const tPos = getTargetPos();
-
                 if (tPos) {
-
+                    const dirToTarget = tPos.clone().sub(position.current);
+                    dirToTarget.y = 0;
+                    if (dirToTarget.lengthSq() > 0.001) {
+                        dirToTarget.normalize();
+                        const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), dirToTarget);
+                        rotateGroupRef.current.quaternion.slerp(targetQuat, 0.1 * timeScale);
+                    }
+                }
+            } else if (aiState.current === 'MELEE' || aiState.current === 'EVADE') {
+                const tPos = getTargetPos();
+                if (tPos) {
                      rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
-
                 }
 
             } else if (aiState.current === 'DASHING') {
@@ -1372,16 +1396,21 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
                 rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
 
             } else if (aiState.current === 'ASCENDING') {
-
-                 const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-
-                 if (horizVel.lengthSq() > 0.01) {
-
-                    const lookPos = position.current.clone().add(horizVel);
-
-                    rotateGroupRef.current.lookAt(lookPos.x, position.current.y, lookPos.z);
-
-                 }
+                // GRADUAL ROTATION with slerp (matches Player.tsx)
+                // If ascentTurnTimer is active, rotate toward target direction
+                if (ascentTurnTimer.current > 0) {
+                    ascentTurnTimer.current -= timeScale;
+                    const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), ascentTurnDirection.current);
+                    rotateGroupRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
+                } else {
+                    // After timer expires, rotate based on velocity like current behavior
+                    const horizVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+                    if (horizVel.lengthSq() > 0.01) {
+                        horizVel.normalize();
+                        const targetQuat = new Quaternion().setFromUnitVectors(new Vector3(0,0,1), horizVel);
+                        rotateGroupRef.current.quaternion.slerp(targetQuat, GLOBAL_CONFIG.ASCENT_TURN_SPEED * timeScale);
+                    }
+                }
 
             } else if (isWalking) {
 
@@ -1395,21 +1424,8 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
                 }
 
-            } else {
-
-                const tPos = getTargetPos();
-
-                if (tPos) {
-
-                    rotateGroupRef.current.lookAt(tPos.x, position.current.y, tPos.z);
-
-                } else {
-
-                     rotateGroupRef.current.lookAt(0, position.current.y, 0);
-
-                }
-
             }
+            // NO forced rotation to target when idle - mimic keyboard input behavior
 
         } 
 
@@ -1421,12 +1437,15 @@ export const Unit: React.FC<UnitProps> = ({ id, position: initialPos, team, name
 
     // ANIMATION SELECTION
     if (aiState.current !== 'KNOCKED_DOWN' && aiState.current !== 'WAKE_UP') {
-        const isIdle = isGrounded.current && aiState.current === 'IDLE' && landingFrames.current <= 0;
-        let activeClip = isIdle ? ANIMATION_CLIPS.IDLE : ANIMATION_CLIPS.NEUTRAL;
+        // MATCH PLAYER: Use IDLE clip when grounded (not just when aiState is IDLE)
+        const useIdlePose = isGrounded.current && nextVisualState !== 'LANDING';
+        let activeClip = useIdlePose ? ANIMATION_CLIPS.IDLE : ANIMATION_CLIPS.NEUTRAL;
         
         if (aiState.current === 'DASHING') activeClip = ANIMATION_CLIPS.DASH_GUN;
         if (aiState.current === 'EVADE') activeClip = ANIMATION_CLIPS.DASH_SABER; 
-        
+        if (aiState.current === 'ASCENDING' || nextVisualState === 'ASCEND') {
+            activeClip = ANIMATION_CLIPS.ASCEND;
+        }
         if (aiState.current === 'MELEE') {
              if (meleeState.current === 'LUNGE') activeClip = ANIMATION_CLIPS.MELEE_STARTUP;
              else if (meleeState.current === 'SIDE_LUNGE') activeClip = ANIMATION_CLIPS.MELEE_SIDE_LUNGE;

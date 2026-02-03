@@ -416,4 +416,5 @@ export const GLOBAL_CONFIG = {
     AI_SHOOT_COOLDOWN_MAX: 2.4,
     AI_TARGET_SWITCH_MIN: 5.0,
     AI_TARGET_SWITCH_MAX: 10.0,
+    AI_ASCENT_TURN_FRAMES: 30, // Frames of forward input toward target after inertial jump (~0.5 seconds at 60fps)
 };
