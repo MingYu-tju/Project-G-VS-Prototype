@@ -12,12 +12,13 @@ import type { MechInput, World } from '../shared/game/types.js';
 interface Peer {
   id: string; ws: WebSocket; room: string | null; name: string;
   queue: { seq: number; input: MechInput }[]; held: MechInput; ack: number; lastSeq: number;
-  lastInputAt: number; alive: boolean; rateAt: number; messages: number;
+  lastInputAt: number; lastAliveAt: number; rateAt: number; tokens: number;
+  closeReason: string | null; compacted: number;
 }
 interface Room extends RoomInfo { world: World | null; idleAt: number }
 export interface ServerOptions {
   host?: string; port?: number; allowedOrigins?: string[]; maxRooms?: number; maxConnections?: number;
-  countdownTicks?: number; heartbeatMs?: number; idleMs?: number;
+  countdownTicks?: number; heartbeatMs?: number; heartbeatTimeoutMs?: number; idleMs?: number;
 }
 
 export function createBattleServer(options: ServerOptions = {}) {
@@ -37,10 +38,36 @@ export function createBattleServer(options: ServerOptions = {}) {
     }
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
+  const closePeer = (peer: Peer, code: number, reason: string) => {
+    peer.closeReason = reason;
+    peer.ws.close(code, reason);
+  };
   const send = (peer: Peer, message: ServerMessage) => {
     if (peer.ws.readyState !== WebSocket.OPEN) return;
-    if (peer.ws.bufferedAmount > 512 * 1024) { peer.ws.close(1013, 'Slow connection'); return; }
+    // Snapshots supersede one another. Drop stale output instead of kicking a briefly slow client.
+    if (message.type === 'snapshot' && peer.ws.bufferedAmount > 256 * 1024) return;
+    if (peer.ws.bufferedAmount > 2 * 1024 * 1024) { closePeer(peer, 1013, 'Slow connection'); return; }
     peer.ws.send(JSON.stringify(message));
+  };
+  const compactInputs = (peer: Peer) => {
+    if (peer.queue.length < 2) return;
+    const latest = peer.queue[peer.queue.length - 1];
+    const input = { ...latest.input, shoot: false, melee: false, cycleTarget: false,
+      boostPressed: false, boostReleased: false };
+    for (const command of peer.queue) {
+      input.shoot ||= command.input.shoot;
+      input.melee ||= command.input.melee;
+      input.cycleTarget ||= command.input.cycleTarget;
+      if (command.input.boostPressed || command.input.boostReleased) {
+        input.boostPressed = command.input.boostPressed;
+        input.boostReleased = command.input.boostReleased;
+      }
+      if (command.input.directionPressed) input.directionPressed = command.input.directionPressed;
+      if (command.input.directionReleased) input.directionReleased = command.input.directionReleased;
+    }
+    peer.compacted += peer.queue.length - 1;
+    // Consume one command/tick, never extra simulation ticks; ack retires the superseded history.
+    peer.queue = [{ seq: latest.seq, input }];
   };
   const broadcast = (room: Room, message: ServerMessage) => {
     for (const player of room.players) { const p = peers.get(player.id); if (p) send(p, message); }
@@ -115,25 +142,39 @@ export function createBattleServer(options: ServerOptions = {}) {
       } else notifyRoom(room);
     } else if (msg.type === 'input') {
       if (room.phase !== 'playing' || msg.matchId !== room.matchId || msg.seq <= peer.lastSeq) return;
-      if (msg.seq > peer.lastSeq + 120 || peer.queue.length >= 12) { error(peer, '输入队列异常，请重新进入房间。'); peer.ws.close(1008, 'Input queue exceeded'); return; }
+      if (msg.seq > peer.lastSeq + 120) { error(peer, '输入序号异常，请重新进入房间。'); closePeer(peer, 1008, 'Invalid input sequence'); return; }
       peer.lastSeq = msg.seq; peer.lastInputAt = performance.now();
       peer.queue.push({ seq: msg.seq, input: msg.input });
+      if (peer.queue.length > 12) compactInputs(peer);
     }
   }
   wss.on('connection', ws => {
+    const now = performance.now();
     const peer: Peer = { id: randomUUID(), ws, room: null, name: '', queue: [], held: emptyInput(), ack: 0,
-      lastSeq: 0, lastInputAt: 0, alive: true, rateAt: performance.now(), messages: 0 };
+      lastSeq: 0, lastInputAt: 0, lastAliveAt: now, rateAt: now, tokens: 300, closeReason: null, compacted: 0 };
     peers.set(peer.id, peer);
     send(peer, { type: 'welcome', version: PROTOCOL_VERSION, playerId: peer.id });
-    ws.on('pong', () => { peer.alive = true; });
-    ws.on('error', () => { /* close performs room cleanup */ });
-    ws.on('close', () => { leave(peer); peers.delete(peer.id); });
+    ws.on('pong', () => { peer.lastAliveAt = performance.now(); });
+    ws.on('error', err => {
+      console.warn(JSON.stringify({ event: 'socket_error', peer: peer.id, error: err.message }));
+    });
+    ws.on('close', code => {
+      console.info(JSON.stringify({ event: 'socket_closed', peer: peer.id, code,
+        reason: peer.closeReason ?? 'remote_or_transport', queue: peer.queue.length, compacted: peer.compacted,
+        silentMs: Math.round(performance.now() - peer.lastAliveAt) }));
+      leave(peer); peers.delete(peer.id);
+    });
     ws.on('message', (raw, binary) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
       const now = performance.now();
-      if (now - peer.rateAt >= 1000) { peer.rateAt = now; peer.messages = 0; }
-      if (++peer.messages > 150) { ws.close(1008, 'Rate limit'); return; }
+      // A token bucket tolerates bunched TCP delivery while limiting sustained floods.
+      peer.tokens = Math.min(300, peer.tokens + (now - peer.rateAt) * 0.15);
+      peer.rateAt = now;
+      if (peer.tokens < 1) { closePeer(peer, 1008, 'Rate limit'); return; }
+      peer.tokens--;
       const msg = binary ? null : parseClientMessage(raw.toString());
       if (!msg) { error(peer, '通信格式或协议版本不正确，请刷新网页。'); return; }
+      peer.lastAliveAt = now;
       handle(peer, msg);
     });
   });
@@ -150,7 +191,11 @@ export function createBattleServer(options: ServerOptions = {}) {
         for (const p of room.players) {
           const peer = peers.get(p.id);
           if (!peer) continue;
-          if (now - peer.lastInputAt > 250) { peer.held = emptyInput(); peer.queue = []; }
+          if (now - peer.lastInputAt > 250) {
+            peer.held = emptyInput();
+            // Retire dropped inputs so client prediction cannot get stuck waiting for their ack.
+            peer.ack = peer.lastSeq; peer.queue = [];
+          }
           const command = peer.queue.shift();
           if (command) { inputs[p.id] = command.input; peer.ack = command.seq; peer.held = heldInput(command.input); }
           else inputs[p.id] = peer.held;
@@ -174,12 +219,17 @@ export function createBattleServer(options: ServerOptions = {}) {
     const now = performance.now(); accumulator = Math.min(100, accumulator + now - previous); previous = now;
     while (accumulator >= 1000 / SIM.hz) { tick(); accumulator -= 1000 / SIM.hz; }
   }, 5);
+  const heartbeatMs = options.heartbeatMs ?? 5000;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? Math.max(30_000, heartbeatMs * 3);
   const heartbeat = setInterval(() => {
+    const now = performance.now();
     for (const peer of peers.values()) {
-      if (!peer.alive) { peer.ws.terminate(); continue; }
-      peer.alive = false; peer.ws.ping();
+      if (now - peer.lastAliveAt > heartbeatTimeoutMs) {
+        peer.closeReason ??= 'Heartbeat timeout'; peer.ws.terminate(); continue;
+      }
+      if (peer.ws.readyState === WebSocket.OPEN) peer.ws.ping();
     }
-  }, options.heartbeatMs ?? 5000);
+  }, heartbeatMs);
   return {
     http,
     listen: () => new Promise<number>((resolve, reject) => {

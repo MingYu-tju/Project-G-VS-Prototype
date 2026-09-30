@@ -78,7 +78,7 @@ test('real WebSocket room: join errors, combat, disconnect verdict, rematch and 
 });
 
 test('room isolation, heartbeat expiry, payload cap and input queue bounds', { timeout: 10000 }, async () => {
-  const server = createBattleServer({ port: 0, heartbeatMs: 250, countdownTicks: 1, maxRooms: 3 });
+  const server = createBattleServer({ port: 0, heartbeatMs: 250, heartbeatTimeoutMs: 500, countdownTicks: 1, maxRooms: 3 });
   const port = await server.listen();
   const a = new Client(port), b = new Client(port), c = new Client(port);
   try {
@@ -91,8 +91,13 @@ test('room isolation, heartbeat expiry, payload cap and input queue bounds', { t
     const matchId = (await a.wait('room', m => m.room.phase === 'playing')).room.matchId;
     await a.wait('snapshot', m => m.world.tick > 3);
     assert.equal(c.messages.some(m => m.type === 'snapshot'), false);
-    const closed = new Promise<number>(resolve => a.ws.once('close', resolve));
+    // A short burst represents delayed TCP delivery, not an automatic disconnect.
     for (let seq = 1; seq <= 30; seq++) a.send({ type: 'input', matchId, seq, input: { ...emptyInput(), shoot: true } });
+    await a.wait('snapshot', m => m.matchId === matchId && Object.values(m.ack).includes(30));
+    assert.equal(a.ws.readyState, WebSocket.OPEN);
+    // An invalid sequence jump still closes the connection.
+    const closed = new Promise<number>(resolve => a.ws.once('close', resolve));
+    a.send({ type: 'input', matchId, seq: 151, input: emptyInput() });
     assert.equal(await closed, 1008);
     await b.wait('snapshot', m => m.world.result?.reason === 'disconnect');
     const oversized = new Promise<number>(resolve => c.ws.once('close', resolve));
