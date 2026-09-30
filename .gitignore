@@ -10,6 +10,13 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-server
+.artifacts
+.env
+.env.*
+!.env.example
+deploy/server.env
+server.env
 *.local
 
 # Editor directories and files
